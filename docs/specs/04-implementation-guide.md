@@ -1,8 +1,41 @@
 # Pro-Context: Implementation Guide
 
 > **Document**: 04-implementation-guide.md
-> **Status**: Final
-> **Last Updated**: 2026-02-12
+> **Status**: Draft v2
+> **Last Updated**: 2026-02-16
+> **Depends on**: 03-technical-spec.md (v2)
+
+---
+
+## Table of Contents
+
+- [1. Project Structure](#1-project-structure)
+- [2. Dependency List](#2-dependency-list)
+- [3. Coding Conventions](#3-coding-conventions)
+  - [3.1 Naming](#31-naming)
+  - [3.2 Error Handling Pattern](#32-error-handling-pattern)
+  - [3.3 Test Pattern](#33-test-pattern)
+  - [3.4 Module Pattern](#34-module-pattern)
+  - [3.5 Async Pattern](#35-async-pattern)
+- [4. Implementation Phases](#4-implementation-phases)
+  - [Phase 1: Foundation](#phase-1-foundation)
+  - [Phase 2: Core Documentation Pipeline](#phase-2-core-documentation-pipeline)
+  - [Phase 3: Search & Navigation](#phase-3-search--navigation)
+  - [Phase 4: HTTP Mode & Authentication](#phase-4-http-mode--authentication)
+  - [Phase 5: Polish & Production Readiness](#phase-5-polish--production-readiness)
+- [5. Testing Strategy](#5-testing-strategy)
+  - [5.1 Test Pyramid](#51-test-pyramid)
+  - [5.2 What to Test](#52-what-to-test)
+  - [5.3 What NOT to Test](#53-what-not-to-test)
+  - [5.4 Test Configuration](#54-test-configuration)
+- [6. CI/CD and Docker Deployment](#6-cicd-and-docker-deployment)
+  - [6.1 Dockerfile](#61-dockerfile)
+  - [6.2 docker-compose.yml](#62-docker-composeyml)
+  - [6.3 GitHub Actions CI](#63-github-actions-ci)
+  - [6.4 Package.json Scripts](#64-packagejson-scripts)
+- [7. Future Expansion Roadmap](#7-future-expansion-roadmap)
+- [8. Quick Reference: MCP Client Configuration](#8-quick-reference-mcp-client-configuration)
+- [9. Development Workflow](#9-development-workflow)
 
 ---
 
@@ -17,20 +50,20 @@ pro-context/
 │   │   ├── schema.ts               # Zod config schema + defaults
 │   │   └── loader.ts               # Config file loading + env variable overrides
 │   ├── tools/
-│   │   ├── resolve-library.ts      # resolve-library tool handler
-│   │   ├── get-docs.ts             # get-docs tool handler
-│   │   ├── search-docs.ts          # search-docs tool handler
-│   │   ├── get-examples.ts         # get-examples tool handler
-│   │   └── list-libraries.ts       # list-libraries tool handler
+│   │   ├── resolve-library.ts      # resolve-library tool handler (discovery)
+│   │   ├── get-library-info.ts     # get-library-info tool handler (TOC + metadata)
+│   │   ├── get-docs.ts             # get-docs tool handler (fast path, multi-library)
+│   │   ├── search-docs.ts          # search-docs tool handler (cross-library search)
+│   │   └── read-page.ts            # read-page tool handler (navigation, offset reading)
 │   ├── resources/
-│   │   ├── library-resources.ts    # library://{id}/overview, changelog, api/{module} resources
-│   │   └── health.ts               # pro-context://health resource
+│   │   ├── health.ts               # pro-context://health resource
+│   │   └── session.ts              # pro-context://session/resolved-libraries resource
 │   ├── prompts/
 │   │   ├── migrate-code.ts         # migrate-code prompt template
 │   │   ├── debug-with-docs.ts      # debug-with-docs prompt template
 │   │   └── explain-api.ts          # explain-api prompt template
 │   ├── adapters/
-│   │   ├── types.ts                # SourceAdapter interface + RawDocContent type
+│   │   ├── types.ts                # SourceAdapter interface + RawPageContent type
 │   │   ├── chain.ts                # AdapterChain: ordered execution with fallback
 │   │   ├── llms-txt.ts             # llms.txt adapter implementation
 │   │   ├── github.ts               # GitHub docs adapter implementation
@@ -42,6 +75,7 @@ pro-context/
 │   ├── cache/
 │   │   ├── memory.ts               # LRU in-memory cache wrapper
 │   │   ├── sqlite.ts               # SQLite persistent cache operations
+│   │   ├── page-cache.ts           # Page cache with offset-based slice support
 │   │   └── manager.ts              # Two-tier cache orchestrator
 │   ├── search/
 │   │   ├── chunker.ts              # Markdown → DocChunk[] chunking logic
@@ -53,7 +87,7 @@ pro-context/
 │   │   ├── rate-limiter.ts         # Token bucket rate limiter
 │   │   ├── fuzzy-match.ts          # Levenshtein distance fuzzy matching
 │   │   ├── tokens.ts               # Token count estimation utilities
-│   │   └── url-validator.ts        # URL allowlist + SSRF prevention
+│   │   └── url-validator.ts        # URL allowlist + SSRF prevention + dynamic expansion
 │   └── registry/
 │       ├── types.ts                # Library type + registry resolver interface
 │       ├── known-libraries.ts      # Curated library registry (Python initially)
@@ -63,6 +97,7 @@ pro-context/
 │   │   ├── cache/
 │   │   │   ├── memory.test.ts
 │   │   │   ├── sqlite.test.ts
+│   │   │   ├── page-cache.test.ts
 │   │   │   └── manager.test.ts
 │   │   ├── search/
 │   │   │   ├── chunker.test.ts
@@ -147,7 +182,7 @@ pro-context/
 |---------|-----------|---------|
 | Files | kebab-case | `fuzzy-match.ts`, `get-docs.ts` |
 | Types/Interfaces | PascalCase | `Library`, `DocResult`, `SourceAdapter` |
-| Functions | camelCase | `resolveLibrary`, `fetchDocs`, `checkFreshness` |
+| Functions | camelCase | `resolveLibrary`, `fetchToc`, `checkFreshness` |
 | Constants | UPPER_SNAKE_CASE | `DEFAULT_TTL_HOURS`, `MAX_TOKENS` |
 | Config keys | camelCase (YAML) | `maxMemoryMB`, `defaultTTLHours` |
 | Env vars | UPPER_SNAKE_CASE | `PRO_CONTEXT_PORT`, `PRO_CONTEXT_DEBUG` |
@@ -246,7 +281,7 @@ describe("BM25Index", () => {
    - `src/lib/logger.ts` — Pino logger setup with redaction, correlation IDs, pretty/JSON format
    - `src/lib/errors.ts` — `ProContextError` class, error code enum, factory functions for each error type
    - `src/lib/tokens.ts` — `estimateTokens(text: string): number` using chars/4 approximation
-   - `src/lib/url-validator.ts` — URL allowlist checking, SSRF prevention (block private IPs)
+   - `src/lib/url-validator.ts` — URL allowlist checking, SSRF prevention, dynamic allowlist expansion
 
 3. **Configuration**
    - `src/config/schema.ts` — Zod schema for `ProContextConfig`, defaults for every field
@@ -277,9 +312,9 @@ describe("BM25Index", () => {
 
 ### Phase 2: Core Documentation Pipeline
 
-**Goal**: Source adapter interface, library registry (PyPI), llms.txt adapter, GitHub adapter, two-tier cache, `resolve-library` tool, `get-docs` tool.
+**Goal**: Source adapter interface, library registry (PyPI), llms.txt adapter, GitHub adapter, two-tier cache, `resolve-library` tool, `get-library-info` tool, `get-docs` tool.
 
-**Verification gate**: `resolve-library("langchain")` returns correct metadata; `get-docs` for LangChain returns current documentation from llms.txt.
+**Verification gate**: `resolve-library("langchain")` returns matches; `get-library-info` returns TOC; `get-docs` for LangChain returns documentation from llms.txt.
 
 #### Files to Create (in order)
 
@@ -287,13 +322,13 @@ describe("BM25Index", () => {
    - `src/registry/types.ts` — `Library` type, `RegistryResolver` interface
    - `src/registry/known-libraries.ts` — Curated registry of Python libraries with metadata (langchain, fastapi, pydantic, httpx, sqlalchemy, django, flask, pytest, numpy, pandas, etc.)
    - `src/registry/pypi-resolver.ts` — Fetch versions + metadata from PyPI JSON API
-   - `src/lib/fuzzy-match.ts` — Levenshtein distance implementation + `findClosestMatch()`
+   - `src/lib/fuzzy-match.ts` — Levenshtein distance implementation + `findClosestMatches()`
 
 2. **Source Adapters**
-   - `src/adapters/types.ts` — `SourceAdapter` interface, `RawDocContent` type
-   - `src/adapters/chain.ts` — `AdapterChain` class: ordered adapter execution with fallback
-   - `src/adapters/llms-txt.ts` — Fetch `llms-full.txt` / `llms.txt` from library docs site
-   - `src/adapters/github.ts` — Fetch docs from GitHub repo (/docs/, README.md)
+   - `src/adapters/types.ts` — `SourceAdapter` interface, `RawPageContent` type, `TocEntry` type
+   - `src/adapters/chain.ts` — `AdapterChain` class: ordered adapter execution with fallback (fetchToc + fetchPage)
+   - `src/adapters/llms-txt.ts` — Fetch and parse `llms.txt` for TOC, fetch individual pages
+   - `src/adapters/github.ts` — Fetch docs from GitHub repo (/docs/, README.md), generate TOC from directory structure
    - `src/adapters/custom.ts` — User-configured sources (URL, file, GitHub)
 
 3. **Cache**
@@ -302,18 +337,22 @@ describe("BM25Index", () => {
    - `src/cache/manager.ts` — Two-tier cache orchestrator: memory → SQLite → miss
 
 4. **Tools**
-   - `src/tools/resolve-library.ts` — Resolve library name to canonical ID + metadata
-   - `src/tools/get-docs.ts` — Fetch documentation via cache → adapter chain → chunk → return
+   - `src/tools/resolve-library.ts` — Fuzzy match query against registry, return all matches with languages
+   - `src/tools/get-library-info.ts` — Fetch TOC via adapter chain, extract availableSections, apply sections filter
+   - `src/tools/get-docs.ts` — Multi-library: fetch docs via cache → adapter chain → chunk → BM25 rank → return with relatedPages
 
-5. **Registration**
-   - Update `src/server.ts` — Register `resolve-library` and `get-docs` tools
+5. **Resources**
+   - `src/resources/session.ts` — `pro-context://session/resolved-libraries` resource
 
-6. **Tests**
+6. **Registration**
+   - Update `src/server.ts` — Register `resolve-library`, `get-library-info`, `get-docs` tools + session resource
+
+7. **Tests**
    - `tests/unit/registry/pypi-resolver.test.ts` — Mock PyPI API responses
    - `tests/unit/lib/fuzzy-match.test.ts` — Levenshtein distance + matching
-   - `tests/unit/adapters/llms-txt.test.ts` — Mock fetch responses
-   - `tests/unit/adapters/github.test.ts` — Mock GitHub API responses
-   - `tests/unit/adapters/chain.test.ts` — Fallback behavior
+   - `tests/unit/adapters/llms-txt.test.ts` — Parse llms.txt TOC, fetch pages, handle 404
+   - `tests/unit/adapters/github.test.ts` — Generate TOC from directory, fetch pages
+   - `tests/unit/adapters/chain.test.ts` — Fallback behavior (fetchToc + fetchPage)
    - `tests/unit/cache/memory.test.ts` — LRU operations + TTL
    - `tests/unit/cache/sqlite.test.ts` — SQLite CRUD + cleanup
    - `tests/unit/cache/manager.test.ts` — Two-tier promotion + stale handling
@@ -321,71 +360,74 @@ describe("BM25Index", () => {
 
 #### Phase 2 Verification Checklist
 
-- [ ] `resolve-library("langchain")` returns `{ libraryId: "langchain-ai/langchain", ... }`
-- [ ] `resolve-library("langchan")` returns fuzzy suggestion: "Did you mean 'langchain'?"
-- [ ] `resolve-library("fastapi")` returns correct FastAPI metadata
-- [ ] `get-docs("langchain-ai/langchain", "chat models")` returns markdown content
+- [ ] `resolve-library("langchain")` returns matches including `langchain-ai/langchain`
+- [ ] `resolve-library("langchan")` returns fuzzy match for "langchain"
+- [ ] `get-library-info("langchain-ai/langchain")` returns TOC with availableSections
+- [ ] `get-library-info("langchain-ai/langchain", sections: ["Getting Started"])` returns filtered TOC
+- [ ] `get-docs([{libraryId: "langchain-ai/langchain"}], "chat models")` returns markdown content
 - [ ] Content comes from llms.txt when available
 - [ ] If llms.txt unavailable, falls back to GitHub
 - [ ] Second request for same content is served from cache (check logs for cache hit)
 - [ ] Cache SQLite file is created at configured path
 - [ ] Version resolution works: `version: "0.3.x"` resolves to exact version
+- [ ] Session resource tracks resolved libraries
 
 ---
 
-### Phase 3: Search & Discovery
+### Phase 3: Search & Navigation
 
-**Goal**: Document chunking, BM25 search indexing, `search-docs` tool, `get-examples` tool, `list-libraries` tool, library resources.
+**Goal**: Document chunking, BM25 search indexing, `search-docs` tool (cross-library), `read-page` tool (offset-based reading), page cache.
 
-**Verification gate**: Search returns relevant results; examples contain code blocks; library resources are accessible.
+**Verification gate**: Search returns relevant results across libraries; read-page supports offset-based reading of large pages.
 
 #### Files to Create (in order)
 
 1. **Search Engine**
    - `src/search/chunker.ts` — Markdown → `DocChunk[]`: heading-aware splitting, token budgets, section path extraction
    - `src/search/bm25.ts` — BM25 algorithm: tokenization, inverted index, IDF computation, query scoring
-   - `src/search/engine.ts` — Search engine orchestrator: index management, query execution, result formatting
+   - `src/search/engine.ts` — Search engine orchestrator: index management, query execution, cross-library search, result formatting
 
-2. **Tools**
-   - `src/tools/search-docs.ts` — Search indexed docs, trigger JIT indexing if needed
-   - `src/tools/get-examples.ts` — Extract code blocks from docs, filter by topic
-   - `src/tools/list-libraries.ts` — List available libraries from registry + cache
+2. **Page Cache**
+   - `src/cache/page-cache.ts` — Page cache with offset-based slice support (see technical spec 5.4)
 
-3. **Resources**
-   - `src/resources/library-resources.ts` — `library://{id}/overview`, `library://{id}/changelog`, `library://{id}/api/{module}` resources
+3. **Tools**
+   - `src/tools/search-docs.ts` — Search indexed docs, optional library scoping, JIT indexing trigger
+   - `src/tools/read-page.ts` — Fetch page, cache full content, serve slices with offset/maxTokens, URL allowlist validation
 
 4. **Update get-docs**
-   - Update `src/tools/get-docs.ts` — Integrate chunker: fetch raw docs → chunk → rank by topic → return best chunks within token budget
+   - Update `src/tools/get-docs.ts` — Integrate chunker: fetch raw docs → chunk → rank by topic across libraries → return best chunks within token budget
 
 5. **Registration**
-   - Update `src/server.ts` — Register `search-docs`, `get-examples`, `list-libraries` tools + resources
+   - Update `src/server.ts` — Register `search-docs`, `read-page` tools
 
 6. **Tests**
    - `tests/unit/search/chunker.test.ts` — Heading detection, chunk sizing, section paths
    - `tests/unit/search/bm25.test.ts` — Ranking correctness, edge cases
-   - `tests/unit/search/engine.test.ts` — Index + query orchestration
+   - `tests/unit/search/engine.test.ts` — Index + query orchestration, cross-library ranking
+   - `tests/unit/cache/page-cache.test.ts` — Full page caching, offset slicing, hasMore
    - `tests/integration/search-pipeline.test.ts` — Fetch → chunk → index → search → results
 
 #### Phase 3 Verification Checklist
 
-- [ ] `search-docs("langchain-ai/langchain", "streaming")` returns ranked results
-- [ ] Results include title, snippet, relevance score, URL
+- [ ] `search-docs({query: "streaming"})` searches across all indexed content
+- [ ] `search-docs({query: "streaming", libraryIds: ["langchain-ai/langchain"]})` searches within LangChain
+- [ ] Results include libraryId, title, snippet, relevance score, URL
 - [ ] BM25 ranks exact keyword matches higher than tangential mentions
-- [ ] `get-examples("langchain-ai/langchain", "ChatOpenAI")` returns code blocks
-- [ ] Examples include `language: "python"` identifier
-- [ ] `list-libraries()` returns known libraries
-- [ ] `list-libraries({ language: "python" })` filters correctly
+- [ ] `read-page({url: "https://..."})` returns page content with position metadata
+- [ ] `read-page({url: "https://...", offset: 1000})` returns content from offset position
+- [ ] `hasMore` is true when content remains beyond offset + maxTokens
+- [ ] Pages are cached: second read-page call for same URL is served from cache
+- [ ] URL allowlist blocks non-documentation URLs
 - [ ] `get-docs` now returns focused chunks (not raw full docs)
 - [ ] Average token count per `get-docs` response is <3,000
-- [ ] `library://langchain-ai/langchain/overview` resource returns content
 
 ---
 
-### Phase 4: Cloud Mode & Authentication
+### Phase 4: HTTP Mode & Authentication
 
 **Goal**: Streamable HTTP transport, API key authentication, per-key rate limiting, admin CLI, CORS.
 
-**Verification gate**: HTTP mode works with API key; rate limiting kicks in at configured threshold; unauthorized requests are rejected with proper error.
+**Verification gate**: HTTP mode works with API key; rate limiting kicks in at configured threshold; unauthorized requests are rejected.
 
 #### Files to Create (in order)
 
@@ -428,7 +470,7 @@ describe("BM25Index", () => {
 
 **Goal**: Prompt templates, custom source adapter completion, Docker deployment, comprehensive test suite, documentation.
 
-**Verification gate**: Full e2e test passes — Claude Code connects, resolves library, gets docs, searches. Docker image builds and runs.
+**Verification gate**: Full e2e test passes — Claude Code connects, resolves library, gets info, gets docs, searches, reads pages. Docker image builds and runs.
 
 #### Files to Create (in order)
 
@@ -442,10 +484,10 @@ describe("BM25Index", () => {
 
 3. **Docker**
    - `Dockerfile` — Multi-stage build: install deps → compile TS → slim runtime image
-   - `docker-compose.yml` — Easy local cloud-mode testing with volume mount for cache
+   - `docker-compose.yml` — Easy local HTTP-mode testing with volume mount for cache
 
 4. **E2E Tests**
-   - `tests/e2e/stdio-server.test.ts` — Full MCP client ↔ server via stdio: resolve → get-docs → search
+   - `tests/e2e/stdio-server.test.ts` — Full MCP client ↔ server via stdio: resolve → get-library-info → get-docs → search → read-page
    - Update `tests/e2e/http-server.test.ts` — Add prompt and resource tests
 
 5. **README**
@@ -459,7 +501,7 @@ describe("BM25Index", () => {
 - [ ] `docker build -t pro-context .` succeeds
 - [ ] `docker-compose up` starts server in HTTP mode
 - [ ] Docker container responds to MCP requests
-- [ ] E2E stdio test: client connects → resolve-library → get-docs → search-docs → all succeed
+- [ ] E2E stdio test: client connects → resolve-library → get-library-info → get-docs → search-docs → read-page → all succeed
 - [ ] E2E HTTP test: client authenticates → all tools work → rate limiting works
 - [ ] `npm test` passes with >80% code coverage on src/
 
@@ -488,18 +530,19 @@ describe("BM25Index", () => {
 |-----------|-----------|------------------|-------------|
 | BM25 | Ranking correctness, edge cases (empty query, single doc) | — | Nothing (pure logic) |
 | Chunker | Heading detection, size limits, section paths | — | Nothing (pure logic) |
-| Fuzzy match | Edit distance, no match, exact match | — | Nothing (pure logic) |
+| Fuzzy match | Edit distance, no match, exact match, multi-match | — | Nothing (pure logic) |
 | Rate limiter | Token bucket math, burst, refill | — | Time (use fake timers) |
-| URL validator | Allowlist, SSRF blocks | — | Nothing (pure logic) |
+| URL validator | Allowlist, SSRF blocks, dynamic expansion | — | Nothing (pure logic) |
 | Memory cache | Get/set/delete, TTL, LRU eviction | — | Nothing |
 | SQLite cache | CRUD, cleanup, expiry | — | Nothing (use in-memory SQLite) |
+| Page cache | Full page store, offset slicing, hasMore | — | Nothing (use in-memory SQLite) |
 | Cache manager | Tier promotion, stale handling | Adapter + cache flow | Network fetches |
-| llms.txt adapter | Parse llms.txt format, handle 404 | Full fetch → cache | HTTP responses |
-| GitHub adapter | Parse repo structure, handle rate limit | Full fetch → cache | HTTP responses |
+| llms.txt adapter | Parse llms.txt TOC, fetchPage, handle 404 | Full fetch → cache | HTTP responses |
+| GitHub adapter | Generate TOC from directory, fetchPage, rate limit | Full fetch → cache | HTTP responses |
 | Adapter chain | Fallback on failure, priority order | Full chain with cache | HTTP responses |
 | PyPI resolver | Version parsing, latest detection | — | HTTP responses |
 | API key auth | Hash validation, key format | Create → auth → revoke | Nothing (use test SQLite) |
-| Search engine | Index + query orchestration | Fetch → chunk → index → search | HTTP responses |
+| Search engine | Index + query orchestration, cross-library | Fetch → chunk → index → search | HTTP responses |
 | Tool handlers | Input validation, output format | — | Core engine (mock adapters) |
 
 ### 5.3 What NOT to Test
@@ -675,16 +718,7 @@ jobs:
 - `src/search/engine.ts` — Add hybrid search path: BM25 + vector → RRF merge
 - `src/config/schema.ts` — Add embedding model configuration
 
-### Phase 9: Project-Scoped Context ("Cabinets")
-
-**Concept:** Teams can define a set of libraries relevant to their project. Queries are scoped to the project's library set for better relevance.
-
-**New files:**
-- `src/projects/types.ts` — Project/cabinet data model
-- `src/projects/manager.ts` — CRUD for project-scoped library sets
-- `src/tools/manage-project.ts` — Tool for agents to manage project context
-
-### Phase 10: Prometheus Metrics
+### Phase 9: Prometheus Metrics
 
 **New files:**
 - `src/lib/metrics.ts` — Prometheus metric definitions
@@ -758,13 +792,13 @@ claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
 ### Adding a New Library to the Registry
 
 1. Edit `src/registry/known-libraries.ts`
-2. Add entry with `id`, `name`, `description`, `language`, `packageName`, `docsUrl`, `repoUrl`, `categories`
+2. Add entry with `id`, `name`, `description`, `languages`, `packageName`, `docsUrl`, `repoUrl`
 3. Run tests: `npm test`
 4. Build: `npm run build`
 
 ### Adding a New Source Adapter
 
-1. Create `src/adapters/{name}.ts` implementing `SourceAdapter`
+1. Create `src/adapters/{name}.ts` implementing `SourceAdapter` (canHandle, fetchToc, fetchPage, checkFreshness)
 2. Register in `src/adapters/chain.ts` with appropriate priority
 3. Add tests in `tests/unit/adapters/{name}.test.ts`
 4. Add integration test if the adapter has external dependencies

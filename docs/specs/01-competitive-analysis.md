@@ -6,6 +6,51 @@
 
 ---
 
+## Table of Contents
+
+- [1. Executive Summary](#1-executive-summary)
+- [2. Defining Accuracy](#2-defining-accuracy)
+  - [2.1 What Does Accuracy Measure?](#21-what-does-accuracy-measure)
+  - [2.2 Benchmark Reliability](#22-benchmark-reliability)
+  - [2.3 Failure Mode Taxonomy](#23-failure-mode-taxonomy)
+- [3. Documentation Retrieval Solutions](#3-documentation-retrieval-solutions)
+  - [3.1 Context7 (Upstash)](#31-context7-upstash)
+  - [3.2 Docfork](#32-docfork)
+  - [3.3 Deepcon](#33-deepcon)
+- [4. Code Analysis Platforms](#4-code-analysis-platforms)
+  - [4.1 DeepWiki (Cognition AI)](#41-deepwiki-cognition-ai)
+- [5. The llms.txt Ecosystem](#5-the-llmstxt-ecosystem)
+  - [5.1 The Standard](#51-the-standard)
+  - [5.2 Adoption Landscape](#52-adoption-landscape)
+  - [5.3 How AI Agents Actually Use llms.txt](#53-how-ai-agents-actually-use-llmstxt)
+  - [5.4 What llms.txt Gets Right for Our Use Case](#54-what-llmstxt-gets-right-for-our-use-case)
+  - [5.5 What llms.txt Gets Wrong (or Doesn't Address)](#55-what-llmstxt-gets-wrong-or-doesnt-address)
+- [6. The Agent Reading Paradigm](#6-the-agent-reading-paradigm)
+  - [6.1 How Modern Coding Agents Already Work](#61-how-modern-coding-agents-already-work)
+  - [6.2 LangChain's mcpdoc: The Agent-Driven Pattern](#62-langchains-mcpdoc-the-agent-driven-pattern)
+  - [6.3 The Hybrid Opportunity](#63-the-hybrid-opportunity)
+- [7. Documentation Platforms as Infrastructure](#7-documentation-platforms-as-infrastructure)
+  - [7.1 Mintlify](#71-mintlify)
+  - [7.2 Fern](#72-fern)
+  - [7.3 Implications](#73-implications)
+- [8. Community Solutions](#8-community-solutions)
+  - [8.1 Rtfmbro](#81-rtfmbro)
+  - [8.2 King-Context](#82-king-context)
+  - [8.3 docs-mcp-server (arabold)](#83-docs-mcp-server-arabold)
+- [9. Accuracy Analysis](#9-accuracy-analysis)
+  - [9.1 What Drives Accuracy?](#91-what-drives-accuracy)
+  - [9.2 The Two Paths to Accuracy](#92-the-two-paths-to-accuracy)
+  - [9.3 Accuracy vs Token Efficiency Tradeoff](#93-accuracy-vs-token-efficiency-tradeoff)
+- [10. Feature Comparison](#10-feature-comparison)
+  - [10.1 Documentation Retrieval Solutions](#101-documentation-retrieval-solutions)
+  - [10.2 Code Analysis Platforms](#102-code-analysis-platforms)
+  - [10.3 Documentation Access Patterns](#103-documentation-access-patterns)
+- [11. Key Observations](#11-key-observations)
+- [12. Open Questions](#12-open-questions)
+- [13. References](#13-references)
+
+---
+
 ## 1. Executive Summary
 
 This analysis examines the landscape of MCP documentation servers through the lens of **accuracy** — the degree to which a server returns correct, relevant documentation that enables an agent to complete its task. Token efficiency matters, but only as a secondary concern after accuracy clears a useful threshold.

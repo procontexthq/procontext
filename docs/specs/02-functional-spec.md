@@ -1,9 +1,74 @@
 # Pro-Context: Functional Specification
 
 > **Document**: 02-functional-spec.md
-> **Status**: Draft v2
-> **Last Updated**: 2026-02-13
+> **Status**: Draft v3
+> **Last Updated**: 2026-02-16
 > **Depends on**: 01-competitive-analysis.md
+
+---
+
+## Table of Contents
+
+- [1. Problem Statement](#1-problem-statement)
+- [2. Target Users](#2-target-users)
+  - [2.1 Individual Developer](#21-individual-developer)
+  - [2.2 Development Team](#22-development-team)
+  - [2.3 Enterprise (Future)](#23-enterprise-future)
+- [3. Core Concepts](#3-core-concepts)
+  - [3.1 Two Retrieval Paths](#31-two-retrieval-paths)
+  - [3.2 Documentation Sources](#32-documentation-sources)
+  - [3.3 The Table of Contents (TOC)](#33-the-table-of-contents-toc)
+- [4. User Stories](#4-user-stories)
+  - [US-1: Discover Libraries](#us-1-discover-libraries)
+  - [US-2: Get Library Details and Documentation Index](#us-2-get-library-details-and-documentation-index)
+  - [US-3: Quick Documentation Lookup (Fast Path)](#us-3-quick-documentation-lookup-fast-path)
+  - [US-4: Navigate Documentation (Navigation Path)](#us-4-navigate-documentation-navigation-path)
+  - [US-5: Search Across Documentation](#us-5-search-across-documentation)
+  - [US-6: Version-Specific Documentation](#us-6-version-specific-documentation)
+  - [US-7: Team Deployment with API Keys](#us-7-team-deployment-with-api-keys)
+  - [US-8: Graceful Degradation](#us-8-graceful-degradation)
+- [5. MCP Tool Definitions](#5-mcp-tool-definitions)
+  - [5.1 resolve-library](#51-resolve-library)
+  - [5.2 get-library-info](#52-get-library-info)
+  - [5.3 get-docs](#53-get-docs)
+  - [5.4 search-docs](#54-search-docs)
+  - [5.5 read-page](#55-read-page)
+- [6. MCP Resource Definitions](#6-mcp-resource-definitions)
+  - [6.1 pro-context://health](#61-pro-contexthealth)
+  - [6.2 pro-context://session/resolved-libraries](#62-pro-contextsessionresolved-libraries)
+  - [6.3 Why TOC Is a Tool, Not a Resource](#63-why-toc-is-a-tool-not-a-resource)
+  - [6.4 Session Resource Updates](#64-session-resource-updates)
+- [7. MCP Prompt Templates](#7-mcp-prompt-templates)
+  - [7.1 migrate-code](#71-migrate-code)
+  - [7.2 debug-with-docs](#72-debug-with-docs)
+  - [7.3 explain-api](#73-explain-api)
+- [8. Documentation Source Adapter Chain](#8-documentation-source-adapter-chain)
+  - [8.1 Priority Order](#81-priority-order)
+  - [8.2 Adapter Contract](#82-adapter-contract)
+  - [8.3 Custom Sources](#83-custom-sources)
+- [9. Security](#9-security)
+  - [9.1 URL Allowlist (SSRF Prevention)](#91-url-allowlist-ssrf-prevention)
+  - [9.2 Input Validation](#92-input-validation)
+  - [9.3 Authentication (HTTP Mode)](#93-authentication-http-mode)
+  - [9.4 Rate Limiting (HTTP Mode)](#94-rate-limiting-http-mode)
+- [10. Version Resolution](#10-version-resolution)
+  - [10.1 Resolution Rules](#101-resolution-rules)
+  - [10.2 Language Resolution Rules](#102-language-resolution-rules)
+  - [10.3 Package Registry Integration](#103-package-registry-integration)
+  - [10.4 Version → Documentation URL Mapping](#104-version--documentation-url-mapping)
+  - [10.5 Version Caching](#105-version-caching)
+- [11. Error Handling](#11-error-handling)
+  - [11.1 Error Response Format](#111-error-response-format)
+  - [11.2 Error Catalog](#112-error-catalog)
+  - [11.3 Recovery Flows](#113-recovery-flows)
+- [12. Configuration](#12-configuration)
+  - [12.1 Configuration File](#121-configuration-file-pro-contextconfigyaml)
+  - [12.2 Environment Variable Overrides](#122-environment-variable-overrides)
+- [13. Language and Source Extensibility](#13-language-and-source-extensibility)
+  - [13.1 Language Extensibility](#131-language-extensibility)
+  - [13.2 Source Extensibility](#132-source-extensibility)
+- [14. Design Decisions and Rationale](#14-design-decisions-and-rationale)
+- [15. Open Questions](#15-open-questions)
 
 ---
 
@@ -80,7 +145,7 @@ Pro-Context offers agents two ways to access documentation:
      └─────────────────────┘  └──────────────────────────┘
 ```
 
-**The agent chooses which path to use.** For "ChatOpenAI constructor parameters", the fast path is ideal. For "how do I implement a custom retry strategy with LangChain", the navigation path gives better results because the agent can reason about which docs pages are relevant with its full conversation context.
+**The agent chooses which path to use.** For "ChatOpenAI constructor parameters", the fast path is ideal — the agent can call `get-docs` directly without prior resolution. For "how do I implement a custom retry strategy with LangChain", the navigation path gives better results because the agent can reason about which docs pages are relevant with its full conversation context.
 
 Both paths share the same cache and source infrastructure.
 
@@ -106,7 +171,7 @@ Every resolved library has a table of contents — a structured index of availab
 
 **For libraries without llms.txt**: The TOC is generated from the GitHub repository structure — /docs/ directory listing, README.md sections, wiki pages.
 
-The TOC is returned by `get-library-info` and also registered as an MCP resource for later access without tool calls.
+The TOC is returned by `get-library-info`. It is accessed exclusively via tool calls, not as a standalone MCP resource (see D10 for rationale).
 
 ---
 
@@ -139,7 +204,7 @@ The TOC is returned by `get-library-info` and also registered as an MCP resource
 > As a developer, when I ask "what are the parameters for FastAPI's Depends()", the agent should get a focused answer quickly.
 
 **Acceptance criteria:**
-- Agent calls `get-docs` with library ID, topic, and optional version
+- Agent calls `get-docs` with one or more libraries, topic, and optional per-library versions
 - Server searches indexed documentation using BM25
 - Returns focused markdown content with source URL, version, confidence score
 - Cached responses return in <500ms
@@ -286,6 +351,8 @@ Discovers libraries matching a natural language query. This is a pure discovery 
 
 Returns detailed information about a specific library: TOC, available versions, documentation sources, and default version. This is the entry point to the navigation path.
 
+This tool does not require a prior `resolve-library` call. If the agent already knows the `libraryId` (from a previous session, from user input, from context), it can call `get-library-info` directly.
+
 **Input Schema:**
 ```json
 {
@@ -293,7 +360,7 @@ Returns detailed information about a specific library: TOC, available versions, 
   "properties": {
     "libraryId": {
       "type": "string",
-      "description": "Canonical library ID from resolve-library (e.g., 'langchain-ai/langchain')"
+      "description": "Canonical library ID (e.g., 'langchain-ai/langchain'). Can be obtained from resolve-library or known ahead of time."
     },
     "language": {
       "type": "string",
@@ -357,9 +424,15 @@ Returns detailed information about a specific library: TOC, available versions, 
       },
       "description": "Table of contents — documentation pages available for this library. Use read-page to fetch any of these URLs."
     },
-    "tocTruncated": {
-      "type": "boolean",
-      "description": "True if the TOC was filtered by sections parameter. Full TOC available via the library resource."
+    "availableSections": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "All section names in the library's documentation (e.g., ['Getting Started', 'API Reference', 'Concepts']). Always returned, regardless of whether sections filter is applied."
+    },
+    "filteredBySections": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Which sections were requested, if the sections filter was applied. Omitted when full TOC is returned."
     }
   }
 }
@@ -367,16 +440,17 @@ Returns detailed information about a specific library: TOC, available versions, 
 
 **Behavior:**
 1. Look up `libraryId` in registry (exact match, no fuzzy matching)
-2. If library supports multiple languages and `language` is not provided → return `LANGUAGE_REQUIRED` error listing available languages
-3. Resolve version (if not specified, use latest stable)
-4. Fetch available versions from package registry (cached for 1 hour)
-5. Determine available documentation sources
-6. Fetch and parse the TOC (source-agnostic — the adapter chain handles how)
-7. If `sections` is specified, filter TOC entries to matching sections
-8. Cache the TOC
-9. Register `library://{libraryId}/toc` as an MCP resource
-10. Add library to session resolved list
-11. Return library metadata + TOC
+2. If not found in registry, attempt resolution via package registry (PyPI/npm)
+3. If library supports multiple languages and `language` is not provided → return `LANGUAGE_REQUIRED` error listing available languages
+4. Resolve version (if not specified, use latest stable)
+5. Fetch available versions from package registry (cached for 1 hour)
+6. Determine available documentation sources
+7. Fetch and parse the TOC (source-agnostic — the adapter chain handles how)
+8. Extract `availableSections` from TOC entries (unique section names)
+9. If `sections` is specified, filter TOC entries to matching sections
+10. Cache the TOC
+11. Add library to session resolved list
+12. Return library metadata + TOC + availableSections
 
 **Error cases:**
 - Library not found → `LIBRARY_NOT_FOUND`
@@ -388,28 +462,29 @@ Returns detailed information about a specific library: TOC, available versions, 
 
 ### 5.3 `get-docs`
 
-The **fast path** tool. Retrieves focused documentation for a specific topic using server-side search (BM25). Best for keyword-heavy queries where the server can match effectively.
+The **fast path** tool. Retrieves focused documentation for a specific topic using server-side search (BM25). Best for keyword-heavy queries where the server can match effectively. Supports querying across multiple libraries in a single call.
 
 **Input Schema:**
 ```json
 {
   "type": "object",
   "properties": {
-    "libraryId": {
-      "type": "string",
-      "description": "Canonical library ID from resolve-library"
+    "libraries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "libraryId": { "type": "string", "description": "Canonical library ID" },
+          "version": { "type": "string", "description": "Optional: specific version for this library. Defaults to latest stable." },
+          "language": { "type": "string", "description": "Optional: required if this library supports multiple languages." }
+        },
+        "required": ["libraryId"]
+      },
+      "description": "One or more libraries to search. Each can have its own version and language."
     },
     "topic": {
       "type": "string",
       "description": "Documentation topic (e.g., 'chat models', 'streaming', 'dependency injection')"
-    },
-    "language": {
-      "type": "string",
-      "description": "Required if the library supports multiple languages."
-    },
-    "version": {
-      "type": "string",
-      "description": "Library version. Defaults to latest stable if omitted."
     },
     "maxTokens": {
       "type": "number",
@@ -419,7 +494,7 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
       "maximum": 10000
     }
   },
-  "required": ["libraryId", "topic"]
+  "required": ["libraries", "topic"]
 }
 ```
 
@@ -428,6 +503,10 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
 {
   "type": "object",
   "properties": {
+    "libraryId": {
+      "type": "string",
+      "description": "Which library this content is from"
+    },
     "content": {
       "type": "string",
       "description": "Documentation content in markdown format"
@@ -476,23 +555,25 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
 ```
 
 **Behavior:**
-1. Resolve version (if not specified, use latest stable)
-2. Validate language if library supports multiple
-3. Check cache (memory → SQLite) for matching (libraryId, language, version, topic)
-4. If cached and fresh → return immediately
-5. If cached but stale → return stale with `stale: true`, trigger background refresh
-6. If not cached → fetch documentation via adapter chain, chunk into sections, index with BM25
-7. Rank chunks by topic relevance, select top chunk(s) within `maxTokens` budget
-8. Identify related pages from the TOC that the agent might want to read for more context
-9. Store in cache
-10. Return content + related pages
+1. For each library in the `libraries` array:
+   a. Resolve version (if not specified, use latest stable)
+   b. Validate language if library supports multiple
+   c. Check cache (memory → SQLite) for matching (libraryId, language, version, topic)
+   d. If cached and fresh → use cached content
+   e. If cached but stale → use stale content, trigger background refresh
+   f. If not cached → fetch documentation via adapter chain, chunk into sections, index with BM25
+2. Rank chunks across all specified libraries by topic relevance
+3. Select top chunk(s) within `maxTokens` budget
+4. Identify related pages from the TOC that the agent might want to read for more context
+5. Store results in cache
+6. Return content (with `libraryId` attribution) + related pages
 
 **The `relatedPages` field**: This bridges the fast path and the navigation path. If the server-side BM25 search returns content with low confidence (e.g., <0.6), the `relatedPages` give the agent a way to navigate further. The agent sees "here's what I found, but you might also want to read these pages" — and can use `read-page` to explore them.
 
 **Error cases:**
-- Library not found → `LIBRARY_NOT_FOUND`
-- Language required → `LANGUAGE_REQUIRED`
-- Topic not found → `TOPIC_NOT_FOUND` with suggestion to try `search-docs` or browse the TOC via `get-library-info`
+- Any library in the array not found → `LIBRARY_NOT_FOUND` (identifies which library)
+- Language required for a multi-language library → `LANGUAGE_REQUIRED`
+- Topic not found across all specified libraries → `TOPIC_NOT_FOUND` with suggestion to try `search-docs` or browse the TOC via `get-library-info`
 - All sources unavailable → serve stale cache or `SOURCE_UNAVAILABLE`
 
 ---
@@ -729,38 +810,20 @@ Resources provide data that agents can access without tool calls.
 
 This resource is updated whenever `get-library-info` is called. It accumulates across the session — libraries are added but never removed.
 
-### 6.3 `library://{libraryId}/toc`
+### 6.3 Why TOC Is a Tool, Not a Resource
 
-**URI Template**: `library://{libraryId}/toc`
-**MIME Type**: `text/markdown`
-**Description**: Table of contents for a specific library. Contains the same TOC data returned by `get-library-info`, but accessible as a resource for libraries that have already been resolved.
+The TOC is accessed exclusively via `get-library-info`, not as a standalone MCP resource. This decision was made because:
 
-This resource is dynamically registered after `get-library-info` is called for a library.
+1. **MCP resource support is inconsistent** across clients. Not all MCP clients handle resources well — some ignore them entirely. Tools are universally supported.
+2. **The TOC should not be gated behind prior resolution.** If the agent already knows a `libraryId`, it can call `get-library-info` directly. A resource that only appears after resolution adds unnecessary coupling.
+3. **Section filtering is only possible via tool parameters.** A resource has no input parameters — it returns the same data every time. The `sections` filter in `get-library-info` lets the agent request only relevant sections, which matters for large TOCs (e.g., Cloudflare: 2,348 entries across 35 sections).
 
-The TOC resource is formatted as markdown with links the agent can follow via `read-page`:
-
-```markdown
-# LangChain Documentation
-
-## Getting Started
-- [Introduction](https://docs.langchain.com/docs/introduction) — Overview of LangChain's architecture and concepts
-- [Installation](https://docs.langchain.com/docs/installation) — How to install LangChain and its dependencies
-- [Quick Start](https://docs.langchain.com/docs/quickstart) — Build your first LangChain application
-
-## Chat Models
-- [Chat Models Overview](https://docs.langchain.com/docs/chat-models) — Working with chat-based language models
-- [Streaming](https://docs.langchain.com/docs/streaming) — Stream responses token by token
-...
-```
-
-### 6.4 Dynamic Resource Registration
+### 6.4 Session Resource Updates
 
 When the server resolves a library (via `get-library-info`), it:
 
-1. Registers `library://{libraryId}/toc` as a new resource
-2. Updates `pro-context://session/resolved-libraries`
-3. Emits a `notifications/resources/list_changed` notification per MCP spec
-4. MCP clients that support resource subscriptions will see the new resource
+1. Updates `pro-context://session/resolved-libraries` with the new library
+2. Emits a `notifications/resources/list_changed` notification per MCP spec
 
 ---
 
@@ -1193,7 +1256,7 @@ Future adapter candidates:
 
 ### D2: `resolve-library` is pure discovery, `get-library-info` provides depth
 
-**Decision**: Split the original `resolve-library` (which returned metadata + TOC) into two tools: `resolve-library` for discovery and `get-library-info` for detail retrieval.
+**Decision**: Split the original `resolve-library` (which returned metadata + TOC) into two tools: `resolve-library` for discovery and `get-library-info` for detail retrieval. `get-library-info` does not require a prior `resolve-library` call — the agent can call it directly if it already knows the `libraryId`.
 
 **Rationale**: The original design overloaded resolve-library as both a search tool and an info-fetching tool. This created ambiguity: should it return all matches or just the best one? Should it include the TOC? The split gives each tool a single responsibility. `resolve-library` answers "what libraries match this query?" and `get-library-info` answers "tell me about this specific library." The extra tool call is a minor cost compared to the clarity gained. The agent always knows what it's getting.
 
@@ -1227,13 +1290,25 @@ Future adapter candidates:
 
 **Rationale**: Some documentation pages exceed reasonable context budgets (10K+ tokens). Without offset support, the agent would either need to raise `maxTokens` (wasting context on content it has already seen) or miss the later portions of the page entirely. Offset-based reading lets the agent "scroll" through long pages efficiently. The server caches the full page on first fetch, so offset reads are served from cache without re-fetching. This aligns with the competitive analysis finding that modern agents can read progressively, like humans scrolling through docs.
 
-### D8: `search-docs` supports cross-library search
+### D8: `get-docs` accepts multiple libraries
+
+**Decision**: `get-docs` takes a `libraries` array instead of a single `libraryId`. Each entry can optionally specify a version and language.
+
+**Rationale**: Developers often work with related libraries simultaneously (e.g., LangChain + Pydantic, FastAPI + SQLAlchemy). When the agent asks "how do I do X", the answer might involve multiple libraries. Accepting an array lets the agent fetch relevant content from several libraries in a single call, with results ranked across all of them. Each library can have its own version pin, so the agent can search LangChain v0.3 and Pydantic v2 in one request.
+
+### D9: `search-docs` supports cross-library search
 
 **Decision**: `search-docs` does not require a library ID. It can search across all indexed content, optionally scoped to specific libraries.
 
 **Rationale**: Developers often don't know which library implements a concept. "How do I handle retries?" could be in LangChain, httpx, or tenacity. Cross-library search lets the agent find the right page without knowing the library upfront. The important caveat is that this searches only previously indexed content — it's not a global search engine. The `searchedLibraries` field in the response makes this explicit so the agent knows the scope.
 
-### D9: No `llms-full.txt` support
+### D10: TOC is a tool, not a resource
+
+**Decision**: The TOC is accessed via `get-library-info` only, not as a standalone MCP resource.
+
+**Rationale**: MCP resource support varies across clients — some ignore resources entirely. Tools are universally supported. Additionally, a resource has no input parameters, so section filtering is impossible. The `sections` parameter in `get-library-info` lets agents request only relevant TOC sections, which is important for large libraries (Cloudflare has 35 sections with 2,348 entries). Making TOC a tool keeps the interface consistent and functional across all MCP clients.
+
+### D11: No `llms-full.txt` support
 
 **Decision**: Pro-Context does not fetch or use `llms-full.txt` files.
 
@@ -1249,11 +1324,11 @@ The registry maps library names to metadata (docs URL, GitHub repo, supported la
 
 **Lean**: Start with a curated JSON file covering the top 200 Python libraries. Allow community contributions via PRs. Augment with live PyPI lookups for libraries not in the registry.
 
-### Q2: Should `get-docs` require a prior `get-library-info` call?
+### Q2: How should `get-docs` handle a library it hasn't seen before?
 
-Currently `get-docs` takes a `libraryId` and can trigger JIT fetching if the library hasn't been resolved yet. Should it instead require that `get-library-info` has been called first (ensuring the TOC and index exist), or should it work standalone for the fast-path use case where the agent already knows the library ID?
+`get-docs` accepts a `libraries` array and can trigger JIT fetching if a library hasn't been indexed yet. Should it silently index on first encounter, or return `INDEXING_IN_PROGRESS` and ask the agent to retry?
 
-**Lean**: `get-docs` should work standalone. Requiring a prior call adds friction to the fast path. If the library hasn't been indexed yet, `get-docs` triggers JIT fetch internally. The agent shouldn't need to worry about server-side state.
+**Lean**: JIT fetch silently. The agent called `get-docs` expecting content — making it retry adds friction to the fast path. If the first fetch is slow (a few seconds), that's acceptable for the first call. Subsequent calls are fast from cache.
 
 ### Q3: What is the right token estimation strategy for offset/limit?
 
