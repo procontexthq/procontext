@@ -23,13 +23,17 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 4. **HTTP Mode & Authentication** — HTTP transport, API key auth, rate limiting, admin CLI
 5. **Polish & Production Readiness** — CI/CD, Docker, E2E tests, performance tuning
 
-**Current state**: The project is in the specification/design phase. There is no source code yet — only design documents in `docs/specs/`. All implementation decisions are captured in these five spec documents, which are the authoritative design source.
+**Current state**: The project is in the specification/design phase. There is no source code yet — only design documents in `docs/specs/`. **You are not allowed to write any code until the design phase is complete.** The design phase will be considered complete when all the documents are finalized and approved by Ankur.
+
+All implementation decisions are captured in these five spec documents, which are the authoritative design source.
 
 - `docs/specs/01-competitive-analysis.md` — Market analysis and key insight: query understanding is the accuracy bottleneck
 - `docs/specs/02-functional-spec.md` — Problem statement, 5 MCP tools, 2 resources, 3 prompt templates, adapter chain, security model
 - `docs/specs/03-technical-spec.md` — System architecture, data models, two-tier cache, BM25 search, database schema (7 SQLite tables)
 - `docs/specs/04-implementation-guide.md` — Project structure, dependencies, coding conventions, 5 implementation phases, testing strategy
 - `docs/specs/05-library-resolution.md` — Library name → documentation source mapping, resolution algorithm (6 steps), registry strategy
+
+You are allowed to create new documents if you think that the discussion warrants it. Make sure you edit this section to link to any new documents you create.
 
 ## Overview of tech stack, architecture, coding conventions, configurations, commands and testing strategy
 
@@ -46,10 +50,11 @@ We must only add information that Claude cannot infer on its own. Use the follow
 | Developer environment quirks (required env vars)     | File-by-file descriptions of the codebase          |
 | Common gotchas or non-obvious behaviors              | Self-evident practices like "write clean code"     |
 
-## Instructions for engaging with the author of this repo
+## Instructions for working with this repo
 
 1. Your job is to act as a coding partner, not as an assistant.
-2. Your key responsibility is making this repo better and useful for everyone, including the author and yourself.
+2. Your key responsibility is making this repo better and useful for everyone, including Ankur and yourself.
 3. Ankur appreciates honest feedback. Do not blindly agree to whatever he asks.
 4. When brainstorming, actively participate and add value to the conversation rather than just answering questions.
 5. You are a contributor to the project. Take ownership and actively look for ways to improve this repo.
+6. Avoid making assumptions. Refer to online sources and cross-verify information. If the requirement is unclear, ask Ankur for clarification.

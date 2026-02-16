@@ -339,11 +339,35 @@ For libraries without a PyPI package:
 
 ### 5.6 Version Variants
 
-Some libraries publish separate packages per version:
-- `tensorflow` vs `tf-nightly`
-- `torch` vs `torch-nightly`
+Some libraries publish separate PyPI packages for different release channels or build configurations:
 
-These are the same documentation source at different versions. The package mapping handles this — both `tensorflow` and `tf-nightly` map to DocSource "tensorflow". Version resolution picks the right docs URL.
+| Stable package | Variant packages | Relationship |
+|---|---|---|
+| `tensorflow` | `tf-nightly`, `tensorflow-gpu`, `tensorflow-cpu` | Nightly / build variants |
+| `torch` | `torch-nightly` | Nightly build |
+
+These are **not** separate libraries — they're distribution variants of the same project and share the same documentation. The registry handles this by listing all variants under a single DocSource's `packages.pypi` array:
+
+```json
+{
+  "id": "tensorflow",
+  "packages": {
+    "pypi": ["tensorflow", "tensorflow-gpu", "tensorflow-cpu", "tf-nightly", "keras"]
+  }
+}
+```
+
+When an agent calls `resolve-library("tf-nightly")`, step 1 (exact package match) finds `"tf-nightly"` in the TensorFlow DocSource and returns it immediately. The agent never needs to know these are separate PyPI packages.
+
+**The nightly version problem.** The tricky part is what happens *after* resolution, when the server needs to fetch version-specific docs. A nightly package like `tf-nightly==2.18.0.dev20260215` implies version 2.18 — but that version is unreleased, and its docs likely don't exist yet. For example, TensorFlow publishes versioned docs at `tensorflow.org/api/r2.17`, but there's no `/api/r2.18` until 2.18 is released.
+
+**Fallback behavior:** When a version variant maps to an unreleased docs version, the server should:
+
+1. Attempt to fetch docs for the resolved version (e.g., `r2.18`).
+2. If that fails (404), fall back to the **latest stable** version (e.g., `r2.17`).
+3. Include a note in the response: `"Note: tf-nightly targets unreleased version 2.18. Serving docs for latest stable release (2.17). Some APIs may differ."`
+
+This is the right trade-off — slightly stale docs are far more useful than no docs at all, and the explicit warning lets the agent (and developer) know to watch for discrepancies.
 
 ---
 
@@ -565,7 +589,19 @@ The top-pypi-packages dataset has 15,000 packages. Should we include all of them
 
 **Lean**: Start with top 5,000 (>572K monthly downloads). This covers every library a typical developer encounters. The PyPI discovery fallback handles the long tail. We can expand later based on user feedback.
 
-### Q4: How do we handle the agent passing a requirements.txt dump?
+### Q4: Runtime discovery can create duplicate DocSources for version variants
+
+When a new variant package (e.g., `tensorflow-lite`) is published to PyPI and isn't in the curated registry, Step 5 (PyPI discovery) creates an ephemeral DocSource for it. If that package's `project_urls.Documentation` points to `tensorflow.org` — the same docs URL as the existing `"tensorflow"` DocSource — the server now has two DocSources for the same documentation site. The shared-docs-URL grouping heuristic (section 6.3) only runs at registry build time, not at runtime, so this duplication goes undetected.
+
+This could lead to the agent getting separate results for `tensorflow` and `tensorflow-lite` when they should be unified, or to redundant cache entries for the same pages.
+
+**Possible mitigations:**
+- At runtime, before creating an ephemeral DocSource, check if the discovered `docsUrl` already belongs to an existing DocSource. If it does, add the new package name to the existing entry instead of creating a new one.
+- Periodically re-run the registry build script to absorb popular ephemeral discoveries into the curated registry.
+
+**Lean**: No lean yet — needs further thought on the runtime check approach and whether it introduces false positives (e.g., packages that legitimately share a docs *domain* but not a docs *site*).
+
+### Q5: How do we handle the agent passing a requirements.txt dump?
 
 An agent might call `resolve-library` with each line from a requirements.txt. Some of those will be transitive dependencies (e.g., `certifi`, `urllib3`) that the developer never directly uses and doesn't need docs for.
 
