@@ -188,26 +188,30 @@ MCP Client
 
 | Component | Technology | Version | Rationale |
 |-----------|-----------|---------|-----------|
-| Language | TypeScript | 5.x (strict) | Type safety, MCP SDK is TS-first |
-| Runtime | Node.js | 20+ LTS | Native fetch, web crypto, stable |
-| MCP SDK | `@modelcontextprotocol/sdk` | latest | Official SDK, maintained by protocol authors |
-| Schema validation | Zod | 3.x | Required by MCP SDK, excellent TS integration |
-| Persistent cache | SQLite via `better-sqlite3` | 11.x | Zero-config, embedded, fast, synchronous API |
-| In-memory cache | `lru-cache` | 10.x | O(1) get/set, configurable size limits |
-| HTTP client | Native `fetch` (Node 20+) | — | Built-in, no dependency needed |
+| Language | Python | 3.11+ | Target ecosystem alignment (PyPI), batteries-included SQLite, strong text processing |
+| MCP SDK | `mcp` | latest | Official SDK, maintained by protocol authors |
+| Schema validation | Pydantic | 2.x | Runtime validation, excellent type integration, widely adopted |
+| Persistent cache | SQLite via `aiosqlite` | latest | Async-friendly, zero-config, embedded, no external infra |
+| In-memory cache | `cachetools` | 5.x | TTL support, LRU eviction, drop-in replacement for functools.lru_cache |
+| HTTP client | `httpx` | 0.27+ | Async-first, HTTP/2 support, timeout management |
 | Search/ranking | BM25 via SQLite FTS5 | — | FTS5 for indexing + custom BM25 scoring; no embedding dependency |
-| Logging | `pino` | 9.x | Structured JSON, low overhead, redaction support |
-| Testing | `vitest` | 2.x | Fast, TS-native, ESM support |
-| Build | `tsup` | 8.x | Fast bundling, ESM + CJS output |
-| Lint + Format | Biome | 1.x | All-in-one, fast, no config overhead |
-| YAML parsing | `yaml` | 2.x | Config file parsing |
+| Logging | `structlog` | 24.x | Structured logging, context binding, processor pipelines |
+| Testing | `pytest` + `pytest-asyncio` | 8.x / 0.23+ | De facto standard, excellent async support, rich plugin ecosystem |
+| Linting + Format | `ruff` | 0.3+ | Extremely fast, replaces flake8/black/isort, pyproject.toml config |
+| Type checking | `mypy` | 1.9+ | Static type analysis, strict mode enforcement |
+| YAML parsing | `pyyaml` | 6.x | Standard library equivalent for config parsing |
+| Fuzzy matching | `rapidfuzz` | 3.x | Fast Levenshtein distance, C++ backend |
 
 ### Dependency Justification
 
-- **No vector database**: BM25 handles keyword-heavy documentation search well without requiring an embedding model. Vector search (FTS5 + embeddings) is deferred to a future phase to avoid OpenAI/Ollama dependency.
+- **Python 3.11+**: Pattern matching, faster runtime, improved async performance, ExceptionGroup support.
+- **`aiosqlite` over `sqlite3`**: Async compatibility with `asyncio` event loop. Stdlib `sqlite3` blocks the event loop on writes.
+- **`cachetools` over `functools.lru_cache`**: TTL support is essential for cache expiry. `functools.lru_cache` has no TTL mechanism.
+- **`httpx` over `aiohttp`**: Cleaner API, better timeout handling, HTTP/2 support, sync/async unified interface.
+- **`structlog` over stdlib `logging`**: Context binding (correlation IDs), structured output, processor pipelines for redaction.
+- **No vector database**: BM25 handles keyword-heavy documentation search well without requiring an embedding model. Vector search deferred to future phase.
 - **No Redis**: SQLite provides sufficient persistence for cache. No external infrastructure needed.
-- **No Express/Fastify**: MCP SDK handles HTTP transport internally. No web framework needed.
-- **`better-sqlite3` over `sql.js`**: Synchronous API is simpler; native bindings are faster. Acceptable trade-off: requires native compilation.
+- **No web framework**: MCP SDK handles HTTP transport internally (Starlette under the hood). No FastAPI/Flask needed.
 
 ---
 
@@ -215,304 +219,288 @@ MCP Client
 
 ### 3.1 Core Types
 
-```typescript
-// ===== Library Types =====
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Literal
 
-interface LibraryMatch {
-  /** Canonical identifier (e.g., "langchain-ai/langchain") */
-  libraryId: string;
-  /** Human-readable name (e.g., "LangChain") */
-  name: string;
-  /** Brief description */
-  description: string;
-  /** Languages this library is available in */
-  languages: string[];
-  /** Match relevance score (0-1) */
-  relevance: number;
-}
+# ===== Library Types =====
 
-interface Library {
-  /** Canonical identifier (e.g., "langchain-ai/langchain") */
-  id: string;
-  /** Human-readable name (e.g., "LangChain") */
-  name: string;
-  /** Brief description */
-  description: string;
-  /** Languages this library is available in */
-  languages: string[];
-  /** Package name in registry (e.g., "langchain" on PyPI) */
-  packageName: string;
-  /** Documentation site URL */
-  docsUrl: string | null;
-  /** GitHub repository URL */
-  repoUrl: string | null;
-}
+@dataclass
+class LibraryMatch:
+    """Result from resolve-library query"""
+    library_id: str  # Canonical identifier (e.g., "langchain-ai/langchain")
+    name: str  # Human-readable name (e.g., "LangChain")
+    description: str  # Brief description
+    languages: list[str]  # Languages this library is available in
+    relevance: float  # Match relevance score (0-1)
 
-// ===== TOC Types =====
 
-interface TocEntry {
-  /** Page title */
-  title: string;
-  /** Page URL (can be passed to read-page) */
-  url: string;
-  /** One-sentence description */
-  description: string;
-  /** Section grouping (e.g., "Getting Started", "API Reference") */
-  section: string;
-}
+@dataclass
+class Library:
+    """Full library metadata"""
+    id: str  # Canonical identifier
+    name: str  # Human-readable name
+    description: str  # Brief description
+    languages: list[str]  # Languages this library is available in
+    package_name: str  # Package name in registry (e.g., "langchain" on PyPI)
+    docs_url: str | None  # Documentation site URL
+    repo_url: str | None  # GitHub repository URL
 
-interface LibraryInfo {
-  libraryId: string;
-  name: string;
-  /** Informational metadata — not used for routing or validation */
-  languages: string[];
-  sources: string[];
-  toc: TocEntry[];
-  availableSections: string[];
-  filteredBySections?: string[];
-}
 
-// ===== Documentation Types =====
+# ===== TOC Types =====
 
-interface DocResult {
-  /** Which library this content is from */
-  libraryId: string;
-  /** Documentation content in markdown */
-  content: string;
-  /** URL where documentation was fetched from */
-  source: string;
-  /** When documentation was last fetched/verified */
-  lastUpdated: string; // ISO 8601
-  /** Relevance confidence (0-1) */
-  confidence: number;
-  /** Whether result was served from cache */
-  cached: boolean;
-  /** Whether cached content may be outdated */
-  stale: boolean;
-  /** Related pages the agent can explore */
-  relatedPages: RelatedPage[];
-}
+@dataclass
+class TocEntry:
+    """Single entry in library table of contents"""
+    title: str  # Page title
+    url: str  # Page URL (can be passed to read-page)
+    description: str  # One-sentence description
+    section: str  # Section grouping (e.g., "Getting Started", "API Reference")
 
-interface RelatedPage {
-  title: string;
-  url: string;
-  description: string;
-}
 
-interface DocChunk {
-  /** Chunk identifier */
-  id: string;
-  /** Library this chunk belongs to */
-  libraryId: string;
-  /** Section title/heading */
-  title: string;
-  /** Chunk content in markdown */
-  content: string;
-  /** Hierarchical section path (e.g., "Getting Started > Chat Models > Streaming") */
-  sectionPath: string;
-  /** Approximate token count */
-  tokenCount: number;
-  /** Source URL */
-  sourceUrl: string;
-}
+@dataclass
+class LibraryInfo:
+    """Library metadata + TOC from get-library-info"""
+    library_id: str
+    name: str
+    languages: list[str]  # Informational metadata — not used for routing/validation
+    sources: list[str]  # Documentation sources (e.g., ["llms.txt", "github"])
+    toc: list[TocEntry]  # Full or filtered TOC
+    available_sections: list[str]  # All unique section names in TOC
+    filtered_by_sections: list[str] | None = None  # Sections filter applied
 
-interface SearchResult {
-  /** Which library this result is from */
-  libraryId: string;
-  /** Section/page title */
-  title: string;
-  /** Relevant text excerpt */
-  snippet: string;
-  /** BM25 relevance score (0-1 normalized) */
-  relevance: number;
-  /** Source URL — use read-page to fetch full content */
-  url: string;
-  /** Documentation section path */
-  section: string;
-}
 
-// ===== Page Types =====
+# ===== Documentation Types =====
 
-interface PageResult {
-  /** Page content in markdown */
-  content: string;
-  /** Page title */
-  title: string;
-  /** Canonical URL */
-  url: string;
-  /** Total page content length in estimated tokens */
-  totalTokens: number;
-  /** Token offset this response starts from */
-  offset: number;
-  /** Number of tokens in this response */
-  tokensReturned: number;
-  /** Whether more content exists beyond this response */
-  hasMore: boolean;
-  /** Whether page was served from cache */
-  cached: boolean;
-}
+@dataclass
+class RelatedPage:
+    """Reference to a related documentation page"""
+    title: str
+    url: str
+    description: str
 
-// ===== Error Types =====
 
-type ErrorCode =
-  | "LIBRARY_NOT_FOUND"
-  | "TOPIC_NOT_FOUND"
-  | "PAGE_NOT_FOUND"
-  | "URL_NOT_ALLOWED"
-  | "INVALID_CONTENT"
-  | "SOURCE_UNAVAILABLE"
-  | "REGISTRY_TIMEOUT"
-  | "RATE_LIMITED"
-  | "INDEXING_IN_PROGRESS"
-  | "AUTH_REQUIRED"
-  | "AUTH_INVALID"
-  | "INTERNAL_ERROR";
+@dataclass
+class DocResult:
+    """Documentation content result from get-docs"""
+    library_id: str  # Which library this content is from
+    content: str  # Documentation content in markdown
+    source: str  # URL where documentation was fetched from
+    last_updated: datetime  # When documentation was last fetched/verified
+    confidence: float  # Relevance confidence (0-1)
+    cached: bool  # Whether result was served from cache
+    stale: bool  # Whether cached content may be outdated
+    related_pages: list[RelatedPage]  # Related pages the agent can explore
 
-interface ProContextError {
-  /** Machine-readable error code */
-  code: ErrorCode;
-  /** Human-readable error description */
-  message: string;
-  /** Whether the error can be resolved by retrying or changing input */
-  recoverable: boolean;
-  /** Actionable suggestion for the user/agent */
-  suggestion: string;
-  /** Seconds to wait before retrying (if applicable) */
-  retryAfter?: number;
-}
+
+@dataclass
+class DocChunk:
+    """Indexed documentation chunk for search"""
+    id: str  # Chunk identifier (hash)
+    library_id: str  # Library this chunk belongs to
+    title: str  # Section title/heading
+    content: str  # Chunk content in markdown
+    section_path: str  # Hierarchical path (e.g., "Getting Started > Chat Models")
+    token_count: int  # Approximate token count
+    source_url: str  # Source URL
+
+
+@dataclass
+class SearchResult:
+    """Search result from search-docs"""
+    library_id: str  # Which library this result is from
+    title: str  # Section/page title
+    snippet: str  # Relevant text excerpt
+    relevance: float  # BM25 relevance score (0-1 normalized)
+    url: str  # Source URL — use read-page to fetch full content
+    section: str  # Documentation section path
+
+
+# ===== Page Types =====
+
+@dataclass
+class PageResult:
+    """Page content result from read-page"""
+    content: str  # Page content in markdown
+    title: str  # Page title
+    url: str  # Canonical URL
+    total_tokens: int  # Total page content length in estimated tokens
+    offset: int  # Token offset this response starts from
+    tokens_returned: int  # Number of tokens in this response
+    has_more: bool  # Whether more content exists beyond this response
+    cached: bool  # Whether page was served from cache
+
+
+# ===== Error Types =====
+
+class ErrorCode(str, Enum):
+    """Error codes for ProContextError"""
+    LIBRARY_NOT_FOUND = "LIBRARY_NOT_FOUND"
+    TOPIC_NOT_FOUND = "TOPIC_NOT_FOUND"
+    PAGE_NOT_FOUND = "PAGE_NOT_FOUND"
+    URL_NOT_ALLOWED = "URL_NOT_ALLOWED"
+    INVALID_CONTENT = "INVALID_CONTENT"
+    SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
+    REGISTRY_TIMEOUT = "REGISTRY_TIMEOUT"
+    RATE_LIMITED = "RATE_LIMITED"
+    INDEXING_IN_PROGRESS = "INDEXING_IN_PROGRESS"
+    AUTH_REQUIRED = "AUTH_REQUIRED"
+    AUTH_INVALID = "AUTH_INVALID"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+@dataclass
+class ProContextError(Exception):
+    """Structured error with recovery information"""
+    code: ErrorCode  # Machine-readable error code
+    message: str  # Human-readable error description
+    recoverable: bool  # Whether error can be resolved by retrying or changing input
+    suggestion: str  # Actionable suggestion for the user/agent
+    retry_after: int | None = None  # Seconds to wait before retrying (if applicable)
 ```
 
 ### 3.2 Cache Types
 
-```typescript
-interface CacheEntry {
-  /** Cache key */
-  key: string;
-  /** Library identifier */
-  libraryId: string;
-  /** Topic hash (for get-docs cache) or URL (for page cache) */
-  identifier: string;
-  /** Cached content */
-  content: string;
-  /** Source URL */
-  sourceUrl: string;
-  /** Content SHA-256 hash (for freshness checking) */
-  contentHash: string;
-  /** When this entry was created */
-  fetchedAt: string; // ISO 8601
-  /** When this entry expires */
-  expiresAt: string; // ISO 8601
-  /** Name of the adapter that produced this content */
-  adapter: string;
-}
+```python
+@dataclass
+class CacheEntry:
+    """Entry in documentation cache (doc_cache table)"""
+    key: str  # Cache key (SHA-256 hash)
+    library_id: str  # Library identifier
+    identifier: str  # Topic hash (for get-docs) or URL (for pages)
+    content: str  # Cached content
+    source_url: str  # Source URL
+    content_hash: str  # Content SHA-256 hash (for freshness checking)
+    fetched_at: datetime  # When this entry was created
+    expires_at: datetime  # When this entry expires
+    adapter: str  # Name of the adapter that produced this content
 
-interface PageCacheEntry {
-  /** Page URL (cache key) */
-  url: string;
-  /** Full page content in markdown */
-  content: string;
-  /** Page title */
-  title: string;
-  /** Total content length in estimated tokens */
-  totalTokens: number;
-  /** Content SHA-256 hash */
-  contentHash: string;
-  /** When this page was fetched */
-  fetchedAt: string; // ISO 8601
-  /** When this entry expires */
-  expiresAt: string; // ISO 8601
-}
 
-interface CacheStats {
-  /** Number of entries in memory cache */
-  memoryEntries: number;
-  /** Memory cache size in bytes */
-  memoryBytes: number;
-  /** Number of entries in SQLite cache */
-  sqliteEntries: number;
-  /** Cache hit rate (0-1) */
-  hitRate: number;
-}
+@dataclass
+class PageCacheEntry:
+    """Entry in page cache (page_cache table)"""
+    url: str  # Page URL (cache key)
+    content: str  # Full page content in markdown
+    title: str  # Page title
+    total_tokens: int  # Total content length in estimated tokens
+    content_hash: str  # Content SHA-256 hash
+    fetched_at: datetime  # When this page was fetched
+    expires_at: datetime  # When this entry expires
+
+
+@dataclass
+class CacheStats:
+    """Cache statistics for health check"""
+    memory_entries: int  # Number of entries in memory cache
+    memory_bytes: int  # Memory cache size in bytes
+    sqlite_entries: int  # Number of entries in SQLite cache
+    hit_rate: float  # Cache hit rate (0-1)
 ```
 
 ### 3.3 Auth Types (HTTP Mode)
 
-```typescript
-interface ApiKey {
-  /** Unique key identifier (UUID) */
-  id: string;
-  /** Display name for the key */
-  name: string;
-  /** SHA-256 hash of the actual key (never store plaintext) */
-  keyHash: string;
-  /** Key prefix for display (first 8 chars) */
-  keyPrefix: string;
-  /** Per-key rate limit (requests per minute, null = use default) */
-  rateLimitPerMinute: number | null;
-  /** When this key was created */
-  createdAt: string; // ISO 8601
-  /** When this key was last used */
-  lastUsedAt: string | null; // ISO 8601
-  /** Total number of requests made with this key */
-  requestCount: number;
-  /** Whether this key is active */
-  active: boolean;
-}
+```python
+@dataclass
+class ApiKey:
+    """API key for HTTP authentication"""
+    id: str  # Unique key identifier (UUID)
+    name: str  # Display name for the key
+    key_hash: str  # SHA-256 hash of the actual key (never store plaintext)
+    key_prefix: str  # Key prefix for display (first 8 chars)
+    rate_limit_per_minute: int | None  # Per-key rate limit (None = use default)
+    created_at: datetime  # When this key was created
+    last_used_at: datetime | None  # When this key was last used
+    request_count: int  # Total number of requests made with this key
+    active: bool  # Whether this key is active
 ```
 
 ### 3.4 Configuration Types
 
-```typescript
-interface ProContextConfig {
-  server: {
-    transport: "stdio" | "http";
-    port: number;
-    host: string;
-  };
-  cache: {
-    directory: string;
-    maxMemoryMB: number;
-    maxMemoryEntries: number;
-    defaultTTLHours: number;
-    cleanupIntervalMinutes: number;
-  };
-  sources: {
-    llmsTxt: { enabled: boolean };
-    github: { enabled: boolean; token: string };
-    custom: CustomSource[];
-  };
-  libraryOverrides: Record<string, LibraryOverride>;
-  rateLimit: {
-    maxRequestsPerMinute: number;
-    burstSize: number;
-  };
-  logging: {
-    level: "debug" | "info" | "warn" | "error";
-    format: "json" | "pretty";
-  };
-  security: {
-    cors: { origins: string[] };
-    urlAllowlist: string[];
-  };
-}
+```python
+from typing import Literal
 
-// Note: PRO_CONTEXT_DEBUG=true is a shorthand env var that sets logging.level to "debug"
-// See functional spec section 12 for full env var override table
+@dataclass
+class ServerConfig:
+    """Server transport configuration"""
+    transport: Literal["stdio", "http"]
+    port: int
+    host: str
 
-interface CustomSource {
-  name: string;
-  type: "url" | "file" | "github";
-  url?: string;
-  path?: string;
-  libraryId: string;
-  ttlHours?: number;
-}
 
-interface LibraryOverride {
-  docsUrl?: string;
-  source?: string;
-  ttlHours?: number;
-}
+@dataclass
+class CacheConfig:
+    """Cache configuration"""
+    directory: str  # SQLite database directory
+    max_memory_mb: int  # Memory cache size limit
+    max_memory_entries: int  # Memory cache entry limit
+    default_ttl_hours: int  # Default TTL for cache entries
+    cleanup_interval_minutes: int  # Cleanup job interval
+
+
+@dataclass
+class CustomSource:
+    """User-configured documentation source"""
+    name: str
+    type: Literal["url", "file", "github"]
+    url: str | None = None
+    path: str | None = None
+    library_id: str
+    ttl_hours: int | None = None
+
+
+@dataclass
+class SourcesConfig:
+    """Documentation source configuration"""
+    llms_txt: dict[str, bool]  # {"enabled": True}
+    github: dict[str, bool | str]  # {"enabled": True, "token": "ghp_xxx"}
+    custom: list[CustomSource]
+
+
+@dataclass
+class LibraryOverride:
+    """Per-library configuration overrides"""
+    docs_url: str | None = None
+    source: str | None = None
+    ttl_hours: int | None = None
+
+
+@dataclass
+class RateLimitConfig:
+    """Rate limiting configuration"""
+    max_requests_per_minute: int
+    burst_size: int
+
+
+@dataclass
+class LoggingConfig:
+    """Logging configuration"""
+    level: Literal["debug", "info", "warn", "error"]
+    format: Literal["json", "pretty"]
+
+
+@dataclass
+class SecurityConfig:
+    """Security configuration"""
+    cors: dict[str, list[str]]  # {"origins": ["*"]}
+    url_allowlist: list[str]  # Domain patterns
+
+
+@dataclass
+class ProContextConfig:
+    """Complete Pro-Context configuration"""
+    server: ServerConfig
+    cache: CacheConfig
+    sources: SourcesConfig
+    library_overrides: dict[str, LibraryOverride]
+    rate_limit: RateLimitConfig
+    logging: LoggingConfig
+    security: SecurityConfig
+
+
+# Note: PRO_CONTEXT_DEBUG=true env var sets logging.level to "debug"
+# See functional spec section 12 for full env var override table
 ```
 
 ---
@@ -521,95 +509,119 @@ interface LibraryOverride {
 
 ### 4.1 Interface Definition
 
-```typescript
-interface SourceAdapter {
-  /** Unique adapter name (e.g., "llms-txt", "github", "custom") */
-  readonly name: string;
+```python
+from abc import ABC, abstractmethod
+from typing import Protocol
 
-  /** Priority order (lower = higher priority) */
-  readonly priority: number;
+@dataclass
+class RawPageContent:
+    """Raw page content fetched by adapters"""
+    content: str  # Page content in markdown
+    title: str  # Page title (extracted from first heading or URL)
+    source_url: str  # Canonical source URL
+    content_hash: str  # Content SHA-256 hash
+    etag: str | None = None  # ETag header value (if available)
+    last_modified: str | None = None  # Last-Modified header (if available)
 
-  /**
-   * Check if this adapter can serve documentation for the given library.
-   * Should be cheap (no network requests if possible).
-   */
-  canHandle(library: Library): Promise<boolean>;
 
-  /**
-   * Fetch the table of contents for the given library.
-   * Returns structured TOC entries parsed from llms.txt, GitHub /docs/, etc.
-   * Always fetches the latest available documentation.
-   */
-  fetchToc(library: Library): Promise<TocEntry[] | null>;
+class SourceAdapter(ABC):
+    """Abstract base class for documentation source adapters"""
 
-  /**
-   * Fetch a single documentation page and return markdown content.
-   * Used by read-page and internally by get-docs for JIT content fetching.
-   */
-  fetchPage(url: string): Promise<RawPageContent | null>;
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique adapter name (e.g., "llms-txt", "github", "custom")"""
+        pass
 
-  /**
-   * Check if the cached version is still fresh.
-   * Uses SHA comparison, ETags, or Last-Modified headers.
-   * Returns true if cache is still valid (no refetch needed).
-   */
-  checkFreshness(library: Library, cached: CacheEntry): Promise<boolean>;
-}
+    @property
+    @abstractmethod
+    def priority(self) -> int:
+        """Priority order (lower = higher priority)"""
+        pass
 
-interface RawPageContent {
-  /** Page content in markdown */
-  content: string;
-  /** Page title (extracted from first heading or URL) */
-  title: string;
-  /** Canonical source URL */
-  sourceUrl: string;
-  /** Content SHA-256 hash */
-  contentHash: string;
-  /** ETag header value (if available) */
-  etag?: string;
-  /** Last-Modified header value (if available) */
-  lastModified?: string;
-}
+    @abstractmethod
+    async def can_handle(self, library: Library) -> bool:
+        """
+        Check if this adapter can serve documentation for the given library.
+        Should be cheap (no network requests if possible).
+        """
+        pass
+
+    @abstractmethod
+    async def fetch_toc(self, library: Library) -> list[TocEntry] | None:
+        """
+        Fetch the table of contents for the given library.
+        Returns structured TOC entries parsed from llms.txt, GitHub /docs/, etc.
+        Always fetches the latest available documentation.
+        """
+        pass
+
+    @abstractmethod
+    async def fetch_page(self, url: str) -> RawPageContent | None:
+        """
+        Fetch a single documentation page and return markdown content.
+        Used by read-page and internally by get-docs for JIT content fetching.
+        """
+        pass
+
+    @abstractmethod
+    async def check_freshness(self, library: Library, cached: CacheEntry) -> bool:
+        """
+        Check if the cached version is still fresh.
+        Uses SHA comparison, ETags, or Last-Modified headers.
+        Returns True if cache is still valid (no refetch needed).
+        """
+        pass
 ```
 
 ### 4.2 Adapter Chain Execution
 
-```typescript
-class AdapterChain {
-  private adapters: SourceAdapter[]; // sorted by priority
+```python
+class AdapterChain:
+    """Orchestrates fallback across multiple adapters"""
 
-  async fetchToc(library: Library): Promise<TocEntry[]> {
-    const errors: Error[] = [];
+    def __init__(self, adapters: list[SourceAdapter]):
+        # Sort by priority (lower = higher priority)
+        self.adapters = sorted(adapters, key=lambda a: a.priority)
 
-    for (const adapter of this.adapters) {
-      if (!(await adapter.canHandle(library))) continue;
+    async def fetch_toc(self, library: Library) -> list[TocEntry]:
+        """Fetch TOC via adapter chain with fallback"""
+        errors: list[Exception] = []
 
-      try {
-        const result = await adapter.fetchToc(library, version);
-        if (result !== null) return result;
-      } catch (error) {
-        errors.push(error);
-      }
-    }
+        for adapter in self.adapters:
+            if not await adapter.can_handle(library):
+                continue
 
-    throw new AllAdaptersFailedError(errors);
-  }
+            try:
+                result = await adapter.fetch_toc(library)
+                if result is not None:
+                    return result
+            except Exception as e:
+                errors.append(e)
 
-  async fetchPage(url: string): Promise<RawPageContent> {
-    const errors: Error[] = [];
+        raise AllAdaptersFailedError(errors)
 
-    for (const adapter of this.adapters) {
-      try {
-        const result = await adapter.fetchPage(url);
-        if (result !== null) return result;
-      } catch (error) {
-        errors.push(error);
-      }
-    }
+    async def fetch_page(self, url: str) -> RawPageContent:
+        """Fetch page via adapter chain with fallback"""
+        errors: list[Exception] = []
 
-    throw new AllAdaptersFailedError(errors);
-  }
-}
+        for adapter in self.adapters:
+            try:
+                result = await adapter.fetch_page(url)
+                if result is not None:
+                    return result
+            except Exception as e:
+                errors.append(e)
+
+        raise AllAdaptersFailedError(errors)
+
+
+class AllAdaptersFailedError(Exception):
+    """Raised when all adapters fail to fetch content"""
+
+    def __init__(self, errors: list[Exception]):
+        self.errors = errors
+        super().__init__(f"All adapters failed: {len(errors)} errors")
 ```
 
 ### 4.3 Adapter Implementations
@@ -723,78 +735,104 @@ Pages are cached separately because they're shared across tools — `read-page` 
 
 ### 5.3 Cache Manager
 
-```typescript
-class CacheManager {
-  private memory: LRUCache<string, CacheEntry>;
-  private sqlite: SqliteCache;
+```python
+from cachetools import TTLCache
+from datetime import datetime
 
-  async get(key: string): Promise<CacheEntry | null> {
-    // Tier 1: Memory
-    const memResult = this.memory.get(key);
-    if (memResult && !this.isExpired(memResult)) {
-      return memResult;
-    }
+class CacheManager:
+    """Two-tier cache orchestrator: memory (LRU) → SQLite → miss"""
 
-    // Tier 2: SQLite
-    const sqlResult = await this.sqlite.get(key);
-    if (sqlResult && !this.isExpired(sqlResult)) {
-      // Promote to memory cache
-      this.memory.set(key, sqlResult);
-      return sqlResult;
-    }
+    def __init__(self, memory_cache: TTLCache, sqlite_cache: SqliteCache):
+        self.memory = memory_cache
+        self.sqlite = sqlite_cache
 
-    // Return stale entry if exists (caller decides whether to use it)
-    return sqlResult ?? memResult ?? null;
-  }
+    async def get(self, key: str) -> CacheEntry | None:
+        """Get entry from cache (memory → SQLite → miss)"""
+        # Tier 1: Memory
+        mem_result = self.memory.get(key)
+        if mem_result and not self._is_expired(mem_result):
+            return mem_result
 
-  async set(key: string, entry: CacheEntry): Promise<void> {
-    // Write to both tiers
-    this.memory.set(key, entry);
-    await this.sqlite.set(key, entry);
-  }
+        # Tier 2: SQLite
+        sql_result = await self.sqlite.get(key)
+        if sql_result and not self._is_expired(sql_result):
+            # Promote to memory cache
+            self.memory[key] = sql_result
+            return sql_result
 
-  async invalidate(key: string): Promise<void> {
-    this.memory.delete(key);
-    await this.sqlite.delete(key);
-  }
-}
+        # Return stale entry if exists (caller decides whether to use it)
+        return sql_result or mem_result or None
+
+    async def set(self, key: str, entry: CacheEntry) -> None:
+        """Write to both cache tiers"""
+        self.memory[key] = entry
+        await self.sqlite.set(key, entry)
+
+    async def invalidate(self, key: str) -> None:
+        """Remove entry from both cache tiers"""
+        self.memory.pop(key, None)
+        await self.sqlite.delete(key)
+
+    def _is_expired(self, entry: CacheEntry) -> bool:
+        """Check if cache entry has expired"""
+        return datetime.now() > entry.expires_at
 ```
 
 ### 5.4 Page Cache
 
 Pages fetched by `read-page` are cached in full. Offset-based reads serve slices from the cached page without re-fetching.
 
-```typescript
-class PageCache {
-  private memory: LRUCache<string, PageCacheEntry>;
-  private sqlite: SqlitePageCache;
+```python
+class PageCache:
+    """Page-specific cache with offset-based slice support"""
 
-  async getPage(url: string): Promise<PageCacheEntry | null> {
-    // Same two-tier pattern as CacheManager
-  }
+    def __init__(self, memory_cache: TTLCache, sqlite_cache: SqlitePageCache):
+        self.memory = memory_cache
+        self.sqlite = sqlite_cache
 
-  async getSlice(url: string, offset: number, maxTokens: number): Promise<PageResult | null> {
-    const page = await this.getPage(url);
-    if (!page) return null;
+    async def get_page(self, url: str) -> PageCacheEntry | None:
+        """Get full page from cache (same two-tier pattern as CacheManager)"""
+        # Tier 1: Memory
+        mem_result = self.memory.get(url)
+        if mem_result and not self._is_expired(mem_result):
+            return mem_result
 
-    // Estimate character positions from token counts (1 token ≈ 4 chars)
-    const startChar = offset * 4;
-    const maxChars = maxTokens * 4;
-    const slice = page.content.substring(startChar, startChar + maxChars);
-    const tokensReturned = Math.ceil(slice.length / 4);
+        # Tier 2: SQLite
+        sql_result = await self.sqlite.get(url)
+        if sql_result and not self._is_expired(sql_result):
+            self.memory[url] = sql_result
+            return sql_result
 
-    return {
-      content: slice,
-      title: page.title,
-      url,
-      totalTokens: page.totalTokens,
-      offset,
-      tokensReturned,
-      hasMore: startChar + maxChars < page.content.length,
-      cached: true,
-    };
-  }
-}
+        return sql_result or mem_result or None
+
+    async def get_slice(
+        self, url: str, offset: int, max_tokens: int
+    ) -> PageResult | None:
+        """Get a slice of the page content at the given offset"""
+        page = await self.get_page(url)
+        if not page:
+            return None
+
+        # Estimate character positions from token counts (1 token ≈ 4 chars)
+        start_char = offset * 4
+        max_chars = max_tokens * 4
+        slice_content = page.content[start_char : start_char + max_chars]
+        tokens_returned = len(slice_content) // 4
+
+        return PageResult(
+            content=slice_content,
+            title=page.title,
+            url=url,
+            total_tokens=page.total_tokens,
+            offset=offset,
+            tokens_returned=tokens_returned,
+            has_more=start_char + max_chars < len(page.content),
+            cached=True,
+        )
+
+    def _is_expired(self, entry: PageCacheEntry) -> bool:
+        """Check if cache entry has expired"""
+        return datetime.now() > entry.expires_at
 ```
 
 ### 5.5 Cache Key Strategy
@@ -955,23 +993,27 @@ Approximate token count using character count / 4. This is sufficient for budget
 
 ### 8.1 stdio Transport (Local Mode)
 
-```typescript
-// src/index.ts
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+```python
+# src/pro_context/__main__.py
+import asyncio
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
 
-const server = new Server({ name: "pro-context", version: "1.0.0" }, {
-  capabilities: {
-    tools: {},
-    resources: { subscribe: false },
-    prompts: {},
-  },
-});
+async def main():
+    server = Server("pro-context")
 
-// Register tools, resources, prompts...
+    # Register tools, resources, prompts...
+    # (See implementation guide for full registration code)
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 **Characteristics:**
@@ -983,55 +1025,57 @@ await server.connect(transport);
 
 ### 8.2 Streamable HTTP Transport (HTTP Mode)
 
-```typescript
-// src/index.ts (HTTP mode)
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+```python
+# src/pro_context/__main__.py (HTTP mode)
+import asyncio
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.middleware.cors import CORSMiddleware
+import uvicorn
 
-const server = new Server({ name: "pro-context", version: "1.0.0" }, {
-  capabilities: {
-    tools: {},
-    resources: { subscribe: false },
-    prompts: {},
-  },
-});
+async def handle_sse(request):
+    """Handle SSE MCP transport"""
+    # Auth middleware
+    if not await authenticate_request(request):
+        return JSONResponse(
+            {"code": "AUTH_REQUIRED", "message": "..."},
+            status_code=401
+        )
 
-// Register tools, resources, prompts...
+    # Rate limit middleware
+    if not await rate_limit_check(request):
+        return JSONResponse(
+            {"code": "RATE_LIMITED", "message": "..."},
+            status_code=429
+        )
 
-const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: () => crypto.randomUUID(),
-});
+    # Delegate to MCP transport
+    async with SseServerTransport("/messages") as transport:
+        await server.run(
+            transport.read_stream,
+            transport.write_stream,
+            server.create_initialization_options(),
+        )
 
-// HTTP server setup with auth middleware
-import { createServer } from "node:http";
+# Create Starlette app
+app = Starlette(routes=[Route("/sse", endpoint=handle_sse)])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.security.cors["origins"],
+    allow_methods=["GET", "POST"],
+)
 
-const httpServer = createServer(async (req, res) => {
-  // Auth middleware
-  if (!authenticateRequest(req)) {
-    res.writeHead(401);
-    res.end(JSON.stringify({ code: "AUTH_REQUIRED", message: "..." }));
-    return;
-  }
-
-  // Rate limit middleware
-  if (!rateLimitCheck(req)) {
-    res.writeHead(429);
-    res.end(JSON.stringify({ code: "RATE_LIMITED", message: "..." }));
-    return;
-  }
-
-  // Delegate to MCP transport
-  await transport.handleRequest(req, res);
-});
-
-httpServer.listen(config.server.port, config.server.host);
+# Run with uvicorn
+uvicorn.run(app, host=config.server.host, port=config.server.port)
 ```
 
 **Characteristics:**
 - Requires API key authentication
 - Multi-user (concurrent connections)
 - Shared documentation cache across all users
-- Supports Streamable HTTP as per MCP spec (2025-11-25)
+- Supports SSE transport as per MCP spec
 - Per-key rate limiting
 - CORS configuration
 
@@ -1414,64 +1458,77 @@ CREATE TABLE IF NOT EXISTS session_libraries (
 
 ### 14.2 Database Initialization
 
-```typescript
-function initializeDatabase(db: Database): void {
-  db.pragma("journal_mode = WAL");        // Write-Ahead Logging for concurrency
-  db.pragma("busy_timeout = 5000");       // 5s timeout for lock contention
-  db.pragma("synchronous = NORMAL");      // Balance durability vs performance
-  db.pragma("foreign_keys = ON");
+```python
+import aiosqlite
 
-  // Run CREATE TABLE statements...
-}
+async def initialize_database(db: aiosqlite.Connection) -> None:
+    """Initialize SQLite database with pragmas and tables"""
+    await db.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
+    await db.execute("PRAGMA busy_timeout = 5000")  # 5s timeout
+    await db.execute("PRAGMA synchronous = NORMAL")  # Durability vs performance
+    await db.execute("PRAGMA foreign_keys = ON")
+
+    # Run CREATE TABLE statements...
+    # (See section 14.1 for full schema)
+    await db.commit()
 ```
 
 ### 14.3 Cleanup Job
 
-```typescript
-function cleanupExpiredEntries(db: Database): void {
-  const now = new Date().toISOString();
-  db.prepare("DELETE FROM doc_cache WHERE expires_at < ?").run(now);
-  db.prepare("DELETE FROM page_cache WHERE expires_at < ?").run(now);
-  db.prepare("DELETE FROM toc_cache WHERE expires_at < ?").run(now);
-  db.prepare("DELETE FROM library_metadata WHERE expires_at < ?").run(now);
-  // FTS5 content sync handled by triggers
-}
+```python
+from datetime import datetime
+
+async def cleanup_expired_entries(db: aiosqlite.Connection) -> None:
+    """Remove expired cache entries"""
+    now = datetime.now().isoformat()
+
+    await db.execute("DELETE FROM doc_cache WHERE expires_at < ?", (now,))
+    await db.execute("DELETE FROM page_cache WHERE expires_at < ?", (now,))
+    await db.execute("DELETE FROM toc_cache WHERE expires_at < ?", (now,))
+    await db.execute("DELETE FROM library_metadata WHERE expires_at < ?", (now,))
+    await db.commit()
+    # FTS5 content sync handled by triggers
 ```
 
-The cleanup job runs on the configured interval (`cache.cleanupIntervalMinutes`, default: 60 minutes).
+The cleanup job runs on the configured interval (`cache.cleanup_interval_minutes`, default: 60 minutes).
 
 ---
 
 ## 15. Fuzzy Matching
 
-Library name resolution uses Levenshtein distance for fuzzy matching:
+Library name resolution uses Levenshtein distance for fuzzy matching via `rapidfuzz`:
 
-```typescript
-function findClosestMatches(query: string, candidates: Library[]): LibraryMatch[] {
-  const normalized = query.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const results: LibraryMatch[] = [];
+```python
+import re
+from rapidfuzz import fuzz
 
-  for (const candidate of candidates) {
-    const normalizedName = candidate.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const normalizedId = candidate.id.toLowerCase().replace(/[^a-z0-9]/g, "");
+def find_closest_matches(query: str, candidates: list[Library]) -> list[LibraryMatch]:
+    """Find library matches using fuzzy string matching"""
+    normalized = re.sub(r"[^a-z0-9]", "", query.lower())
+    results: list[LibraryMatch] = []
 
-    const nameDist = levenshteinDistance(normalized, normalizedName);
-    const idDist = levenshteinDistance(normalized, normalizedId);
-    const bestDist = Math.min(nameDist, idDist);
+    for candidate in candidates:
+        normalized_name = re.sub(r"[^a-z0-9]", "", candidate.name.lower())
+        normalized_id = re.sub(r"[^a-z0-9]", "", candidate.id.lower())
 
-    if (bestDist <= 3) { // Max edit distance: 3
-      results.push({
-        libraryId: candidate.id,
-        name: candidate.name,
-        description: candidate.description,
-        languages: candidate.languages,
-        relevance: 1 - (bestDist / Math.max(normalized.length, 1)),
-      });
-    }
-  }
+        # Use rapidfuzz for fast Levenshtein distance
+        name_dist = fuzz.distance(normalized, normalized_name)
+        id_dist = fuzz.distance(normalized, normalized_id)
+        best_dist = min(name_dist, id_dist)
 
-  return results.sort((a, b) => b.relevance - a.relevance);
-}
+        if best_dist <= 3:  # Max edit distance: 3
+            relevance = 1 - (best_dist / max(len(normalized), 1))
+            results.append(
+                LibraryMatch(
+                    library_id=candidate.id,
+                    name=candidate.name,
+                    description=candidate.description,
+                    languages=candidate.languages,
+                    relevance=relevance,
+                )
+            )
+
+    return sorted(results, key=lambda x: x.relevance, reverse=True)
 ```
 
 This handles common typos like "langchan" → "langchain", "fasapi" → "fastapi", "pydanctic" → "pydantic". Returns all matches ranked by relevance, not just the best one.

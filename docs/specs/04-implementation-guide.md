@@ -44,82 +44,95 @@
 ```
 pro-context/
 ├── src/
-│   ├── index.ts                    # Entry point, server bootstrap, transport selection
-│   ├── server.ts                   # MCP server setup, tool/resource/prompt registration
-│   ├── config/
-│   │   ├── schema.ts               # Zod config schema + defaults
-│   │   └── loader.ts               # Config file loading + env variable overrides
-│   ├── tools/
-│   │   ├── resolve-library.ts      # resolve-library tool handler (discovery)
-│   │   ├── get-library-info.ts     # get-library-info tool handler (TOC + metadata)
-│   │   ├── get-docs.ts             # get-docs tool handler (fast path, multi-library)
-│   │   ├── search-docs.ts          # search-docs tool handler (cross-library search)
-│   │   └── read-page.ts            # read-page tool handler (navigation, offset reading)
-│   ├── resources/
-│   │   ├── health.ts               # pro-context://health resource
-│   │   └── session.ts              # pro-context://session/resolved-libraries resource
-│   ├── prompts/
-│   │   ├── migrate-code.ts         # migrate-code prompt template
-│   │   ├── debug-with-docs.ts      # debug-with-docs prompt template
-│   │   └── explain-api.ts          # explain-api prompt template
-│   ├── adapters/
-│   │   ├── types.ts                # SourceAdapter interface + RawPageContent type
-│   │   ├── chain.ts                # AdapterChain: ordered execution with fallback
-│   │   ├── llms-txt.ts             # llms.txt adapter implementation
-│   │   ├── github.ts               # GitHub docs adapter implementation
-│   │   └── custom.ts               # User-configured source adapter
-│   ├── auth/
-│   │   ├── api-keys.ts             # API key creation, validation, hashing
-│   │   ├── middleware.ts            # HTTP auth middleware
-│   │   └── admin-cli.ts            # CLI entry point for key management
-│   ├── cache/
-│   │   ├── memory.ts               # LRU in-memory cache wrapper
-│   │   ├── sqlite.ts               # SQLite persistent cache operations
-│   │   ├── page-cache.ts           # Page cache with offset-based slice support
-│   │   └── manager.ts              # Two-tier cache orchestrator
-│   ├── search/
-│   │   ├── chunker.ts              # Markdown → DocChunk[] chunking logic
-│   │   ├── bm25.ts                 # BM25 scoring algorithm
-│   │   └── engine.ts               # Search engine: index + query orchestration
-│   ├── lib/
-│   │   ├── logger.ts               # Pino logger setup with redaction
-│   │   ├── errors.ts               # ProContextError class + factory functions
-│   │   ├── rate-limiter.ts         # Token bucket rate limiter
-│   │   ├── fuzzy-match.ts          # Levenshtein distance fuzzy matching
-│   │   ├── tokens.ts               # Token count estimation utilities
-│   │   └── url-validator.ts        # URL allowlist + SSRF prevention + dynamic expansion
-│   └── registry/
-│       ├── types.ts                # Library type + registry resolver interface
-│       ├── known-libraries.ts      # Curated library registry (Python initially)
-│       └── pypi-resolver.ts        # PyPI version/URL resolution
+│   └── pro_context/
+│       ├── __init__.py
+│       ├── __main__.py             # Entry point, server bootstrap, transport selection
+│       ├── server.py               # MCP server setup, tool/resource/prompt registration
+│       ├── config/
+│       │   ├── __init__.py
+│       │   ├── schema.py           # Pydantic config schema + defaults
+│       │   └── loader.py           # Config file loading + env variable overrides
+│       ├── tools/
+│       │   ├── __init__.py
+│       │   ├── resolve_library.py  # resolve-library tool handler (discovery)
+│       │   ├── get_library_info.py # get-library-info tool handler (TOC + metadata)
+│       │   ├── get_docs.py         # get-docs tool handler (fast path, multi-library)
+│       │   ├── search_docs.py      # search-docs tool handler (cross-library search)
+│       │   └── read_page.py        # read-page tool handler (navigation, offset reading)
+│       ├── resources/
+│       │   ├── __init__.py
+│       │   ├── health.py           # pro-context://health resource
+│       │   └── session.py          # pro-context://session/resolved-libraries resource
+│       ├── prompts/
+│       │   ├── __init__.py
+│       │   ├── migrate_code.py     # migrate-code prompt template
+│       │   ├── debug_with_docs.py  # debug-with-docs prompt template
+│       │   └── explain_api.py      # explain-api prompt template
+│       ├── adapters/
+│       │   ├── __init__.py
+│       │   ├── types.py            # SourceAdapter ABC + RawPageContent type
+│       │   ├── chain.py            # AdapterChain: ordered execution with fallback
+│       │   ├── llms_txt.py         # llms.txt adapter implementation
+│       │   ├── github.py           # GitHub docs adapter implementation
+│       │   └── custom.py           # User-configured source adapter
+│       ├── auth/
+│       │   ├── __init__.py
+│       │   ├── api_keys.py         # API key creation, validation, hashing
+│       │   ├── middleware.py       # HTTP auth middleware
+│       │   └── admin_cli.py        # CLI entry point for key management
+│       ├── cache/
+│       │   ├── __init__.py
+│       │   ├── memory.py           # TTL in-memory cache wrapper (cachetools)
+│       │   ├── sqlite.py           # SQLite persistent cache operations (aiosqlite)
+│       │   ├── page_cache.py       # Page cache with offset-based slice support
+│       │   └── manager.py          # Two-tier cache orchestrator
+│       ├── search/
+│       │   ├── __init__.py
+│       │   ├── chunker.py          # Markdown → DocChunk[] chunking logic
+│       │   ├── bm25.py             # BM25 scoring algorithm
+│       │   └── engine.py           # Search engine: index + query orchestration
+│       ├── lib/
+│       │   ├── __init__.py
+│       │   ├── logger.py           # structlog setup with redaction
+│       │   ├── errors.py           # ProContextError class + factory functions
+│       │   ├── rate_limiter.py     # Token bucket rate limiter
+│       │   ├── fuzzy_match.py      # Levenshtein distance fuzzy matching (rapidfuzz)
+│       │   ├── tokens.py           # Token count estimation utilities
+│       │   └── url_validator.py    # URL allowlist + SSRF prevention + dynamic expansion
+│       └── registry/
+│           ├── __init__.py
+│           ├── types.py            # Library type + registry resolver interface
+│           ├── known_libraries.py  # Curated library registry (Python initially)
+│           └── pypi_resolver.py    # PyPI version/URL resolution
 ├── tests/
+│   ├── __init__.py
 │   ├── unit/
 │   │   ├── cache/
-│   │   │   ├── memory.test.ts
-│   │   │   ├── sqlite.test.ts
-│   │   │   ├── page-cache.test.ts
-│   │   │   └── manager.test.ts
+│   │   │   ├── test_memory.py
+│   │   │   ├── test_sqlite.py
+│   │   │   ├── test_page_cache.py
+│   │   │   └── test_manager.py
 │   │   ├── search/
-│   │   │   ├── chunker.test.ts
-│   │   │   ├── bm25.test.ts
-│   │   │   └── engine.test.ts
+│   │   │   ├── test_chunker.py
+│   │   │   ├── test_bm25.py
+│   │   │   └── test_engine.py
 │   │   ├── adapters/
-│   │   │   ├── llms-txt.test.ts
-│   │   │   ├── github.test.ts
-│   │   │   └── chain.test.ts
+│   │   │   ├── test_llms_txt.py
+│   │   │   ├── test_github.py
+│   │   │   └── test_chain.py
 │   │   ├── lib/
-│   │   │   ├── fuzzy-match.test.ts
-│   │   │   ├── rate-limiter.test.ts
-│   │   │   └── url-validator.test.ts
+│   │   │   ├── test_fuzzy_match.py
+│   │   │   ├── test_rate_limiter.py
+│   │   │   └── test_url_validator.py
 │   │   └── registry/
-│   │       └── pypi-resolver.test.ts
+│   │       └── test_pypi_resolver.py
 │   ├── integration/
-│   │   ├── adapter-cache.test.ts    # Adapter + cache integration
-│   │   ├── search-pipeline.test.ts  # Fetch → chunk → index → search
-│   │   └── auth-flow.test.ts        # API key auth end-to-end
+│   │   ├── test_adapter_cache.py    # Adapter + cache integration
+│   │   ├── test_search_pipeline.py  # Fetch → chunk → index → search
+│   │   └── test_auth_flow.py        # API key auth end-to-end
 │   └── e2e/
-│       ├── stdio-server.test.ts     # Full MCP client ↔ server via stdio
-│       └── http-server.test.ts      # Full MCP client ↔ server via HTTP
+│       ├── test_stdio_server.py     # Full MCP client ↔ server via stdio
+│       └── test_http_server.py      # Full MCP client ↔ server via HTTP
 ├── docs/
 │   └── specs/
 │       ├── 01-competitive-analysis.md
@@ -129,10 +142,9 @@ pro-context/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pro-context.config.yaml          # Default configuration
-├── package.json
-├── tsconfig.json
-├── biome.json
-├── vitest.config.ts
+├── pyproject.toml                   # Python project config, dependencies, build
+├── pytest.ini                       # Pytest configuration
+├── ruff.toml                        # Ruff linter/formatter config
 └── README.md
 ```
 
@@ -144,33 +156,37 @@ pro-context/
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@modelcontextprotocol/sdk` | `^1.x` | MCP server SDK — tool/resource/prompt registration, stdio + HTTP transport |
-| `better-sqlite3` | `^11.x` | SQLite database — persistent cache, search index, API keys |
-| `zod` | `^3.x` | Schema validation — config validation, tool input/output validation |
-| `lru-cache` | `^10.x` | In-memory LRU cache — hot path for repeated queries |
-| `pino` | `^9.x` | Structured logging — JSON format, redaction, correlation IDs |
-| `yaml` | `^2.x` | YAML parsing — configuration file loading |
+| `mcp` | `>=1.0.0` | MCP server SDK — tool/resource/prompt registration, stdio + SSE transport |
+| `aiosqlite` | `^0.20.0` | Async SQLite — persistent cache, search index, API keys |
+| `pydantic` | `^2.0` | Schema validation — config validation, tool input/output validation |
+| `cachetools` | `^5.3` | In-memory TTL cache — hot path for repeated queries |
+| `structlog` | `^24.0` | Structured logging — JSON format, context binding, redaction |
+| `pyyaml` | `^6.0` | YAML parsing — configuration file loading |
+| `httpx` | `^0.27` | HTTP client — async requests with timeout management |
+| `rapidfuzz` | `^3.6` | Fast fuzzy matching — Levenshtein distance for library name resolution |
+| `starlette` | `^0.37` | ASGI framework — HTTP transport (used by MCP SDK for SSE) |
+| `uvicorn` | `^0.29` | ASGI server — production HTTP server |
 
 ### Development Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `typescript` | `^5.x` | TypeScript compiler |
-| `tsup` | `^8.x` | Build tool — fast bundling, ESM + CJS output |
-| `vitest` | `^2.x` | Test runner — fast, TS-native, ESM support |
-| `@biomejs/biome` | `^1.x` | Linter + formatter — all-in-one, fast |
-| `@types/better-sqlite3` | `^7.x` | TypeScript types for better-sqlite3 |
-| `@types/node` | `^20.x` | TypeScript types for Node.js |
+| `pytest` | `^8.1` | Test framework — standard Python testing |
+| `pytest-asyncio` | `^0.23` | Async test support for pytest |
+| `pytest-cov` | `^5.0` | Coverage reporting |
+| `mypy` | `^1.9` | Static type checking |
+| `ruff` | `^0.3` | Linter + formatter — replaces flake8/black/isort |
+| `hatchling` | `^1.21` | Build backend for pyproject.toml |
 
 ### Notably Absent
 
 | Package | Reason for Exclusion |
 |---------|---------------------|
-| Express/Fastify | MCP SDK handles HTTP transport internally |
-| OpenAI/Ollama SDK | No vector search in initial version; BM25 is dependency-free |
+| FastAPI | MCP SDK handles HTTP transport with Starlette; no full web framework needed |
+| OpenAI/Anthropic SDK | No vector search in initial version; BM25 is dependency-free |
 | Redis | SQLite provides sufficient persistence; no external infra needed |
-| cheerio/jsdom | No HTML scraping in initial version |
-| undici | Node 20+ has native `fetch` |
+| BeautifulSoup/lxml | No HTML scraping in initial version |
+| requests | httpx provides both sync and async interfaces |
 
 ---
 
@@ -180,83 +196,90 @@ pro-context/
 
 | Element | Convention | Example |
 |---------|-----------|---------|
-| Files | kebab-case | `fuzzy-match.ts`, `get-docs.ts` |
-| Types/Interfaces | PascalCase | `Library`, `DocResult`, `SourceAdapter` |
-| Functions | camelCase | `resolveLibrary`, `fetchToc`, `checkFreshness` |
+| Files | snake_case | `fuzzy_match.py`, `get_docs.py` |
+| Classes | PascalCase | `Library`, `DocResult`, `SourceAdapter` |
+| Functions | snake_case | `resolve_library`, `fetch_toc`, `check_freshness` |
 | Constants | UPPER_SNAKE_CASE | `DEFAULT_TTL_HOURS`, `MAX_TOKENS` |
-| Config keys | camelCase (YAML) | `maxMemoryMB`, `defaultTTLHours` |
+| Config keys | snake_case (YAML) | `max_memory_mb`, `default_ttl_hours` |
 | Env vars | UPPER_SNAKE_CASE | `PRO_CONTEXT_PORT`, `PRO_CONTEXT_DEBUG` |
 | Error codes | UPPER_SNAKE_CASE | `LIBRARY_NOT_FOUND`, `RATE_LIMITED` |
 
 ### 3.2 Error Handling Pattern
 
-```typescript
-// Use ProContextError for all user-facing errors
-import { ProContextError, libraryNotFound } from "../lib/errors.js";
+```python
+# Use ProContextError for all user-facing errors
+from pro_context.lib.errors import ProContextError, library_not_found
 
-// Factory functions create typed errors
-export function libraryNotFound(query: string, suggestion?: string): ProContextError {
-  return new ProContextError({
-    code: "LIBRARY_NOT_FOUND",
-    message: `Library '${query}' not found.`,
-    recoverable: true,
-    suggestion: suggestion
-      ? `Did you mean '${suggestion}'?`
-      : "Check the library name and try again.",
-  });
-}
+# Factory functions create typed errors
+def library_not_found(query: str, suggestion: str | None = None) -> ProContextError:
+    """Create a LIBRARY_NOT_FOUND error"""
+    return ProContextError(
+        code=ErrorCode.LIBRARY_NOT_FOUND,
+        message=f"Library '{query}' not found.",
+        recoverable=True,
+        suggestion=(
+            f"Did you mean '{suggestion}'?"
+            if suggestion
+            else "Check the library name and try again."
+        ),
+    )
 
-// In tool handlers, catch and convert errors
-try {
-  const result = await getDocsForLibrary(input);
-  return result;
-} catch (error) {
-  if (error instanceof ProContextError) {
-    return { error }; // Return structured error
-  }
-  logger.error({ error }, "Unexpected error in get-docs");
-  return { error: internalError() };
-}
+
+# In tool handlers, catch and convert errors
+async def handle_get_docs(input: dict) -> dict:
+    """Tool handler with error handling"""
+    try:
+        result = await get_docs_for_library(input)
+        return result
+    except ProContextError as e:
+        return {"error": e}  # Return structured error
+    except Exception as e:
+        logger.error("unexpected_error", exc_info=e, tool="get-docs")
+        return {"error": internal_error()}
 ```
 
 ### 3.3 Test Pattern
 
-```typescript
-// tests/unit/search/bm25.test.ts
-import { describe, it, expect, beforeEach } from "vitest";
-import { BM25Index } from "../../src/search/bm25.js";
+```python
+# tests/unit/search/test_bm25.py
+import pytest
+from pro_context.search.bm25 import BM25Index
 
-describe("BM25Index", () => {
-  let index: BM25Index;
 
-  beforeEach(() => {
-    index = new BM25Index();
-  });
+class TestBM25Index:
+    """Test BM25 search ranking"""
 
-  it("should rank exact matches highest", () => {
-    index.addDocument("1", "langchain chat models streaming");
-    index.addDocument("2", "fastapi dependency injection middleware");
+    @pytest.fixture
+    def index(self):
+        """Create a fresh index for each test"""
+        return BM25Index()
 
-    const results = index.search("langchain chat models");
+    def test_exact_matches_rank_highest(self, index):
+        """Exact keyword matches should rank higher"""
+        index.add_document("1", "langchain chat models streaming")
+        index.add_document("2", "fastapi dependency injection middleware")
 
-    expect(results[0].id).toBe("1");
-    expect(results[0].score).toBeGreaterThan(results[1]?.score ?? 0);
-  });
-});
+        results = index.search("langchain chat models")
+
+        assert results[0].id == "1"
+        assert results[0].score > results[1].score if len(results) > 1 else 0
 ```
 
 ### 3.4 Module Pattern
 
-- Each file exports a single primary class/function + supporting types
-- Avoid default exports — use named exports exclusively
-- Import with `.js` extension for ESM compatibility
+- Each file defines a single primary class/function + supporting types
+- Use explicit imports from modules (avoid `from module import *`)
+- Use `__all__` to control public API surface when needed
 - Keep files focused: one concern per file
+- Type hint all function signatures and class attributes
 
 ### 3.5 Async Pattern
 
-- Use `async/await` for all asynchronous operations
-- `better-sqlite3` is synchronous — no async wrapper needed for DB operations
-- Network fetches use native `fetch` with `AbortController` for timeouts
+- Use `async/await` for all I/O operations (database, network, file system)
+- `aiosqlite` provides async SQLite access — all DB operations must be awaited
+- Use `httpx.AsyncClient` for network fetches with timeout configuration
+- Use `asyncio.create_task()` for background tasks (e.g., cache refresh)
+- Avoid blocking operations in async functions — use `asyncio.to_thread()` if needed
 
 ---
 
@@ -554,29 +577,38 @@ describe("BM25Index", () => {
 
 ### 5.4 Test Configuration
 
-```typescript
-// vitest.config.ts
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
-  test: {
-    include: ["tests/**/*.test.ts"],
-    coverage: {
-      provider: "v8",
-      include: ["src/**/*.ts"],
-      exclude: ["src/index.ts", "src/auth/admin-cli.ts"],
-      thresholds: {
-        statements: 80,
-        branches: 75,
-        functions: 80,
-        lines: 80,
-      },
-    },
-    testTimeout: 10000,
-    hookTimeout: 10000,
-  },
-});
+```toml
+# pytest.ini or pyproject.toml [tool.pytest.ini_options]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "--cov=pro_context",
+    "--cov-branch",
+    "--cov-fail-under=80",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]
+timeout = 10
 ```
+
+Coverage thresholds:
+- Statements: 80%
+- Branches: 75%
+- Functions: 80%
+- Lines: 80%
+
+Excluded from coverage:
+- `src/pro_context/__main__.py` (entry point)
+- `src/pro_context/auth/admin_cli.py` (CLI tool)
 
 ---
 
@@ -586,20 +618,21 @@ export default defineConfig({
 
 ```dockerfile
 # Stage 1: Build
-FROM node:20-slim AS builder
+FROM python:3.11-slim AS builder
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json biome.json ./
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir hatchling
 COPY src/ src/
-RUN npm run build
+RUN pip install --no-cache-dir .
 
 # Stage 2: Production
-FROM node:20-slim
+FROM python:3.11-slim
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY --from=builder /app/dist/ dist/
+
+# Install production dependencies only
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir .
+
 COPY pro-context.config.yaml ./
 
 # Create cache directory
@@ -610,7 +643,7 @@ ENV PRO_CONTEXT_PORT=3100
 ENV PRO_CONTEXT_CACHE_DIR=/data/cache
 
 EXPOSE 3100
-CMD ["node", "dist/index.js"]
+CMD ["python", "-m", "pro_context"]
 ```
 
 ### 6.2 docker-compose.yml
@@ -647,36 +680,103 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run build
-      - run: npm test -- --coverage
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy src/
+      - run: pytest --cov=pro_context --cov-report=xml
 ```
 
-### 6.4 Package.json Scripts
+### 6.4 pyproject.toml Configuration
 
-```json
-{
-  "scripts": {
-    "build": "tsup src/index.ts src/auth/admin-cli.ts --format esm --dts",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "admin": "tsx src/auth/admin-cli.ts"
-  },
-  "bin": {
-    "pro-context": "./dist/index.js",
-    "pro-context-admin": "./dist/admin-cli.js"
-  }
-}
+```toml
+[project]
+name = "pro-context"
+version = "1.0.0"
+description = "MCP documentation server for AI coding agents"
+authors = [{name = "Ankur Tewatia"}]
+license = {text = "GPL-3.0"}
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.0",
+    "cachetools>=5.3",
+    "structlog>=24.0",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "rapidfuzz>=3.6",
+    "starlette>=0.37",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "mypy>=1.9",
+    "ruff>=0.3",
+]
+
+[project.scripts]
+pro-context = "pro_context.__main__:main"
+pro-context-admin = "pro_context.auth.admin_cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+```
+
+**Common commands:**
+
+```bash
+# Install dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=pro_context --cov-report=html
+
+# Lint and format
+ruff check .
+ruff format .
+
+# Type check
+mypy src/
+
+# Run server (stdio mode)
+python -m pro_context
+
+# Run admin CLI
+pro-context-admin key create --name "test"
 ```
 
 ---
@@ -732,7 +832,7 @@ jobs:
 ### Claude Code (stdio)
 
 ```bash
-claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
+claude mcp add pro-context -- python -m pro_context
 ```
 
 ### Claude Code (HTTP)
@@ -741,7 +841,7 @@ claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
 {
   "mcpServers": {
     "pro-context": {
-      "url": "http://localhost:3100/mcp",
+      "url": "http://localhost:3100/sse",
       "headers": {
         "Authorization": "Bearer pc_your-api-key-here"
       }
@@ -756,8 +856,8 @@ claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
 {
   "mcpServers": {
     "pro-context": {
-      "command": "node",
-      "args": ["/path/to/pro-context/dist/index.js"]
+      "command": "python",
+      "args": ["-m", "pro_context"]
     }
   }
 }
@@ -773,32 +873,33 @@ claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
 # Clone and install
 git clone <repo-url>
 cd pro-context
-npm install
-
-# Build
-npm run build
+pip install -e ".[dev]"
 
 # Run tests
-npm test
+pytest
 
-# Start in development mode (auto-reload)
-npm run dev
+# Start in development mode (stdio)
+python -m pro_context
 
 # Test with Claude Code
-claude mcp add pro-context -- node /path/to/pro-context/dist/index.js
+claude mcp add pro-context -- python -m pro_context
+
+# Or use uvicorn for HTTP mode with auto-reload
+uvicorn pro_context.server:app --reload --port 3100
 ```
 
 ### Adding a New Library to the Registry
 
-1. Edit `src/registry/known-libraries.ts`
-2. Add entry with `id`, `name`, `description`, `languages`, `packageName`, `docsUrl`, `repoUrl`
-3. Run tests: `npm test`
-4. Build: `npm run build`
+1. Edit `src/pro_context/registry/known_libraries.py`
+2. Add entry with `id`, `name`, `description`, `languages`, `package_name`, `docs_url`, `repo_url`
+3. Run tests: `pytest tests/unit/registry/`
+4. Lint: `ruff check .`
 
 ### Adding a New Source Adapter
 
-1. Create `src/adapters/{name}.ts` implementing `SourceAdapter` (canHandle, fetchToc, fetchPage, checkFreshness)
-2. Register in `src/adapters/chain.ts` with appropriate priority
-3. Add tests in `tests/unit/adapters/{name}.test.ts`
-4. Add integration test if the adapter has external dependencies
-5. Run full test suite: `npm test`
+1. Create `src/pro_context/adapters/{name}.py` implementing `SourceAdapter` ABC
+2. Implement `can_handle`, `fetch_toc`, `fetch_page`, `check_freshness` methods
+3. Register in `src/pro_context/adapters/chain.py` with appropriate priority
+4. Add tests in `tests/unit/adapters/test_{name}.py`
+5. Add integration test if the adapter has external dependencies
+6. Run full test suite: `pytest`
