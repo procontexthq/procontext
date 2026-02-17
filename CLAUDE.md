@@ -25,13 +25,14 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 
 **Current state**: The project is in the specification/design phase. There is no source code yet — only design documents in `docs/specs/`. **You are not allowed to write any code until the design phase is complete.** The design phase will be considered complete when all the documents are finalized and approved by Ankur.
 
-All implementation decisions are captured in these five spec documents, which are the authoritative design source.
+All implementation decisions are captured in these six spec documents, which are the authoritative design source.
 
 - `docs/specs/01-competitive-analysis.md` — Market analysis and key insight: query understanding is the accuracy bottleneck
 - `docs/specs/02-functional-spec.md` — Problem statement, 5 MCP tools, 2 resources, 3 prompt templates, adapter chain, security model
 - `docs/specs/03-technical-spec.md` — System architecture, data models, two-tier cache, BM25 search, database schema (7 SQLite tables)
-- `docs/specs/04-implementation-guide.md` — Project structure, dependencies, coding conventions, 5 implementation phases, testing strategy
-- `docs/specs/05-library-resolution.md` — Library name → documentation source mapping, resolution algorithm (6 steps), registry strategy with repo-based grouping, llms.txt-first resolution
+- `docs/specs/04-implementation-guide.md` — Project structure, dependencies, coding conventions, 6 implementation phases (0-5), testing strategy
+- `docs/specs/05-library-resolution.md` — Library name → documentation source mapping, runtime resolution algorithm (4 steps), curated registry approach, repo-based grouping
+- `docs/specs/06-registry-build-system.md` — Build-time discovery pipeline, PyPI metadata extraction, llms.txt probing (10+ URL patterns), content validation, hub resolution, quality assurance
 
 ### Research Documents
 
