@@ -369,7 +369,6 @@ describe("BM25Index", () => {
 - [ ] If llms.txt unavailable, falls back to GitHub
 - [ ] Second request for same content is served from cache (check logs for cache hit)
 - [ ] Cache SQLite file is created at configured path
-- [ ] Version resolution works: `version: "0.3.x"` resolves to exact version
 - [ ] Session resource tracks resolved libraries
 
 ---

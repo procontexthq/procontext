@@ -190,11 +190,11 @@ The TOC is returned by `get-library-info`. It is accessed exclusively via tool c
 
 ### US-2: Get Library Details and Documentation Index
 
-> As a developer, once a library is identified, the agent should be able to get its documentation index (TOC), available versions, and sources.
+> As a developer, once a library is identified, the agent should be able to get its documentation index (TOC) and sources.
 
 **Acceptance criteria:**
 - Agent calls `get-library-info` with a specific libraryId
-- Server returns TOC, available versions, available sources, and default version
+- Server returns TOC, available sources, and library metadata
 - Agent can request specific TOC sections or the full TOC
 - For multi-language libraries, the TOC includes all language-specific sections and the agent navigates to the relevant ones
 - TOC contains page titles, URLs, and descriptions suitable for agent navigation
@@ -204,9 +204,9 @@ The TOC is returned by `get-library-info`. It is accessed exclusively via tool c
 > As a developer, when I ask "what are the parameters for FastAPI's Depends()", the agent should get a focused answer quickly.
 
 **Acceptance criteria:**
-- Agent calls `get-docs` with one or more libraries, topic, and optional per-library versions
+- Agent calls `get-docs` with one or more libraries and a topic
 - Server searches indexed documentation using BM25
-- Returns focused markdown content with source URL, version, confidence score
+- Returns focused markdown content with source URL, confidence score
 - Cached responses return in <500ms
 - JIT fetch + index + search completes in <5s
 - Response includes `relatedPages` — links to pages the agent can read for more depth
@@ -234,17 +234,7 @@ The TOC is returned by `get-library-info`. It is accessed exclusively via tool c
 - Returns ranked results with title, snippet, relevance score, and URL
 - Each result URL can be passed to `read-page` for full content
 
-### US-6: Version-Specific Documentation
-
-> As a developer, I need documentation for a specific library version, not just "latest".
-
-**Acceptance criteria:**
-- `get-library-info`, `get-docs`, `search-docs`, and `read-page` accept an optional `version` parameter
-- Version resolves to exact release via PyPI (Python) or npm (JS/TS)
-- If version is omitted, server uses latest stable version
-- Cached documentation is version-specific (v0.2 and v0.3 stored separately)
-
-### US-7: Team Deployment with API Keys
+### US-6: Team Deployment with API Keys
 
 > As a team lead, I want to deploy Pro-Context as a shared service so all team members benefit from cached documentation.
 
@@ -255,7 +245,7 @@ The TOC is returned by `get-library-info`. It is accessed exclusively via tool c
 - Each key has configurable rate limits
 - Shared cache means one developer's fetch benefits all others
 
-### US-8: Graceful Degradation
+### US-7: Graceful Degradation
 
 > As a developer, I expect useful responses even when documentation sources are temporarily unavailable.
 
@@ -349,7 +339,7 @@ Discovers libraries matching a natural language query. This is a pure discovery 
 
 ### 5.2 `get-library-info`
 
-Returns detailed information about a specific library: TOC, available versions, documentation sources, and default version. This is the entry point to the navigation path.
+Returns detailed information about a specific library: TOC and documentation sources. This is the entry point to the navigation path.
 
 This tool does not require a prior `resolve-library` call. If the agent already knows the `libraryId` (from a previous session, from user input, from context), it can call `get-library-info` directly.
 
@@ -361,10 +351,6 @@ This tool does not require a prior `resolve-library` call. If the agent already 
     "libraryId": {
       "type": "string",
       "description": "Canonical library ID (e.g., 'langchain-ai/langchain'). Can be obtained from resolve-library or known ahead of time."
-    },
-    "version": {
-      "type": "string",
-      "description": "Specific version. Defaults to latest stable if omitted."
     },
     "sections": {
       "type": "array",
@@ -393,15 +379,6 @@ This tool does not require a prior `resolve-library` call. If the agent already 
       "type": "array",
       "items": { "type": "string" },
       "description": "Languages this library is available in (informational metadata)"
-    },
-    "defaultVersion": {
-      "type": "string",
-      "description": "Latest stable version"
-    },
-    "availableVersions": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Recent available versions (most recent first, max 10)"
     },
     "sources": {
       "type": "array",
@@ -438,19 +415,16 @@ This tool does not require a prior `resolve-library` call. If the agent already 
 **Behavior:**
 1. Look up `libraryId` in registry (exact match, no fuzzy matching)
 2. If not found in registry, attempt resolution via package registry (PyPI/npm)
-3. Resolve version (if not specified, use latest stable)
-4. Fetch available versions from package registry (cached for 1 hour)
-5. Determine available documentation sources
-6. Fetch and parse the TOC (source-agnostic — the adapter chain handles how)
-7. Extract `availableSections` from TOC entries (unique section names)
-8. If `sections` is specified, filter TOC entries to matching sections
-9. Cache the TOC
-10. Add library to session resolved list
-11. Return library metadata + TOC + availableSections
+3. Determine available documentation sources
+4. Fetch and parse the TOC (source-agnostic — the adapter chain handles how). Documentation served is always the latest available.
+5. Extract `availableSections` from TOC entries (unique section names)
+6. If `sections` is specified, filter TOC entries to matching sections
+7. Cache the TOC
+8. Add library to session resolved list
+9. Return library metadata + TOC + availableSections
 
 **Error cases:**
 - Library not found → `LIBRARY_NOT_FOUND`
-- Version not found → `VERSION_NOT_FOUND` with available versions
 - No documentation sources found → returns metadata without TOC, with a note that no docs are indexed
 
 ---
@@ -469,12 +443,11 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
       "items": {
         "type": "object",
         "properties": {
-          "libraryId": { "type": "string", "description": "Canonical library ID" },
-          "version": { "type": "string", "description": "Optional: specific version for this library. Defaults to latest stable." }
+          "libraryId": { "type": "string", "description": "Canonical library ID" }
         },
         "required": ["libraryId"]
       },
-      "description": "One or more libraries to search. Each can have its own version."
+      "description": "One or more libraries to search."
     },
     "topic": {
       "type": "string",
@@ -508,10 +481,6 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
     "source": {
       "type": "string",
       "description": "URL where documentation was fetched from"
-    },
-    "version": {
-      "type": "string",
-      "description": "Exact version of documentation returned"
     },
     "lastUpdated": {
       "type": "string",
@@ -550,11 +519,10 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
 
 **Behavior:**
 1. For each library in the `libraries` array:
-   a. Resolve version (if not specified, use latest stable)
-   b. Check cache (memory → SQLite) for matching (libraryId, version, topic)
-   c. If cached and fresh → use cached content
-   d. If cached but stale → use stale content, trigger background refresh
-   e. If not cached → fetch documentation via adapter chain, chunk into sections, index with BM25
+   a. Check cache (memory → SQLite) for matching (libraryId, topic)
+   b. If cached and fresh → use cached content
+   c. If cached but stale → use stale content, trigger background refresh
+   d. If not cached → fetch documentation via adapter chain, chunk into sections, index with BM25
 2. Rank chunks across all specified libraries by topic relevance
 3. Select top chunk(s) within `maxTokens` budget
 4. Identify related pages from the TOC that the agent might want to read for more context
@@ -587,10 +555,6 @@ Searches across indexed documentation and returns ranked results with URLs. Opti
       "type": "array",
       "items": { "type": "string" },
       "description": "Optional: restrict search to these libraries. If omitted, searches across all indexed content."
-    },
-    "version": {
-      "type": "string",
-      "description": "Library version. Only applicable when searching a single library. Defaults to latest stable."
     },
     "maxResults": {
       "type": "number",
@@ -790,8 +754,8 @@ Resources provide data that agents can access without tool calls.
 ```json
 {
   "libraries": [
-    { "id": "langchain-ai/langchain", "name": "LangChain", "languages": ["python"], "version": "0.3.14" },
-    { "id": "pydantic/pydantic", "name": "Pydantic", "languages": ["python"], "version": "2.10.0" }
+    { "id": "langchain-ai/langchain", "name": "LangChain", "languages": ["python"] },
+    { "id": "pydantic/pydantic", "name": "Pydantic", "languages": ["python"] }
   ]
 }
 ```
@@ -904,11 +868,10 @@ Based on the documentation, identify:
 |------|----------|-------------|
 | `libraryId` | Yes | Library containing the API |
 | `apiName` | Yes | API to explain (class, function, module) |
-| `version` | No | Specific version |
 
 **Template:**
 ```
-Explain the {apiName} API from {libraryId}{#if version} (version {version}){/if}.
+Explain the {apiName} API from {libraryId}.
 
 Steps:
 1. Use get-docs to fetch documentation for {apiName}
@@ -959,7 +922,7 @@ Request
 Each adapter implements a uniform interface. The server calls adapters in priority order until one succeeds. The adapter contract:
 
 - `canHandle(library)` — can this adapter serve docs for this library?
-- `fetchToc(library, version)` — return a structured TOC (array of {title, url, description, section})
+- `fetchToc(library)` — return a structured TOC (array of {title, url, description, section})
 - `fetchPage(url)` — fetch a single page, return markdown content
 - `checkFreshness(library, cached)` — is the cached content still valid?
 
@@ -1016,7 +979,6 @@ All tool inputs are validated with Zod schemas at the MCP boundary:
 - `libraryId`: alphanumeric + `-_./`, max 200 chars
 - `topic`, `query`: max 500 chars
 - `url`: must be valid URL, must pass allowlist check
-- `version`: max 50 chars
 - Numeric parameters: validated against min/max ranges
 
 ### 9.3 Authentication (HTTP Mode)
@@ -1035,47 +997,27 @@ All tool inputs are validated with Zod schemas at the MCP boundary:
 
 ---
 
-## 10. Version Resolution
+## 10. Language and Registry
 
-### 10.1 Resolution Rules
-
-1. **Explicit version** (`version: "0.3.14"`): Use exactly that version
-2. **Version range** (`version: "0.3.x"`): Resolve to latest patch via package registry
-3. **No version**: Resolve to latest stable release
-4. **Invalid version**: Return `VERSION_NOT_FOUND` with available versions
-
-### 10.2 Language Handling
+### 10.1 Language Handling
 
 Language is **not** a server-side routing concern. The `languages` field on a DocSource is informational metadata — it tells the agent what languages a library supports but the server does not validate or enforce it.
 
 1. **`resolve-library`**: Accepts an optional `language` filter to narrow discovery results (e.g., only return DocSources listing `"python"`). This is a convenience filter, not a requirement.
 2. **All other tools**: No language parameter. For multi-language documentation sites (e.g., protobuf.dev), the TOC contains language-specific sections and the agent navigates to the relevant pages based on its own context.
 
-### 10.3 Package Registry Integration
+### 10.2 Package Registry Integration
 
 | Language | Registry | API |
 |----------|----------|-----|
 | Python | PyPI | `GET https://pypi.org/pypi/{package}/json` |
 | JavaScript (future) | npm | `GET https://registry.npmjs.org/{package}` |
 
-### 10.4 Version → Documentation URL Mapping
+### 10.3 Documentation Versioning
 
-Different documentation sites handle versioning differently:
+Pro-Context always serves the latest available documentation. Version-specific documentation is not supported in the current version.
 
-| Pattern | Example | Libraries |
-|---------|---------|-----------|
-| Version in URL path | `docs.pydantic.dev/2.10/llms.txt` | Pydantic |
-| "latest" URL always current | `docs.langchain.com/llms.txt` | LangChain |
-| Subdomain per version | `v3.fastapi.tiangolo.com/` | Some projects |
-| No versioned docs | Single version only | Many smaller libs |
-
-The known-libraries registry stores the URL pattern for each library. For libraries not in the registry, the server falls back to the latest/default documentation URL.
-
-### 10.5 Version Caching
-
-- Version lists: cached for 1 hour (versions change infrequently)
-- Documentation content: cached per exact version (v0.2.5 and v0.3.0 are separate entries)
-- TOC: cached per version, refreshed when version list changes
+**Rationale**: Research shows that version-specific llms.txt files are extremely rare in the Python ecosystem. Pydantic only publishes at `/latest/`. Django, SQLAlchemy, and most other libraries serve a single current version. Only a handful of JS frameworks (Next.js) support per-version llms.txt. The complexity of version resolution (URL patterns, fallback logic, version-specific caching) is not justified by the ecosystem's current state. This may be revisited when llms.txt versioning matures.
 
 ---
 
@@ -1098,7 +1040,6 @@ The known-libraries registry stores the URL pattern for each library. For librar
 | Code | Trigger | Suggestion |
 |------|---------|-----------|
 | `LIBRARY_NOT_FOUND` | Unknown library ID | Did you mean '{suggestion}'? Use resolve-library to discover libraries. |
-| `VERSION_NOT_FOUND` | Invalid version | Available versions: {list} |
 | `TOPIC_NOT_FOUND` | BM25 search finds nothing for topic | Try search-docs for broader results, or browse the TOC via get-library-info. |
 | `PAGE_NOT_FOUND` | read-page URL returns 404 | Check the URL or use get-library-info to refresh the TOC. |
 | `URL_NOT_ALLOWED` | read-page URL fails allowlist check | Resolve the library first with get-library-info, or add the domain to your config. |
@@ -1221,7 +1162,7 @@ Adding a new language requires:
 
 New documentation sources are added by implementing the adapter contract (Section 8.2):
 - `canHandle(library)` — can this adapter serve docs for this library?
-- `fetchToc(library, version)` — fetch the table of contents
+- `fetchToc(library)` — fetch the table of contents (latest)
 - `fetchPage(url)` — fetch a single documentation page
 - `checkFreshness(library, cached)` — is the cache still valid?
 
@@ -1280,9 +1221,9 @@ Future adapter candidates:
 
 ### D8: `get-docs` accepts multiple libraries
 
-**Decision**: `get-docs` takes a `libraries` array instead of a single `libraryId`. Each entry can optionally specify a version.
+**Decision**: `get-docs` takes a `libraries` array instead of a single `libraryId`.
 
-**Rationale**: Developers often work with related libraries simultaneously (e.g., LangChain + Pydantic, FastAPI + SQLAlchemy). When the agent asks "how do I do X", the answer might involve multiple libraries. Accepting an array lets the agent fetch relevant content from several libraries in a single call, with results ranked across all of them. Each library can have its own version pin, so the agent can search LangChain v0.3 and Pydantic v2 in one request.
+**Rationale**: Developers often work with related libraries simultaneously (e.g., LangChain + Pydantic, FastAPI + SQLAlchemy). When the agent asks "how do I do X", the answer might involve multiple libraries. Accepting an array lets the agent fetch relevant content from several libraries in a single call, with results ranked across all of them.
 
 ### D9: `search-docs` supports cross-library search
 

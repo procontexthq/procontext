@@ -142,16 +142,15 @@ MCP Client
   │    │
   │    ├─ 1. Look up libraryId in registry (exact match)
   │    ├─ 2. If not found → attempt package registry resolution
-  │    ├─ 3. Resolve version (latest stable if omitted)
-  │    ├─ 4. Fetch TOC via adapter chain (llms.txt → GitHub → Custom)
-  │    ├─ 5. Extract availableSections from TOC
-  │    ├─ 6. Apply sections filter if specified
-  │    ├─ 7. Cache TOC, add to session resolved list
-  │    └─ 8. Return { libraryId, versions, sources, toc, availableSections }
+  │    ├─ 3. Fetch TOC via adapter chain (llms.txt → GitHub → Custom)
+  │    ├─ 4. Extract availableSections from TOC
+  │    ├─ 5. Apply sections filter if specified
+  │    ├─ 6. Cache TOC, add to session resolved list
+  │    └─ 7. Return { libraryId, sources, toc, availableSections }
   │
-  ├─ get-docs([{libraryId: "langchain-ai/langchain", version: "0.3.14"}], "chat models")
+  ├─ get-docs([{libraryId: "langchain-ai/langchain"}], "chat models")
   │    │
-  │    ├─ 1. For each library: resolve version
+  │    ├─ 1. For each library: validate libraryId
   │    ├─ 2. Cache lookup: memory LRU → SQLite
   │    │    ├─ HIT (fresh) → use cached content
   │    │    ├─ HIT (stale) → use cached + trigger background refresh
@@ -247,10 +246,6 @@ interface Library {
   docsUrl: string | null;
   /** GitHub repository URL */
   repoUrl: string | null;
-  /** Available versions (most recent first) */
-  versions: string[];
-  /** Recommended default version (latest stable) */
-  defaultVersion: string;
 }
 
 // ===== TOC Types =====
@@ -271,8 +266,6 @@ interface LibraryInfo {
   name: string;
   /** Informational metadata — not used for routing or validation */
   languages: string[];
-  defaultVersion: string;
-  availableVersions: string[];
   sources: string[];
   toc: TocEntry[];
   availableSections: string[];
@@ -288,8 +281,6 @@ interface DocResult {
   content: string;
   /** URL where documentation was fetched from */
   source: string;
-  /** Exact version of documentation */
-  version: string;
   /** When documentation was last fetched/verified */
   lastUpdated: string; // ISO 8601
   /** Relevance confidence (0-1) */
@@ -313,8 +304,6 @@ interface DocChunk {
   id: string;
   /** Library this chunk belongs to */
   libraryId: string;
-  /** Library version */
-  version: string;
   /** Section title/heading */
   title: string;
   /** Chunk content in markdown */
@@ -367,7 +356,6 @@ interface PageResult {
 
 type ErrorCode =
   | "LIBRARY_NOT_FOUND"
-  | "VERSION_NOT_FOUND"
   | "TOPIC_NOT_FOUND"
   | "PAGE_NOT_FOUND"
   | "URL_NOT_ALLOWED"
@@ -402,8 +390,6 @@ interface CacheEntry {
   key: string;
   /** Library identifier */
   libraryId: string;
-  /** Library version */
-  version: string;
   /** Topic hash (for get-docs cache) or URL (for page cache) */
   identifier: string;
   /** Cached content */
@@ -552,8 +538,9 @@ interface SourceAdapter {
   /**
    * Fetch the table of contents for the given library.
    * Returns structured TOC entries parsed from llms.txt, GitHub /docs/, etc.
+   * Always fetches the latest available documentation.
    */
-  fetchToc(library: Library, version: string): Promise<TocEntry[] | null>;
+  fetchToc(library: Library): Promise<TocEntry[] | null>;
 
   /**
    * Fetch a single documentation page and return markdown content.
@@ -591,7 +578,7 @@ interface RawPageContent {
 class AdapterChain {
   private adapters: SourceAdapter[]; // sorted by priority
 
-  async fetchToc(library: Library, version: string): Promise<TocEntry[]> {
+  async fetchToc(library: Library): Promise<TocEntry[]> {
     const errors: Error[] = [];
 
     for (const adapter of this.adapters) {
@@ -634,7 +621,7 @@ canHandle(library):
   1. Check if library.docsUrl is set
   2. Return true if docsUrl is not null
 
-fetchToc(library, version):
+fetchToc(library):
   1. Fetch {library.docsUrl}/llms.txt
   2. If 404, return null
   3. Parse markdown: extract ## headings as sections, list items as entries
@@ -662,20 +649,19 @@ canHandle(library):
   1. Check if library.repoUrl is set and is a GitHub URL
   2. Return true if valid GitHub repo
 
-fetchToc(library, version):
-  1. Resolve version to git tag via GitHub API
-  2. Fetch /docs/ directory listing from repo
+fetchToc(library):
+  1. Fetch /docs/ directory listing from repo (default branch)
   3. If /docs/ exists → create TocEntry per file, using directories as sections
   4. If no /docs/ → parse README.md headings as TOC entries
   5. Generate GitHub raw URLs for each entry
   6. Return TocEntry[]
 
 fetchPage(url):
-  1. Fetch the raw file from GitHub at the resolved version tag
+  1. Fetch the raw file from GitHub (default branch)
   2. Return as markdown { content, title, sourceUrl, contentHash }
 
 checkFreshness(library, cached):
-  1. GET commit SHA for the version tag from GitHub API
+  1. GET latest commit SHA from GitHub API
   2. Compare against cached SHA
   3. Return true if SHA matches (content unchanged)
 ```
@@ -687,7 +673,7 @@ canHandle(library):
   1. Check if library.id matches any custom source config
   2. Return true if match found
 
-fetchToc(library, version):
+fetchToc(library):
   1. Determine source type (url, file, github)
   2. For "url": fetch URL, parse as llms.txt format
   3. For "file": read local file, parse as llms.txt format
@@ -729,8 +715,8 @@ The cache stores three types of content:
 
 | Domain | Key | Content | TTL |
 |--------|-----|---------|-----|
-| **TOC** | `toc:{libraryId}:{version}` | Parsed TocEntry[] | 24 hours |
-| **Docs/Chunks** | `doc:{libraryId}:{version}:{topicHash}` | BM25-matched content | 24 hours |
+| **TOC** | `toc:{libraryId}` | Parsed TocEntry[] | 24 hours |
+| **Docs/Chunks** | `doc:{libraryId}:{topicHash}` | BM25-matched content | 24 hours |
 | **Pages** | `page:{urlHash}` | Full page markdown | 24 hours |
 
 Pages are cached separately because they're shared across tools — `read-page` and `get-docs` both benefit from cached pages.
@@ -814,8 +800,8 @@ class PageCache {
 ### 5.5 Cache Key Strategy
 
 ```
-TOC key:  SHA-256("toc:" + libraryId + ":" + version)
-Doc key:  SHA-256("doc:" + libraryId + ":" + version + ":" + normalizedTopic)
+TOC key:  SHA-256("toc:" + libraryId)
+Doc key:  SHA-256("doc:" + libraryId + ":" + normalizedTopic)
 Page key: SHA-256("page:" + url)
 ```
 
@@ -825,7 +811,6 @@ Page key: SHA-256("page:" + url)
 |--------|---------|--------|
 | TTL expiry | Automatic | Entry marked stale; served with `stale: true` |
 | SHA mismatch | `checkFreshness()` on read | Refetch from source, update cache |
-| Version change | PyPI/npm shows new version | Old version cache untouched; new version fetched on demand |
 | Manual invalidation | Admin CLI command | Delete entry from both tiers |
 | Cleanup job | Scheduled (configurable interval) | Delete all expired entries from SQLite |
 
@@ -1149,7 +1134,6 @@ All inputs are validated at the MCP boundary using Zod schemas before any proces
 const GetDocsInput = z.object({
   libraries: z.array(z.object({
     libraryId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9\-_./]+$/),
-    version: z.string().max(50).optional(),
   })).min(1).max(10),
   topic: z.string().min(1).max(500),
   maxTokens: z.number().int().min(500).max(10000).default(5000),
@@ -1324,7 +1308,6 @@ Status determination:
 CREATE TABLE IF NOT EXISTS doc_cache (
   key TEXT PRIMARY KEY,
   library_id TEXT NOT NULL,
-  version TEXT NOT NULL,
   identifier TEXT NOT NULL,
   content TEXT NOT NULL,
   source_url TEXT NOT NULL,
@@ -1336,7 +1319,7 @@ CREATE TABLE IF NOT EXISTS doc_cache (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_doc_cache_library ON doc_cache(library_id, version);
+CREATE INDEX IF NOT EXISTS idx_doc_cache_library ON doc_cache(library_id);
 CREATE INDEX IF NOT EXISTS idx_doc_cache_expires ON doc_cache(expires_at);
 
 -- Page cache (full pages from read-page)
@@ -1358,20 +1341,18 @@ CREATE INDEX IF NOT EXISTS idx_page_cache_expires ON page_cache(expires_at);
 CREATE TABLE IF NOT EXISTS toc_cache (
   key TEXT PRIMARY KEY,
   library_id TEXT NOT NULL,
-  version TEXT NOT NULL,
   toc_json TEXT NOT NULL,          -- JSON array of TocEntry
   available_sections TEXT NOT NULL, -- JSON array of section names
   fetched_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_toc_cache_library ON toc_cache(library_id, version);
+CREATE INDEX IF NOT EXISTS idx_toc_cache_library ON toc_cache(library_id);
 
 -- Search index (BM25 term index)
 CREATE TABLE IF NOT EXISTS search_chunks (
   id TEXT PRIMARY KEY,
   library_id TEXT NOT NULL,
-  version TEXT NOT NULL,
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   section_path TEXT NOT NULL,
@@ -1380,7 +1361,7 @@ CREATE TABLE IF NOT EXISTS search_chunks (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_search_chunks_library ON search_chunks(library_id, version);
+CREATE INDEX IF NOT EXISTS idx_search_chunks_library ON search_chunks(library_id);
 
 -- FTS5 virtual table for full-text search (wraps search_chunks)
 CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
@@ -1416,8 +1397,6 @@ CREATE TABLE IF NOT EXISTS library_metadata (
   package_name TEXT NOT NULL,
   docs_url TEXT,
   repo_url TEXT,
-  versions TEXT NOT NULL,            -- JSON array
-  default_version TEXT NOT NULL,
   fetched_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -1429,7 +1408,6 @@ CREATE TABLE IF NOT EXISTS session_libraries (
   library_id TEXT NOT NULL PRIMARY KEY,
   name TEXT NOT NULL,
   languages TEXT NOT NULL,           -- JSON array (informational metadata)
-  version TEXT NOT NULL,
   resolved_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```

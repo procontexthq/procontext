@@ -19,9 +19,10 @@
 - [4. Resolution Algorithm](#4-resolution-algorithm)
   - [4.1 Input Normalization](#41-input-normalization)
   - [4.2 Resolution Steps](#42-resolution-steps)
-  - [4.3 llms.txt Resolution Details](#43-llmstxt-resolution-details)
-  - [4.4 Resolution Priority](#44-resolution-priority)
-  - [4.5 What `resolve-library` Returns](#45-what-resolve-library-returns)
+  - [4.3 Content Validation](#43-content-validation)
+  - [4.4 Deferred: Speculative URL Pattern Discovery](#44-deferred-speculative-url-pattern-discovery)
+  - [4.5 Resolution Priority](#45-resolution-priority)
+  - [4.6 What `resolve-library` Returns](#46-what-resolve-library-returns)
 - [5. Handling Edge Cases](#5-handling-edge-cases)
   - [5.1 Pip Extras](#51-pip-extras)
   - [5.2 Sub-packages in Monorepos](#52-sub-packages-in-monorepos)
@@ -126,16 +127,10 @@ A Documentation Source entry contains the following fields:
 
 **Matching Fields:**
 - `aliases` (list of strings): Alternative names/spellings for fuzzy matching
-- `versionPattern` (string, optional): How to construct versioned docs URLs
-  - Example: `"https://docs.pydantic.dev/{version}/llms.txt"`
 
 **llms.txt Support:**
-- `llmsTxt` (object, optional): Present if library has llms.txt file
-  - `url` (string, required): Main llms.txt URL (validated)
-  - `fullUrl` (string, optional): Full content variant URL (llms-full.txt if exists)
-  - `isHub` (boolean, required): Whether this is a hub file (links to multiple variants)
-  - `variants` (list, optional): Variant URLs if this is a hub
-    - Each variant has: `label` (string), `url` (string), `type` (string: language/version/package/size)
+- `llmsTxt` (object, optional): Present if library has a validated llms.txt file
+  - `url` (string, required): llms.txt URL (validated)
   - `platform` (string, optional): Documentation platform (mintlify, vitepress, custom, etc.)
   - `lastValidated` (string, required): Last validation timestamp (ISO format)
 
@@ -151,7 +146,7 @@ A Documentation Source entry contains the following fields:
 
 **Discovery strategy**: Pro-Context uses a registry-first approach with fallback URL pattern testing (see `docs/research/llms-txt-resolution-strategy.md`).
 
-**Hub-and-spoke pattern**: Some libraries (Svelte, Supabase, TanStack) provide a main llms.txt file that links to multiple variants (by language, version, package, or size). The registry detects these hubs and stores variant information.
+**Hub files as build-time discovery aids**: Some documentation sites (Svelte, Supabase) publish a "hub" llms.txt at their root that links to multiple per-product or per-language llms.txt files. These hubs are useful during registry construction — the build script follows the links to discover individual llms.txt files and creates a separate DocSource for each one. Hubs do not exist in the runtime data model. Each individual llms.txt file found via a hub becomes its own DocSource.
 
 **Content validation**: Not all URLs that return HTTP 200 serve valid llms.txt content. Some return HTML error pages. Pro-Context validates:
 - Content-Type header (should be text/plain or text/markdown, not HTML)
@@ -166,11 +161,7 @@ A Documentation Source entry contains the following fields:
 - `{library}.com/docs/llms.txt` (OpenAI pattern)
 - `docs.{library}.com/en/llms.txt` (Anthropic pattern)
 
-**Variants**:
-- **Language**: `python.langchain.com/llms.txt` vs `js.langchain.com/llms.txt`
-- **Version**: `nextjs.org/docs/15/llms.txt` vs `/docs/14/llms.txt`
-- **Package**: `svelte.dev/docs/kit/llms.txt` vs `/docs/svelte/llms.txt`
-- **Size**: `svelte.dev/llms-full.txt` vs `/llms-medium.txt` vs `/llms-small.txt`
+**Note on multi-product sites**: Some documentation sites host llms.txt files for multiple products under one domain (e.g., `svelte.dev/docs/svelte/llms.txt` and `svelte.dev/docs/kit/llms.txt`). Each distinct llms.txt file becomes its own DocSource. The shared domain is not a grouping signal — the individual llms.txt file is the unit of identity.
 
 ### 3.3 Example Entries
 
@@ -188,7 +179,6 @@ A Documentation Source entry contains the following fields:
     "aliases": ["lang-chain", "lang chain"],
     "llmsTxt": {
       "url": "https://python.langchain.com/llms.txt",
-      "isHub": false,
       "platform": "mintlify",
       "lastValidated": "2026-02-17"
     }
@@ -200,7 +190,7 @@ A Documentation Source entry contains the following fields:
     "repoUrl": "https://github.com/langchain-ai/langgraph",
     "languages": ["python"],
     "packages": {
-      "pypi": ["langgraph", "langgraph-sdk", "langgraph-checkpoint", "langgraph-checkpoint-postgres", "langgraph-checkpoint-sqlite"]
+      "pypi": ["langgraph", "langgraph-sdk", "langgraph-checkpoint"]
     },
     "aliases": ["lang-graph", "lang graph"]
   },
@@ -214,10 +204,8 @@ A Documentation Source entry contains the following fields:
       "pypi": ["pydantic", "pydantic-core", "pydantic-settings", "pydantic-extra-types"]
     },
     "aliases": [],
-    "versionPattern": "https://docs.pydantic.dev/{version}/llms.txt",
     "llmsTxt": {
       "url": "https://docs.pydantic.dev/latest/llms.txt",
-      "isHub": false,
       "platform": "custom",
       "lastValidated": "2026-02-17"
     }
@@ -240,75 +228,97 @@ A Documentation Source entry contains the following fields:
     "repoUrl": "https://github.com/tiangolo/fastapi",
     "languages": ["python"],
     "packages": {
-      "pypi": ["fastapi", "fastapi-cli"]
+      "pypi": ["fastapi"]
     },
     "aliases": ["fast-api", "fast api"]
-  },
-  {
-    "id": "protobuf",
-    "name": "Protocol Buffers",
-    "docsUrl": "https://protobuf.dev",
-    "repoUrl": "https://github.com/protocolbuffers/protobuf",
-    "languages": ["python", "javascript", "go", "java", "cpp"],
-    "packages": {
-      "pypi": ["protobuf", "grpcio", "grpcio-tools"],
-      "npm": ["protobufjs", "@grpc/grpc-js"]
-    },
-    "aliases": ["protobuf", "protocol buffers", "proto", "grpc"]
   },
   {
     "id": "tensorflow",
     "name": "TensorFlow",
     "docsUrl": "https://www.tensorflow.org",
-    "repoUrl": "https://github.com/tensorflow/tensorflow",
     "languages": ["python", "javascript"],
     "packages": {
-      "pypi": ["tensorflow", "tensorflow-gpu", "tensorflow-cpu", "tf-nightly", "keras"],
+      "pypi": ["tensorflow", "tensorflow-gpu", "tensorflow-cpu", "tf-nightly"],
       "npm": ["@tensorflow/tfjs"]
     },
     "aliases": ["tf"]
   },
   {
-    "id": "supabase",
-    "name": "Supabase",
+    "id": "supabase-python",
+    "name": "Supabase Python SDK",
     "docsUrl": "https://supabase.com",
-    "repoUrl": "https://github.com/supabase/supabase",
-    "languages": ["javascript", "python", "dart", "swift", "kotlin"],
+    "repoUrl": "https://github.com/supabase/supabase-py",
+    "languages": ["python"],
     "packages": {
-      "npm": ["@supabase/supabase-js"],
       "pypi": ["supabase"]
+    },
+    "aliases": ["supabase"],
+    "llmsTxt": {
+      "url": "https://supabase.com/llms/python.txt",
+      "platform": "custom",
+      "lastValidated": "2026-02-17"
+    }
+  },
+  {
+    "id": "supabase-js",
+    "name": "Supabase JavaScript SDK",
+    "docsUrl": "https://supabase.com",
+    "repoUrl": "https://github.com/supabase/supabase-js",
+    "languages": ["javascript"],
+    "packages": {
+      "npm": ["@supabase/supabase-js"]
+    },
+    "aliases": ["supabase"],
+    "llmsTxt": {
+      "url": "https://supabase.com/llms/js.txt",
+      "platform": "custom",
+      "lastValidated": "2026-02-17"
+    }
+  },
+  {
+    "id": "svelte",
+    "name": "Svelte",
+    "docsUrl": "https://svelte.dev",
+    "repoUrl": "https://github.com/sveltejs/svelte",
+    "languages": ["javascript"],
+    "packages": {
+      "npm": ["svelte"]
     },
     "aliases": [],
     "llmsTxt": {
-      "url": "https://supabase.com/llms.txt",
-      "isHub": true,
-      "variants": [
-        {
-          "label": "Guides",
-          "url": "https://supabase.com/llms/guides.txt",
-          "type": "package"
-        },
-        {
-          "label": "JavaScript SDK",
-          "url": "https://supabase.com/llms/js.txt",
-          "type": "language"
-        },
-        {
-          "label": "Python SDK",
-          "url": "https://supabase.com/llms/python.txt",
-          "type": "language"
-        },
-        {
-          "label": "Dart SDK",
-          "url": "https://supabase.com/llms/dart.txt",
-          "type": "language"
-        },
-        {
-          "label": "Swift SDK",
-          "url": "https://supabase.com/llms/swift.txt",
-          "type": "language"
-        }
-      ],
+      "url": "https://svelte.dev/docs/svelte/llms.txt",
+      "platform": "custom",
+      "lastValidated": "2026-02-17"
+    }
+  },
+  {
+    "id": "sveltekit",
+    "name": "SvelteKit",
+    "docsUrl": "https://svelte.dev",
+    "repoUrl": "https://github.com/sveltejs/kit",
+    "languages": ["javascript"],
+    "packages": {
+      "npm": ["@sveltejs/kit"]
+    },
+    "aliases": ["svelte-kit"],
+    "llmsTxt": {
+      "url": "https://svelte.dev/docs/kit/llms.txt",
+      "platform": "custom",
+      "lastValidated": "2026-02-17"
+    }
+  },
+  {
+    "id": "transformers",
+    "name": "Transformers",
+    "docsUrl": "https://huggingface.co/docs/transformers",
+    "repoUrl": "https://github.com/huggingface/transformers",
+    "languages": ["python"],
+    "packages": {
+      "pypi": ["transformers"]
+    },
+    "aliases": ["huggingface-transformers", "hf-transformers"],
+    "llmsTxt": {
+      "url": "https://huggingface.co/docs/transformers/llms.txt",
       "platform": "custom",
       "lastValidated": "2026-02-17"
     }
@@ -341,26 +351,21 @@ Input: "langchain-openai"
 ```
 resolve-library(query: "langchain-openai", language?: "python")
   │
-  ├─ Step 0: Parse query context
-  │    Extract: name, language, version, variant from query
-  │    Example: "nextjs@14" → {name: "nextjs", version: "14"}
+  ├─ Step 0: Parse and normalize query
+  │    Extract: name, language from query
   │    Example: "langchain python" → {name: "langchain", language: "python"}
   │    Normalize: strip pip extras, version specs, lowercase
   │    "langchain[openai]>=0.3" → "langchain"
   │
-  ├─ Step 1: Registry lookup with llms.txt preference
+  ├─ Step 1: Registry lookup
   │
   │    1a. Exact package match in registry
   │        Search packages.pypi across all DocSource entries
   │        "langchain-openai" found in DocSource "langchain"
-  │        → MATCH: DocSource "langchain"
+  │        → MATCH: return DocSource "langchain"
   │
-  │    1b. Check if DocSource has llms.txt
-  │        If llmsTxt.url exists and validated:
-  │          → Select appropriate variant based on context
-  │          → Return llms.txt URL as primary source
-  │        If no llms.txt:
-  │          → Use docsUrl as fallback
+  │    1b. (The DocSource already contains llmsTxt.url if available —
+  │         the adapter chain uses this at content-fetch time)
   │
   ├─ Step 2: Exact ID match (if step 1 fails)
   │    Search DocSource.id
@@ -375,168 +380,94 @@ resolve-library(query: "langchain-openai", language?: "python")
   │    → Might match "langchain" (distance 7 — too far)
   │    → No useful fuzzy match
   │
-  ├─ Step 5: llms.txt URL pattern discovery (if step 4 fails)
-  │    Try common llms.txt URL patterns:
-  │    - https://docs.{name}.com/llms.txt
-  │    - https://{name}.dev/llms.txt
-  │    - https://{name}.com/llms.txt
-  │    - https://{name}.io/llms.txt
-  │    - (+ 6 more patterns, see section 4.3)
-  │
-  │    For each pattern:
-  │      a. Validate URL (HTTP 200 + content validation)
-  │      b. If valid: detect hub, create DocSource, cache
-  │      c. Return DocSource with llms.txt info
-  │
-  ├─ Step 6: PyPI discovery (if step 5 fails)
+  ├─ Step 5: PyPI discovery (if step 4 fails)
   │    GET https://pypi.org/pypi/{name}/json
+  │    → Extract project_urls.Repository (or Source, or Homepage if GitHub URL)
   │    → Extract project_urls.Documentation → docsUrl
-  │    → Extract project_urls.Source → repoUrl
-  │    → Try llms.txt patterns on discovered docsUrl
-  │    → Create ephemeral DocSource, cache it
+  │    → Probe for llms.txt using docsUrl-relative patterns:
+  │        1. {docsUrl}/llms.txt           (direct — works for LangChain)
+  │        2. {docsUrl}/en/llms.txt        (locale prefix — works for Anthropic)
+  │        3. {docsUrl}/latest/llms.txt    (version prefix — works for Pydantic)
+  │        4. {domainRoot}/llms.txt        (if docsUrl has a path, try root)
+  │    → Validate each probe (see Section 4.3)
+  │    → Create DocSource with discovered metadata, cache it
   │
-  └─ Step 7: GitHub discovery (if step 6 fails)
+  └─ Step 6: GitHub discovery (if step 5 fails)
        If query looks like "owner/repo", try GitHub API
        GET https://api.github.com/repos/{owner}/{repo}
        → Extract homepage → docsUrl
-       → Try llms.txt patterns on discovered homepage
-       → Create ephemeral DocSource, cache it
+       → Probe for llms.txt using same docsUrl-relative patterns as Step 5
+       → Create DocSource, cache it
 ```
 
-### 4.3 llms.txt Resolution Details
+### 4.3 Content Validation
 
-**URL Pattern Priority** (based on research of 70+ libraries):
+When Steps 5 or 6 discover a potential llms.txt URL (from PyPI docsUrl or GitHub homepage), the content must be validated before accepting it. Many URLs return HTTP 200 but serve HTML error pages.
 
-When Step 5 tries llms.txt URL patterns, it tests in this order:
+**Validation checks:**
 
-**If language context provided, prepend:**
-- `https://{language}.{name}.com/llms.txt` (python.langchain.com)
-- `https://{name}.com/llms/{language}.txt` (supabase.com/llms/python.txt)
+1. **HTTP Status**: HEAD request must return 200.
+2. **Content-Type Header**: Should be `text/plain` or `text/markdown`. If it contains "html", reject.
+3. **Content Check** (first 1KB only): Fetch first 1024 bytes. Reject if it contains HTML indicators (`<!DOCTYPE`, `<html>`, `<head>`, `<body>`).
+4. **Markdown Format**: First line must start with `#` (markdown header).
 
-**If version context provided, prepend:**
-- `https://{name}.org/docs/{version}/llms.txt` (nextjs.org/docs/15/llms.txt)
-- `https://docs.{name}.com/{version}/llms.txt`
+URL is valid only if all checks pass.
 
-**Standard patterns (ordered by frequency from research):**
-- `https://docs.{name}.com/llms.txt` (30% of cases)
-- `https://{name}.dev/llms.txt` (Modern frameworks)
-- `https://{name}.com/llms.txt` (25% of cases)
-- `https://{name}.io/llms.txt` (15% of cases)
-- `https://www.{name}.com/llms.txt` (10% of cases)
-- `https://docs.{name}.dev/llms.txt` (Pydantic pattern)
-- `https://{name}.com/docs/llms.txt` (OpenAI pattern)
-- `https://docs.{name}.com/en/llms.txt` (Anthropic pattern)
-- `https://docs.{name}.io/llms.txt` (Pinecone pattern)
-- `https://{name}.readthedocs.io/llms.txt` (ReadTheDocs - low success rate)
+**Hub files at build time**: During registry construction, the build script may encounter hub llms.txt files (e.g., `svelte.dev/llms.txt` linking to `docs/svelte/llms.txt`, `docs/kit/llms.txt`). The build script follows these links, validates each one, and creates a separate DocSource for each valid llms.txt file. The hub itself is not stored — it's a discovery mechanism only. See Section 6.2 for build script details.
 
-**Content Validation** (critical to avoid HTML error pages):
+### 4.4 Deferred: Speculative URL Pattern Discovery
 
-For each candidate URL, perform validation checks:
+> **Status**: Deferred to future phase (JS/TS ecosystem support).
+>
+> **Important distinction**: The docsUrl-relative probes in Steps 5-6 (trying `/llms.txt`, `/en/llms.txt`, `/latest/llms.txt` on a known docs domain) are NOT deferred — they are needed because llms.txt doesn't always live at the domain root. What IS deferred is the speculative name-based guessing below, which tries to discover the docs domain itself from the library name.
+>
+> For libraries not in the registry and not on PyPI, a speculative URL pattern discovery step could try common llms.txt URL patterns based on the library name:
+>
+> ```
+> https://docs.{name}.com/llms.txt   (30% of cases in research)
+> https://{name}.dev/llms.txt        (popular with JS frameworks)
+> https://{name}.com/llms.txt        (25% of cases)
+> https://{name}.io/llms.txt         (15% of cases)
+> https://www.{name}.com/llms.txt    (10% of cases)
+> https://docs.{name}.dev/llms.txt   (Pydantic pattern)
+> https://{name}.com/docs/llms.txt   (OpenAI pattern)
+> https://docs.{name}.com/en/llms.txt (Anthropic pattern)
+> https://docs.{name}.io/llms.txt    (Pinecone pattern)
+> https://{name}.readthedocs.io/llms.txt (ReadTheDocs)
+> ```
+>
+> With language/version context, additional patterns could be prepended:
+> - `https://{language}.{name}.com/llms.txt` (python.langchain.com)
+> - `https://{name}.com/llms/{language}.txt` (supabase.com/llms/python.txt)
+> - `https://{name}.org/docs/{version}/llms.txt` (nextjs.org/docs/15/llms.txt)
+>
+> **Why deferred**: For the Python-focused MVP, PyPI metadata (Step 5) already provides the correct documentation URL for every package that has one. Speculative URL guessing adds 10 HTTP requests for near-zero benefit. This becomes valuable when JS/TS support is added (npm metadata + these patterns would cover frameworks like Angular, Svelte, Vite that use .dev domains).
+>
+> Research data: See `docs/research/llms-txt-deployment-patterns.md` for the full survey of 70+ libraries that informed these patterns.
 
-1. **HTTP Status Check**
-   - Make HEAD request to URL
-   - Must return HTTP 200 status
-   - If not 200, URL is invalid
-
-2. **Content-Type Header Check**
-   - Examine Content-Type response header
-   - Should be `text/plain` or `text/markdown`
-   - If contains "html", URL is invalid
-
-3. **Content Validation** (first 1KB only)
-   - Fetch first 1024 bytes of content
-   - Check for HTML indicators:
-     - `<!DOCTYPE`
-     - `<html>` or `<HTML>`
-     - `<head>`
-     - `<body>`
-   - If any HTML tags found, URL is invalid
-
-4. **Markdown Format Check**
-   - Extract first line of content
-   - Must start with `#` (markdown header)
-   - If not markdown, URL is invalid
-
-Result: URL is valid only if all checks pass
-
-**Hub Detection** (for multi-variant libraries):
-
-When a valid llms.txt is found, check if it's a hub file:
-
-**Hub Detection Algorithm:**
-
-1. **Extract Markdown Links**
-   - Parse llms.txt content for markdown link pattern: `[label](url)`
-   - Find all links ending with `.txt` extension
-
-2. **Filter for llms.txt Variants**
-   - Keep only URLs containing "llms" in path
-   - For each link, extract:
-     - Label (link text)
-     - URL
-     - Inferred variant type
-
-3. **Hub Threshold Check**
-   - If >2 llms.txt links found → classify as hub
-   - Otherwise → regular llms.txt file
-
-**Variant Type Inference:**
-
-For each variant, infer type from label and URL:
-
-- **Language variant**: Contains language keywords (python, javascript, typescript, rust, go, etc.)
-- **Size variant**: Contains size keywords (full, medium, small, lite)
-- **Version variant**: Contains version number pattern (v14, v15, etc.)
-- **Package variant**: Default for all others (kit, router, query, cli, etc.)
-
-**Variant Selection** (when hub detected):
-
-When hub file has multiple variants, select best match based on context:
-
-1. **Language Filter** (if language specified in context)
-   - Find variant where type is "language"
-   - Check if variant label includes requested language
-   - If found, return that variant's URL
-
-2. **Version Filter** (if version specified in context)
-   - Find variant where type is "version"
-   - Check if variant URL includes requested version
-   - If found, return that variant's URL
-
-3. **Multiple Variants Remain**
-   - If >1 variant after filtering
-   - Return hub URL with metadata about available variants
-   - Agent can prompt user to select specific variant
-
-4. **Default**
-   - Return first variant URL
-   - Or return hub URL if no variants selected
-
-### 4.4 Resolution Priority
+### 4.5 Resolution Priority
 
 | Step | Source | Speed | Coverage | When Used |
 |------|--------|-------|----------|-----------|
 | 0 | Query parsing | <1ms | All queries | Extract context (language, version) |
-| 1 | Registry lookup (with llms.txt) | <10ms | 80% (curated) | Always (first check) |
+| 1 | Registry lookup | <10ms | 80% (curated) | Always (first check) |
 | 2 | DocSource ID exact match | <1ms | Curated libraries only | Agent uses known IDs |
 | 3 | Alias match | <1ms | Curated libraries only | Typos, alternative names |
 | 4 | Fuzzy match (Levenshtein) | <10ms | Curated libraries only | Misspellings |
-| 5 | llms.txt URL pattern testing | 5-10s | 60% of popular libs | Unknown libs with llms.txt |
-| 6 | PyPI metadata discovery | ~500ms | Any PyPI package | Unknown Python libraries |
-| 7 | GitHub discovery | ~500ms | Any GitHub repo | Non-PyPI libraries |
+| 5 | PyPI metadata discovery | ~500ms | Any PyPI package | Unknown Python libraries (targeted: gets real docsUrl) |
+| 6 | GitHub discovery | ~500ms | Any GitHub repo | Non-PyPI libraries, or when query contains "/" |
 
 **Key insights:**
 - Steps 0-4 are in-memory, fast (<10ms), depend on registry quality
-- Step 5 is network calls but **highly effective** (60% of libs have llms.txt)
-- Steps 6-7 are fallbacks for libraries without llms.txt
-- **llms.txt prioritization** means 95%+ of popular libraries resolve fast
+- Step 5 (PyPI) is a targeted lookup — gets the real docsUrl from package metadata, then probes 3-4 path variants for llms.txt (`/llms.txt`, `/en/llms.txt`, `/latest/llms.txt`, domain root). These are docsUrl-relative probes on a known domain, not speculative guesses across unknown TLDs.
+- Step 6 (GitHub) handles the long tail: libraries not on PyPI, GitHub-only projects.
+- Speculative URL pattern guessing (trying .com/.dev/.io) is deferred — see Section 4.4.
 
 **Performance optimization:**
-- Step 5 can test patterns in parallel (10 patterns in ~5s instead of 50s)
-- Discovered llms.txt URLs are cached in registry
-- Registry hits (Step 1) serve llms.txt URL immediately (<10ms)
+- Discovered DocSources are cached for future lookups
+- Registry hits (Step 1) resolve immediately (<10ms)
 
-### 4.5 What `resolve-library` Returns
+### 4.6 What `resolve-library` Returns
 
 `resolve-library` returns **DocSource** matches, not package matches. If "langchain-openai" resolves to the "langchain" DocSource, the response is:
 
@@ -624,7 +555,7 @@ For libraries without a PyPI package:
 - The server creates an ephemeral DocSource from the repo metadata
 - Subsequent calls can use the generated `libraryId`
 
-### 5.6 Version Variants
+### 5.6 Distribution Variants
 
 Some libraries publish separate PyPI packages for different release channels or build configurations:
 
@@ -639,22 +570,12 @@ These are **not** separate libraries — they're distribution variants of the sa
 {
   "id": "tensorflow",
   "packages": {
-    "pypi": ["tensorflow", "tensorflow-gpu", "tensorflow-cpu", "tf-nightly", "keras"]
+    "pypi": ["tensorflow", "tensorflow-gpu", "tensorflow-cpu", "tf-nightly"]
   }
 }
 ```
 
-When an agent calls `resolve-library("tf-nightly")`, step 1 (exact package match) finds `"tf-nightly"` in the TensorFlow DocSource and returns it immediately. The agent never needs to know these are separate PyPI packages.
-
-**The nightly version problem.** The tricky part is what happens *after* resolution, when the server needs to fetch version-specific docs. A nightly package like `tf-nightly==2.18.0.dev20260215` implies version 2.18 — but that version is unreleased, and its docs likely don't exist yet. For example, TensorFlow publishes versioned docs at `tensorflow.org/api/r2.17`, but there's no `/api/r2.18` until 2.18 is released.
-
-**Fallback behavior:** When a version variant maps to an unreleased docs version, the server should:
-
-1. Attempt to fetch docs for the resolved version (e.g., `r2.18`).
-2. If that fails (404), fall back to the **latest stable** version (e.g., `r2.17`).
-3. Include a note in the response: `"Note: tf-nightly targets unreleased version 2.18. Serving docs for latest stable release (2.17). Some APIs may differ."`
-
-This is the right trade-off — slightly stale docs are far more useful than no docs at all, and the explicit warning lets the agent (and developer) know to watch for discrepancies.
+When an agent calls `resolve-library("tf-nightly")`, step 1 (exact package match) finds `"tf-nightly"` in the TensorFlow DocSource and returns it immediately. The agent never needs to know these are separate PyPI packages. Pro-Context always serves the latest available documentation regardless of which variant package was resolved.
 
 ---
 
@@ -729,10 +650,10 @@ build-registry.ts
       - Check starts with markdown header (#)
 
    c. If valid llms.txt found:
-      - Parse content to detect hub-and-spoke structure
-      - Extract variant URLs if hub detected
+      - Check if it's a hub (links to other llms.txt files)
+      - If hub: follow links, validate each variant, create separate DocSource per valid variant
+      - If not hub: store llmsTxt URL in the DocSource
       - Determine doc platform (mintlify, vitepress, custom)
-      - Store llmsTxt object in DocSource
 
    d. If no llms.txt found and no docsUrl:
       - Check if repoUrl has /docs/ directory
@@ -747,27 +668,33 @@ build-registry.ts
 6. Output known-libraries.json
 ```
 
-### 6.3 Package Grouping Heuristic
+### 6.3 Package Grouping Rule
 
 How do we know that `langchain-openai` belongs with `langchain`?
 
-**Heuristic 1: Shared documentation URL.** If two PyPI packages list the same `project_urls.Documentation`, they belong to the same DocSource. This catches most monorepo sub-packages.
+**The rule is simple: same GitHub repository URL = same DocSource.**
 
-**Heuristic 2: Prefix matching with shared org.** If `langchain-openai` and `langchain` have the same GitHub org (`langchain-ai`), and `langchain-openai` doesn't have its own documentation URL (or it points to the parent docs), group them.
+The build script extracts the Repository URL (or Source URL, or Homepage if it's a GitHub URL) from each package's PyPI metadata. Packages sharing the exact same Repository URL are grouped into one DocSource.
 
-**Heuristic 3: Manual override.** For cases the heuristics miss, a manual override file specifies explicit groupings.
+| Signal | Used for grouping? | Why |
+|--------|-------------------|-----|
+| Same Repository URL | **Yes (primary)** | Monorepo sub-packages share a repo. Verified against LangChain, Pydantic, HuggingFace, TensorFlow ecosystems. |
+| Same Homepage URL | **Yes (fallback)** | Only when Repository URL is missing. Catches packages like tensorflow/tensorflow-gpu/tf-nightly that have no repo but share `tensorflow.org` as Homepage. |
+| Same Documentation URL | No | Every sub-package has a unique Documentation URL pointing to its specific page. Not useful for grouping. |
+| Same GitHub org | No | Too loose. HuggingFace packages share the `huggingface` org but are separate products with separate repos. |
+| Same domain | No | Too loose. Multiple unrelated products can share a domain (e.g., `huggingface.co/docs/transformers/` vs `huggingface.co/docs/diffusers/`). |
+
+**Manual override.** For cases the automated rule misses, a manual override file specifies explicit groupings or separations.
 
 ### 6.4 Registry Size Estimates
 
 | Filter | Packages | Unique DocSources | With llms.txt | Registry File Size |
 |--------|----------|-------------------|---------------|-------------------|
-| Top 1,000 by downloads | 1,000 | ~600-700 | ~400-500 (80%) | ~200KB (with llms.txt data) |
-| Top 5,000 by downloads | 5,000 | ~3,000-3,500 | ~2,000-2,500 (70%) | ~900KB (with llms.txt data) |
-| llms.txt-only subset | ~500 | ~500 | ~500 (100%) | ~150KB |
+| Top 1,000 by downloads | 1,000 | ~600-700 | ~400-500 (80%) | ~150KB |
+| Top 5,000 by downloads | 5,000 | ~3,000-3,500 | ~2,000-2,500 (70%) | ~700KB |
 
 **Notes:**
-- The package-to-source deduplication is significant — top 1,000 packages collapse to ~600-700 unique documentation sources because of ecosystem grouping
-- llms.txt data adds ~30-40% to registry size (URLs, variant info, platform metadata)
+- The package-to-source deduplication is significant — top 1,000 packages collapse to ~600-700 unique documentation sources because monorepo sub-packages share a Repository URL
 - Expected llms.txt adoption: 80% of top 1,000, 70% of top 5,000 (based on research showing 60% overall, 100% for AI/ML, 90% for dev platforms)
 
 ### 6.5 Registry Refresh Cadence
@@ -775,7 +702,7 @@ How do we know that `langchain-openai` belongs with `langchain`?
 - **Monthly**: Re-run build script against latest top-pypi-packages
   - Discover new packages that crossed popularity threshold
   - Re-probe all docsUrls for llms.txt (detect new adoptions)
-  - Update hub structures (libraries may add new variants)
+  - Follow hub links to discover new per-product llms.txt files
   - Re-validate existing llms.txt URLs (detect moved/broken links)
 
 - **Weekly** (automated, lightweight):
@@ -794,7 +721,7 @@ How do we know that `langchain-openai` belongs with `langchain`?
   - All URLs resolve (docsUrl, repoUrl, llms.txt URLs)
   - No duplicate DocSource IDs
   - llms.txt content validation passes
-  - Hub variant URLs are reachable
+  - No stale llms.txt URLs
 
 ---
 
@@ -889,7 +816,7 @@ At startup, the server loads `known-libraries.json` into memory and builds three
 | **Structured metadata** | Yes: name, summary, project_urls, version list, classifiers | Limited: description, homepage, topics. No package-level metadata |
 | **Documentation URL** | Often in `project_urls.Documentation` — but not always set, sometimes stale | Homepage field — may or may not be docs. Often points to the repo itself |
 | **Download/popularity data** | Via BigQuery or top-pypi-packages dataset. Well-established | Stars, forks. Less reliable as popularity metric |
-| **Package grouping** | Possible via shared docs URL. Explicit package names | Monorepos are visible but sub-packages aren't distinct |
+| **Package grouping** | Shared Repository URL is the primary grouping signal. Homepage URL as fallback. | Monorepos are visible but sub-packages aren't distinct |
 | **Multi-language** | Python only | All languages |
 | **Non-public libraries** | Not on PyPI | May be on GitHub Enterprise, or not on GitHub at all |
 | **Rate limits** | No auth needed for JSON API. No rate limit documented | 60 req/hr unauthenticated, 5,000 with PAT |
@@ -908,51 +835,25 @@ When the server discovers a library via PyPI at runtime (Step 5), should it pers
 
 **Lean**: Persist to SQLite with a TTL (e.g., 7 days). If a library is queried once, it's likely to be queried again. Persisting avoids repeated PyPI lookups.
 
-### Q2: How do we handle packages that share a docs URL but shouldn't be grouped?
-
-For example, if two unrelated packages happen to link to the same documentation hosting platform (e.g., both link to readthedocs.io root). The grouping heuristic would incorrectly merge them.
-
-**Lean**: Only group when the full docs URL matches (not just the domain). `readthedocs.io` wouldn't match, but `langchain.readthedocs.io` would correctly group LangChain packages.
-
-### Q3: Should the registry include packages below a popularity threshold?
+### Q2: Should the registry include packages below a popularity threshold?
 
 The top-pypi-packages dataset has 15,000 packages. Should we include all of them, or filter?
 
 **Lean**: Start with top 5,000 (>572K monthly downloads). This covers every library a typical developer encounters. The PyPI discovery fallback handles the long tail. We can expand later based on user feedback.
 
-### Q4: Runtime discovery can create duplicate DocSources for version variants
-
-When a new variant package (e.g., `tensorflow-lite`) is published to PyPI and isn't in the curated registry, Step 5 (PyPI discovery) creates an ephemeral DocSource for it. If that package's `project_urls.Documentation` points to `tensorflow.org` — the same docs URL as the existing `"tensorflow"` DocSource — the server now has two DocSources for the same documentation site. The shared-docs-URL grouping heuristic (section 6.3) only runs at registry build time, not at runtime, so this duplication goes undetected.
-
-This could lead to the agent getting separate results for `tensorflow` and `tensorflow-lite` when they should be unified, or to redundant cache entries for the same pages.
-
-**Possible mitigations:**
-- At runtime, before creating an ephemeral DocSource, check if the discovered `docsUrl` already belongs to an existing DocSource. If it does, add the new package name to the existing entry instead of creating a new one.
-- Periodically re-run the registry build script to absorb popular ephemeral discoveries into the curated registry.
-
-**Lean**: No lean yet — needs further thought on the runtime check approach and whether it introduces false positives (e.g., packages that legitimately share a docs *domain* but not a docs *site*).
-
-### Q5: How do we handle the agent passing a requirements.txt dump?
+### Q3: How do we handle the agent passing a requirements.txt dump?
 
 An agent might call `resolve-library` with each line from a requirements.txt. Some of those will be transitive dependencies (e.g., `certifi`, `urllib3`) that the developer never directly uses and doesn't need docs for.
 
 **Lean**: Not our problem. The agent decides what to resolve. If it's smart, it resolves direct dependencies only. Pro-Context resolves whatever it's asked to resolve.
 
-### Q6: When hub-and-spoke detected, should we cache all variants proactively?
+### Q4: Should llms.txt take absolute priority over docsUrl?
 
-When a library has a hub llms.txt with 5-9 variants (like Supabase), should we:
-- Cache only the hub + selected variant, OR
-- Proactively fetch and cache all variants
-
-**Lean**: Cache only what's requested. Proactive caching wastes bandwidth/storage for variants the user never needs. The hub detection provides metadata so the agent can request specific variants as needed.
-
-### Q7: Should llms.txt take absolute priority over docsUrl?
-
-If a DocSource has both `docsUrl` and `llmsTxt.url`, should llms.txt always be used first, or should we fall back to HTML scraping if llms.txt content seems incomplete?
+If a DocSource has both `docsUrl` and `llmsTxt.url`, should llms.txt always be used first, or should we fall back to GitHub/HTML scraping if llms.txt content seems incomplete?
 
 **Lean**: llms.txt takes absolute priority. If a library publishes llms.txt, they're explicitly supporting AI agents. Trust their curation. If content is incomplete, that's the library maintainer's problem to fix, not ours to work around.
 
-### Q8: How do we handle llms.txt URL migrations?
+### Q5: How do we handle llms.txt URL migrations?
 
 A library might move their llms.txt from `library.com/llms.txt` to `docs.library.com/llms.txt`. Should we:
 - Keep old URL and periodically re-check for 301 redirects

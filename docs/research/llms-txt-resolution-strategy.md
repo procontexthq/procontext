@@ -630,76 +630,38 @@ For entries older than 30 days:
 
 ### With Library Resolution Algorithm
 
-This strategy becomes **Step 0** in Pro-Context's library resolution:
+This strategy has been integrated into `05-library-resolution.md`. The resolution algorithm is:
 
 ```
-Current Resolution Flow (05-library-resolution.md):
-1. Check cache
-2. Normalize library name
-3. Query package managers
-4. Try heuristics (GitHub, docs patterns)
-5. Fall back to search
-
-Updated Flow with llms.txt:
-0. Try llms.txt resolution (THIS STRATEGY)
-   ↓ (if found, return immediately)
-   ↓ (if not found, continue to existing flow)
-1. Check cache
-2. Normalize library name
-3. Query package managers
-4. Try heuristics
-5. Fall back to search
+Step 0: Parse query context (extract name, language, version)
+Step 1: Registry lookup with llms.txt preference (fastest path)
+Step 2: Exact ID match
+Step 3: Alias match
+Step 4: Fuzzy match (Levenshtein)
+Step 5: PyPI discovery (targeted — gets real docsUrl, then probes llms.txt)
+Step 6: llms.txt URL pattern discovery (speculative — tries 10 URL patterns)
+Step 7: GitHub discovery (last resort)
 ```
+
+llms.txt is not a separate "Step 0" — it's woven into every step. The registry (Step 1) stores llms.txt URLs. PyPI discovery (Step 5) probes for llms.txt on discovered docsUrls. Pattern discovery (Step 6) tries llms.txt URL patterns directly. The entire resolution algorithm is llms.txt-first by design.
 
 ### With Adapter Chain
 
-New adapter: `LLMsTxtAdapter` (Priority 0 - highest)
+> **Note:** The adapter pseudocode below was an early design sketch. The authoritative resolution algorithm is in `05-library-resolution.md` Section 4.2. The key change from this sketch: PyPI discovery (targeted) now comes before blind URL pattern testing (speculative), because PyPI gives us the real docsUrl rather than guessing.
 
 ```javascript
-class LLMsTxtAdapter extends DocumentationAdapter {
-  priority = 0;
-
-  async resolve(libraryName, context) {
-    // Step 1: Parse query
-    const libContext = parseLibraryQuery(libraryName);
-
-    // Step 2: Check registry
-    const registryEntry = await lookupRegistry(libContext);
-    if (registryEntry) {
-      return {
-        url: selectVariantUrl(registryEntry, libContext),
-        type: 'llms-txt',
-        metadata: registryEntry
-      };
-    }
-
-    // Step 3: Try URL patterns
-    const url = await tryUrlPatterns(libContext);
-    if (url) {
-      // Cache for future
-      await cacheDiscoveredUrl(libContext, url, null);
-      return { url, type: 'llms-txt' };
-    }
-
-    // Step 4: Package manager fallback
-    const pmUrl = await queryPackageManager(libContext);
-    if (pmUrl) {
-      await cacheDiscoveredUrl(libContext, pmUrl, null);
-      return { url: pmUrl, type: 'llms-txt' };
-    }
-
-    // Not found, let next adapter try
-    return null;
-  }
-}
+// See 05-library-resolution.md Section 4.2 for authoritative algorithm.
+// llms.txt resolution is integrated into the main resolution flow,
+// not a separate adapter. The adapter chain (llms.txt → GitHub → Custom)
+// handles content fetching after resolution identifies the DocSource.
 ```
 
 ### With Database Schema
 
-Add to `03-technical-spec.md`:
+> **Note:** The schema below was an early proposal. The authoritative data model is the `DocSource` type in `05-library-resolution.md`, which integrates llms.txt data as a nested `llmsTxt` field within the DocSource entry rather than a separate table.
 
 ```sql
--- llms.txt registry table
+-- SUPERSEDED: See DocSource model in 05-library-resolution.md
 CREATE TABLE llms_txt_registry (
   id INTEGER PRIMARY KEY,
   library_name TEXT NOT NULL,

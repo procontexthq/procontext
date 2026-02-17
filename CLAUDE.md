@@ -31,8 +31,7 @@ All implementation decisions are captured in these five spec documents, which ar
 - `docs/specs/02-functional-spec.md` — Problem statement, 5 MCP tools, 2 resources, 3 prompt templates, adapter chain, security model
 - `docs/specs/03-technical-spec.md` — System architecture, data models, two-tier cache, BM25 search, database schema (7 SQLite tables)
 - `docs/specs/04-implementation-guide.md` — Project structure, dependencies, coding conventions, 5 implementation phases, testing strategy
-- `docs/specs/05-library-resolution.md` — Library name → documentation source mapping, resolution algorithm (6 steps), registry strategy
-- `docs/specs/05-library-resolution-proposed.md` — **[PROPOSED]** Clean rewrite of library resolution strategy, focused and uncluttered
+- `docs/specs/05-library-resolution.md` — Library name → documentation source mapping, resolution algorithm (6 steps), registry strategy with repo-based grouping, llms.txt-first resolution
 
 ### Research Documents
 

@@ -262,26 +262,15 @@ Phase 3: Ongoing Discovery (Monthly)
 
 ### Library Resolution Impact
 
-The llms.txt registry should be integrated as **Step 0** in the library resolution algorithm:
+llms.txt resolution has been integrated into the main resolution algorithm in `05-library-resolution.md`. It is not a separate "Step 0" — it's woven throughout the flow:
 
-**Current Flow (from 05-library-resolution.md):**
 ```
-1. Check cache
-2. Normalize library name
-3. Query package managers
-4. Try heuristics (GitHub, docs patterns)
-5. Fall back to search
-```
-
-**Proposed Flow with llms.txt:**
-```
-0. Check llms.txt registry [NEW - HIGHEST PRIORITY]
-   ↓ (if not found)
-1. Check cache
-2. Normalize library name
-3. Query package managers
-4. Try heuristics
-5. Fall back to search
+Step 0: Parse query context
+Step 1: Registry lookup (stores llms.txt URLs natively)
+Step 2-4: ID/alias/fuzzy match (all against DocSource entries with llms.txt data)
+Step 5: PyPI discovery (probes llms.txt on discovered docsUrl)
+Step 6: URL pattern discovery (tries common llms.txt URL patterns)
+Step 7: GitHub discovery (fallback)
 ```
 
 **Benefits:**
@@ -318,8 +307,11 @@ The llms.txt registry should be integrated as **Step 0** in the library resoluti
 ```
 
 **Database Integration (SQLite):**
+
+> **Note:** The schema below was an early proposal. The authoritative data model is the `DocSource` type in `05-library-resolution.md`, which integrates llms.txt data as a nested `llmsTxt` field within the DocSource entry rather than a separate table. This avoids dual lookups and keeps the registry unified.
+
 ```sql
--- Add to Pro-Context database (see 03-technical-spec.md)
+-- SUPERSEDED: See DocSource model in 05-library-resolution.md
 CREATE TABLE llms_txt_registry (
   id INTEGER PRIMARY KEY,
   library_name TEXT NOT NULL UNIQUE,
@@ -474,7 +466,7 @@ class LLMsTxtAdapter extends DocumentationAdapter {
 **If Option 3 (Hybrid) is approved:**
 
 1. **Design Phase (This Phase):**
-   - Update `05-library-resolution.md` to include llms.txt as Step 0
+   - ~~Update `05-library-resolution.md` to include llms.txt as Step 0~~ DONE — llms.txt integrated throughout resolution flow
    - Design database schema for llms_txt_registry table
    - Add to `03-technical-spec.md` database section
 
