@@ -330,7 +330,7 @@ Discovers libraries matching a natural language query. This is a pure discovery 
 3. Return all matching libraries ranked by relevance score
 4. If no matches found, return empty `results` array
 
-**Registry-only approach**: Pro-Context uses a curated, pre-validated registry of libraries with working documentation. This ensures high-confidence matches and eliminates false positives from JIT discovery. The registry is updated weekly (community) or daily (enterprise).
+**Registry-only approach**: Pro-Context uses a curated, pre-validated registry of libraries with working documentation. Unknown libraries return "not found" immediately — no runtime package registry queries, no speculative URL probing. This ensures high-confidence matches and eliminates false positives. The registry is updated weekly via automated build script.
 
 **If library not in registry**: Users have two options:
 1. **Custom sources config** — Add the library immediately via configuration:
@@ -426,8 +426,8 @@ This tool does not require a prior `resolve-library` call. If the agent already 
 
 **Behavior:**
 1. Look up `libraryId` in registry (exact match, no fuzzy matching)
-2. If not found in registry, attempt resolution via package registry (PyPI/npm)
-3. Determine available documentation sources
+2. If not found in registry → return `LIBRARY_NOT_FOUND` error
+3. Determine available documentation sources (llms.txt, GitHub, custom)
 4. Fetch and parse the TOC (source-agnostic — the adapter chain handles how). Documentation served is always the latest available.
 5. Extract `availableSections` from TOC entries (unique section names)
 6. If `sections` is specified, filter TOC entries to matching sections
@@ -435,9 +435,19 @@ This tool does not require a prior `resolve-library` call. If the agent already 
 8. Add library to session resolved list
 9. Return library metadata + TOC + availableSections
 
+**Performance characteristics:**
+- **First query for a library** (cold cache): 2-5 seconds
+  - Network fetch of llms.txt or GitHub README
+  - Parsing and TOC extraction
+  - Cache storage
+- **Subsequent queries** (warm cache): <100ms (served from cache)
+- **Cache TTL**: 24 hours (default)
+- This is by design: on-demand content fetching with aggressive caching ensures both freshness and performance
+
 **Error cases:**
-- Library not found → `LIBRARY_NOT_FOUND`
-- No documentation sources found → returns metadata without TOC, with a note that no docs are indexed
+- Library not found in registry → `LIBRARY_NOT_FOUND`
+- llms.txt fetch failed → falls back to GitHub adapter
+- All adapters failed → `SOURCE_UNAVAILABLE`
 
 ---
 
@@ -543,10 +553,22 @@ The **fast path** tool. Retrieves focused documentation for a specific topic usi
 
 **The `relatedPages` field**: This bridges the fast path and the navigation path. If the server-side BM25 search returns content with low confidence (e.g., <0.6), the `relatedPages` give the agent a way to navigate further. The agent sees "here's what I found, but you might also want to read these pages" — and can use `read-page` to explore them.
 
+**Performance characteristics:**
+- **First query for a library** (cold cache): 2-5 seconds
+  - Network fetch of documentation pages
+  - Markdown chunking (heading-aware splitting)
+  - BM25 indexing for search
+  - Cache storage
+- **Subsequent queries** (warm cache): <500ms
+  - Served from cache with BM25 ranking
+  - No network calls
+- **Cache TTL**: 24 hours (default)
+- This is by design: incremental indexing avoids upfront bulk processing while ensuring fast repeat queries
+
 **Error cases:**
 - Any library in the array not found → `LIBRARY_NOT_FOUND` (identifies which library)
 - Topic not found across all specified libraries → `TOPIC_NOT_FOUND` with suggestion to try `search-docs` or browse the TOC via `get-library-info`
-- All sources unavailable → serve stale cache or `SOURCE_UNAVAILABLE`
+- All sources unavailable → serve stale cache (if available) or `SOURCE_UNAVAILABLE`
 
 ---
 
@@ -613,17 +635,36 @@ Searches across indexed documentation and returns ranked results with URLs. Opti
 ```
 
 **Behavior:**
-1. If `libraryIds` provided, validate each exists and has indexed content
-2. If no `libraryIds`, search across all content in the index (only previously fetched/indexed content — this is not a global search)
-3. If documentation not yet indexed for a specified library, trigger JIT fetch + index, return `INDEXING_IN_PROGRESS`
-4. Execute BM25 search across relevant indexed chunks
-5. Rank results by relevance score
-6. Return top N results with snippets, URLs, and library attribution
+1. If `libraryIds` provided, validate each exists in registry
+2. If no `libraryIds`, search across all content in the index (only previously fetched/indexed content — not a global search across all registry libraries)
+3. Execute BM25 search across indexed chunks (only libraries that have been queried before have indexed content)
+4. Rank results by relevance score
+5. Return top N results with snippets, URLs, and library attribution
+6. Include `searchedLibraries` to show which libraries had indexed content
 
-**Important**: `search-docs` only searches content that has been previously fetched and indexed. It does not proactively index libraries. If the agent searches for "retry" without specifying libraries, it searches across whatever content Pro-Context has already cached from prior `get-docs`, `get-library-info`, or `read-page` calls. The `searchedLibraries` field in the response makes this explicit.
+**Search scope and incremental indexing:**
+
+The `search-docs` tool only searches libraries that have been queried previously via `get-docs` or `read-page`. The search index is built **incrementally** as agents use the server:
+
+- **Day 1**: Agent queries 5 libraries → search index contains 5 libraries
+- **Week 1**: Agents query 50 libraries → search index contains 50 libraries
+- **Month 1**: Agents query 200+ libraries → search index contains 200+ libraries
+
+The `searchedLibraries` field indicates which libraries had indexed content at query time. This transparency allows agents to understand search coverage.
+
+**Why incremental indexing?**
+- Avoids upfront bulk processing (hours to index 1000+ libraries)
+- Indexes only what's actually used (80%+ of libraries never queried)
+- Keeps index fresh (content indexed on-demand is never stale)
+- Storage efficient (only active libraries consume disk space)
+
+**If a library is not indexed yet:**
+- Agents should call `get-docs` first (which fetches and indexes the content)
+- Then call `search-docs` to search the newly indexed library
+- Or use `get-library-info` + `read-page` to navigate directly
 
 **Error cases:**
-- Specified library not indexed → `INDEXING_IN_PROGRESS` with `retryAfter`
+- Specified library not in registry → `LIBRARY_NOT_FOUND`
 - No results → empty results array (not an error)
 
 ---

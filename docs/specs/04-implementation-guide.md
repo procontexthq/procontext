@@ -143,6 +143,9 @@ pro-context/
 ├── docker-compose.yml
 ├── pro-context.config.yaml          # Default configuration
 ├── pyproject.toml                   # Python project config, dependencies, build
+├── uv.lock                          # uv lock file (checked into git)
+├── requirements.txt                 # pip lock file (for CI/CD compatibility)
+├── .python-version                  # Python version (3.12)
 ├── pytest.ini                       # Pytest configuration
 ├── ruff.toml                        # Ruff linter/formatter config
 └── README.md
@@ -156,27 +159,27 @@ pro-context/
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `mcp` | `>=1.0.0` | MCP server SDK — tool/resource/prompt registration, stdio + SSE transport |
-| `aiosqlite` | `^0.20.0` | Async SQLite — persistent cache, search index, API keys |
-| `pydantic` | `^2.0` | Schema validation — config validation, tool input/output validation |
-| `cachetools` | `^5.3` | In-memory TTL cache — hot path for repeated queries |
-| `structlog` | `^24.0` | Structured logging — JSON format, context binding, redaction |
-| `pyyaml` | `^6.0` | YAML parsing — configuration file loading |
-| `httpx` | `^0.27` | HTTP client — async requests with timeout management |
-| `rapidfuzz` | `^3.6` | Fast fuzzy matching — Levenshtein distance for library name resolution |
-| `starlette` | `^0.37` | ASGI framework — HTTP transport (used by MCP SDK for SSE) |
-| `uvicorn` | `^0.29` | ASGI server — production HTTP server |
+| `mcp` | `>=1.0.0,<2.0.0` | MCP server SDK — tool/resource/prompt registration, stdio + SSE transport |
+| `aiosqlite` | `>=0.20.0,<1.0.0` | Async SQLite — persistent cache, search index, API keys |
+| `pydantic` | `>=2.9.0,<3.0.0` | Schema validation — config validation, tool input/output validation |
+| `cachetools` | `>=5.3.0,<6.0.0` | In-memory TTL cache — hot path for repeated queries |
+| `structlog` | `>=24.1.0,<25.0.0` | Structured logging — JSON format, context binding, redaction |
+| `pyyaml` | `>=6.0.1,<7.0.0` | YAML parsing — configuration file loading |
+| `httpx` | `>=0.27.0,<1.0.0` | HTTP client — async requests with timeout management |
+| `rapidfuzz` | `>=3.6.0,<4.0.0` | Fast fuzzy matching — Levenshtein distance for library name resolution |
+| `starlette` | `>=0.37.0,<1.0.0` | ASGI framework — HTTP transport (used by MCP SDK for SSE) |
+| `uvicorn` | `>=0.29.0,<1.0.0` | ASGI server — production HTTP server |
 
 ### Development Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `pytest` | `^8.1` | Test framework — standard Python testing |
-| `pytest-asyncio` | `^0.23` | Async test support for pytest |
-| `pytest-cov` | `^5.0` | Coverage reporting |
-| `mypy` | `^1.9` | Static type checking |
-| `ruff` | `^0.3` | Linter + formatter — replaces flake8/black/isort |
-| `hatchling` | `^1.21` | Build backend for pyproject.toml |
+| `pytest` | `>=8.1.0,<9.0.0` | Test framework — standard Python testing |
+| `pytest-asyncio` | `>=0.23.0,<1.0.0` | Async test support for pytest |
+| `pytest-cov` | `>=5.0.0,<6.0.0` | Coverage reporting |
+| `mypy` | `>=1.9.0,<2.0.0` | Static type checking |
+| `ruff` | `>=0.3.0,<1.0.0` | Linter + formatter — replaces flake8/black/isort |
+| `hatchling` | `>=1.21.0,<2.0.0` | Build backend for pyproject.toml |
 
 ### Notably Absent
 
@@ -185,8 +188,202 @@ pro-context/
 | FastAPI | MCP SDK handles HTTP transport with Starlette; no full web framework needed |
 | OpenAI/Anthropic SDK | No vector search in initial version; BM25 is dependency-free |
 | Redis | SQLite provides sufficient persistence; no external infra needed |
-| BeautifulSoup/lxml | No HTML scraping in initial version |
+| BeautifulSoup/lxml | No HTML scraping in initial version (llms.txt only) |
 | requests | httpx provides both sync and async interfaces |
+
+---
+
+## 2.1 Dependency Management Strategy
+
+Pro-Context supports two package management workflows:
+
+### Option 1: uv (Recommended)
+
+**uv** is a fast Python package manager from Astral (creators of Ruff), 10-100x faster than pip.
+
+**Initial Setup**:
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies (creates uv.lock automatically)
+uv sync
+
+# Run server
+uv run python -m pro_context
+```
+
+**Updating Dependencies**:
+```bash
+# Update to latest compatible versions
+uv lock --upgrade
+
+# Test thoroughly
+uv run pytest --cov=pro_context
+
+# Generate requirements.txt for pip compatibility
+uv pip compile pyproject.toml -o requirements.txt
+
+# Commit lock files
+git add uv.lock requirements.txt
+git commit -m "chore: update dependencies"
+```
+
+**Why uv?**
+- ⚡ 10-100x faster than pip
+- 🔒 Built-in lock file (`uv.lock`)
+- 🎯 Better dependency resolution
+- 🔄 Compatible with standard `pyproject.toml`
+
+### Option 2: pip + pip-tools (Fallback)
+
+Standard Python workflow using pip.
+
+**Initial Setup**:
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -e ".[dev]"
+
+# Generate lock file
+pip freeze > requirements.txt
+```
+
+**Updating Dependencies**:
+```bash
+# Update to latest compatible versions
+pip install --upgrade pip pip-tools
+pip-compile --upgrade pyproject.toml -o requirements.txt
+
+# Test thoroughly
+pytest --cov=pro_context
+
+# Commit lock file
+git add requirements.txt
+git commit -m "chore: update dependencies"
+```
+
+### Two-Tier Pinning Strategy
+
+Both workflows use the same approach:
+
+1. **pyproject.toml** (Intent) - SemVer ranges allowing compatible updates
+   ```toml
+   dependencies = [
+       "mcp>=1.0.0,<2.0.0",        # Latest 1.x at project start
+       "pydantic>=2.9.0,<3.0.0",   # Latest 2.x at project start
+   ]
+   ```
+   - Lower bound: Minimum tested version (latest at project start)
+   - Upper bound: Major version ceiling (prevents breaking changes)
+
+2. **Lock Files** (Exact Versions) - For reproducibility
+   - `uv.lock` (uv native format) or `requirements.txt` (pip format)
+   - Checked into git
+   - Used by CI/CD for reproducible builds
+
+### CI/CD Usage
+
+**With uv** (faster, recommended):
+```yaml
+- uses: astral-sh/setup-uv@v1
+- run: uv sync --frozen  # Install from uv.lock
+- run: uv run pytest
+```
+
+**With pip** (compatibility):
+```yaml
+- uses: actions/setup-python@v5
+- run: pip install -r requirements.txt
+- run: pytest
+```
+
+**Recommendation**: Use `uv` for local development, provide both `uv.lock` and `requirements.txt` for CI flexibility.
+
+---
+
+## 2.2 Key Configuration Files
+
+### .python-version
+
+Create this file in the project root to specify Python version for uv:
+
+```
+3.12
+```
+
+### .gitignore
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pro-Context specific
+/data/cache/*.db
+/data/cache/*.db-wal
+/data/cache/*.db-shm
+
+# Lock files are CHECKED IN (don't ignore)
+# uv.lock
+# requirements.txt
+```
 
 ---
 
@@ -208,22 +405,43 @@ pro-context/
 
 ```python
 # Use ProContextError for all user-facing errors
-from pro_context.lib.errors import ProContextError, library_not_found
+from pro_context.lib.errors import ProContextError, ErrorCode
 
-# Factory functions create typed errors
+# Factory functions create typed errors with actionable messages
 def library_not_found(query: str, suggestion: str | None = None) -> ProContextError:
     """Create a LIBRARY_NOT_FOUND error"""
     return ProContextError(
         code=ErrorCode.LIBRARY_NOT_FOUND,
-        message=f"Library '{query}' not found.",
+        message=f"Library '{query}' not found in registry",
         recoverable=True,
         suggestion=(
-            f"Did you mean '{suggestion}'?"
+            f"Did you mean '{suggestion}'? "
             if suggestion
-            else "Check the library name and try again."
+            else "Check spelling, wait for next registry update, or add via custom sources config"
         ),
+        details={"query": query, "suggestion": suggestion}
     )
 
+def network_fetch_failed(url: str, status_code: int | None = None) -> ProContextError:
+    """Create a NETWORK_FETCH_FAILED error"""
+    return ProContextError(
+        code=ErrorCode.NETWORK_FETCH_FAILED,
+        message=f"Failed to fetch documentation from {url}",
+        recoverable=True,
+        suggestion="This may be temporary. Retry in a few minutes, or check if the documentation site is accessible",
+        retry_after=60,  # Suggest retry after 60 seconds
+        details={"url": url, "status_code": status_code}
+    )
+
+def stale_cache_expired(library_id: str, cache_age_days: int) -> ProContextError:
+    """Create a STALE_CACHE_EXPIRED error"""
+    return ProContextError(
+        code=ErrorCode.STALE_CACHE_EXPIRED,
+        message=f"Cached documentation for '{library_id}' is {cache_age_days} days old and cannot be refreshed",
+        recoverable=True,
+        suggestion="Documentation site may be down or moved. Try again later, or report the issue",
+        details={"library_id": library_id, "cache_age_days": cache_age_days}
+    )
 
 # In tool handlers, catch and convert errors
 async def handle_get_docs(input: dict) -> dict:
@@ -232,6 +450,7 @@ async def handle_get_docs(input: dict) -> dict:
         result = await get_docs_for_library(input)
         return result
     except ProContextError as e:
+        logger.warning("tool_error", code=e.code, message=e.message, details=e.details)
         return {"error": e}  # Return structured error
     except Exception as e:
         logger.error("unexpected_error", exc_info=e, tool="get-docs")
@@ -332,42 +551,52 @@ class TestBM25Index:
 #### Files to Create (in order)
 
 1. **Project init**
-   - `package.json` — project metadata, scripts, dependencies
-   - `tsconfig.json` — TypeScript strict mode, ESM target, path aliases
-   - `biome.json` — lint + format configuration
-   - `vitest.config.ts` — test configuration
+   - `pyproject.toml` — project metadata, dependencies, scripts, build config, tool configurations
+   - `.python-version` — Python version specification (3.12)
    - `pro-context.config.yaml` — default configuration file
+   - `.gitignore` — Ignore `.venv/`, `uv.lock` (not ignored, checked in), `__pycache__/`, etc.
 
 2. **Infrastructure**
-   - `src/lib/logger.ts` — Pino logger setup with redaction, correlation IDs, pretty/JSON format
-   - `src/lib/errors.ts` — `ProContextError` class, error code enum, factory functions for each error type
-   - `src/lib/tokens.ts` — `estimateTokens(text: string): number` using chars/4 approximation
-   - `src/lib/url-validator.ts` — URL allowlist checking, SSRF prevention, dynamic allowlist expansion
+   - `src/pro_context/lib/logger.py` — structlog logger setup with redaction, correlation IDs, pretty/JSON format
+   - `src/pro_context/lib/errors.py` — `ProContextError` class, error code enum, factory functions for each error type
+   - `src/pro_context/lib/tokens.py` — `estimate_tokens(text: str) -> int` using chars/4 approximation
+   - `src/pro_context/lib/url_validator.py` — URL allowlist checking, SSRF prevention, dynamic allowlist expansion
 
 3. **Configuration**
-   - `src/config/schema.ts` — Zod schema for `ProContextConfig`, defaults for every field
-   - `src/config/loader.ts` — Load YAML config file, apply env var overrides, validate with Zod
+   - `src/pro_context/config/schema.py` — Pydantic schema for `ProContextConfig`, defaults for every field
+   - `src/pro_context/config/loader.py` — Load YAML config file, apply env var overrides, validate with Pydantic
 
 4. **Server skeleton**
-   - `src/server.ts` — Create MCP `Server` instance, register capabilities (tools, resources, prompts)
-   - `src/index.ts` — Entry point: load config, create server, select transport (stdio), connect
+   - `src/pro_context/server.py` — Create MCP `Server` instance, register capabilities (tools, resources, prompts)
+   - `src/pro_context/__main__.py` — Entry point: load config, create server, select transport (stdio), connect
 
 5. **Health check**
-   - `src/resources/health.ts` — `pro-context://health` resource returning server status JSON
+   - `src/pro_context/resources/health.py` — `pro-context://health` resource returning server status JSON
 
 6. **Tests**
-   - `tests/unit/lib/url-validator.test.ts`
+   - `tests/unit/lib/test_url_validator.py`
    - Basic smoke test: server starts and responds to list-tools
 
 #### Phase 1 Verification Checklist
 
-- [ ] `npm run build` succeeds with zero errors
-- [ ] `npm run lint` passes with zero warnings
-- [ ] `node dist/index.js` starts without errors
+**With uv**:
+- [ ] `uv sync` installs dependencies without errors
+- [ ] `uv run pytest` runs with zero errors
+- [ ] `uv run ruff check .` passes with zero warnings
+- [ ] `uv run python -m pro_context` starts without errors
 - [ ] Server responds to MCP `initialize` handshake via stdio
 - [ ] Health resource returns valid JSON with status "healthy"
 - [ ] Configuration file is validated (invalid config produces clear error)
 - [ ] Env variable overrides work (e.g., `PRO_CONTEXT_LOG_LEVEL=debug`)
+- [ ] `uv.lock` is generated and can be committed
+
+**With pip**:
+- [ ] `pip install -e ".[dev]"` installs dependencies without errors
+- [ ] `pytest` runs with zero errors
+- [ ] `ruff check .` passes with zero warnings
+- [ ] `python -m pro_context` starts without errors
+- [ ] Server responds to MCP `initialize` handshake via stdio
+- [ ] `requirements.txt` can be generated with `pip freeze`
 
 ---
 
@@ -386,27 +615,27 @@ class TestBM25Index:
    - `data/known-libraries.json` — Curated registry of ~1000 Python libraries (generated by build script, checked into repo)
 
 2. **Source Adapters**
-   - `src/adapters/types.ts` — `SourceAdapter` interface, `RawPageContent` type, `TocEntry` type
-   - `src/adapters/chain.ts` — `AdapterChain` class: ordered adapter execution with fallback (fetchToc + fetchPage)
-   - `src/adapters/llms-txt.ts` — Fetch and parse `llms.txt` for TOC, fetch individual pages
-   - `src/adapters/github.ts` — Fetch docs from GitHub repo (/docs/, README.md), generate TOC from directory structure
-   - `src/adapters/custom.ts` — User-configured sources (URL, file, GitHub)
+   - `src/pro_context/adapters/types.py` — `SourceAdapter` ABC, `RawPageContent` dataclass, `TocEntry` dataclass
+   - `src/pro_context/adapters/chain.py` — `AdapterChain` class: ordered adapter execution with fallback (fetch_toc + fetch_page)
+   - `src/pro_context/adapters/llms_txt.py` — Fetch and parse `llms.txt` for TOC, fetch individual pages
+   - `src/pro_context/adapters/github.py` — Fetch docs from GitHub repo (/docs/, README.md), generate TOC from directory structure
+   - `src/pro_context/adapters/custom.py` — User-configured sources (URL, file, GitHub)
 
 3. **Cache**
-   - `src/cache/sqlite.ts` — SQLite cache: init DB, get/set/delete operations, cleanup
-   - `src/cache/memory.ts` — LRU cache wrapper with TTL
-   - `src/cache/manager.ts` — Two-tier cache orchestrator: memory → SQLite → miss
+   - `src/pro_context/cache/sqlite.py` — SQLite cache: init DB, get/set/delete operations, cleanup
+   - `src/pro_context/cache/memory.py` — LRU cache wrapper with TTL
+   - `src/pro_context/cache/manager.py` — Two-tier cache orchestrator: memory → SQLite → miss
 
 4. **Tools**
-   - `src/tools/resolve-library.ts` — Fuzzy match query against registry, return all matches with languages
-   - `src/tools/get-library-info.ts` — Fetch TOC via adapter chain, extract availableSections, apply sections filter
-   - `src/tools/get-docs.ts` — Multi-library: fetch docs via cache → adapter chain → chunk → BM25 rank → return with relatedPages
+   - `src/pro_context/tools/resolve_library.py` — Fuzzy match query against registry, return all matches with languages
+   - `src/pro_context/tools/get_library_info.py` — Fetch TOC via adapter chain, extract availableSections, apply sections filter
+   - `src/pro_context/tools/get_docs.py` — Multi-library: fetch docs via cache → adapter chain → chunk → BM25 rank → return with relatedPages
 
 5. **Resources**
-   - `src/resources/session.ts` — `pro-context://session/resolved-libraries` resource
+   - `src/pro_context/resources/session.py` — `pro-context://session/resolved-libraries` resource
 
 6. **Registration**
-   - Update `src/server.ts` — Register `resolve-library`, `get-library-info`, `get-docs` tools + session resource
+   - Update `src/pro_context/server.py` — Register `resolve-library`, `get-library-info`, `get-docs` tools + session resource
 
 7. **Tests**
    - `tests/unit/registry/test_known_libraries.py` — Registry loading, index building, lookups
@@ -443,29 +672,29 @@ class TestBM25Index:
 #### Files to Create (in order)
 
 1. **Search Engine**
-   - `src/search/chunker.ts` — Markdown → `DocChunk[]`: heading-aware splitting, token budgets, section path extraction
-   - `src/search/bm25.ts` — BM25 algorithm: tokenization, inverted index, IDF computation, query scoring
-   - `src/search/engine.ts` — Search engine orchestrator: index management, query execution, cross-library search, result formatting
+   - `src/pro_context/search/chunker.py` — Markdown → `list[DocChunk]`: heading-aware splitting, token budgets, section path extraction
+   - `src/pro_context/search/bm25.py` — BM25 algorithm: tokenization, inverted index, IDF computation, query scoring
+   - `src/pro_context/search/engine.py` — Search engine orchestrator: index management, query execution, cross-library search, result formatting
 
 2. **Page Cache**
-   - `src/cache/page-cache.ts` — Page cache with offset-based slice support (see technical spec 5.4)
+   - `src/pro_context/cache/page_cache.py` — Page cache with offset-based slice support (see technical spec 5.4)
 
 3. **Tools**
-   - `src/tools/search-docs.ts` — Search indexed docs, optional library scoping, JIT indexing trigger
-   - `src/tools/read-page.ts` — Fetch page, cache full content, serve slices with offset/maxTokens, URL allowlist validation
+   - `src/pro_context/tools/search_docs.py` — Search indexed docs, optional library scoping, JIT indexing trigger
+   - `src/pro_context/tools/read_page.py` — Fetch page, cache full content, serve slices with offset/maxTokens, URL allowlist validation
 
 4. **Update get-docs**
-   - Update `src/tools/get-docs.ts` — Integrate chunker: fetch raw docs → chunk → rank by topic across libraries → return best chunks within token budget
+   - Update `src/pro_context/tools/get_docs.py` — Integrate chunker: fetch raw docs → chunk → rank by topic across libraries → return best chunks within token budget
 
 5. **Registration**
-   - Update `src/server.ts` — Register `search-docs`, `read-page` tools
+   - Update `src/pro_context/server.py` — Register `search-docs`, `read-page` tools
 
 6. **Tests**
-   - `tests/unit/search/chunker.test.ts` — Heading detection, chunk sizing, section paths
-   - `tests/unit/search/bm25.test.ts` — Ranking correctness, edge cases
-   - `tests/unit/search/engine.test.ts` — Index + query orchestration, cross-library ranking
-   - `tests/unit/cache/page-cache.test.ts` — Full page caching, offset slicing, hasMore
-   - `tests/integration/search-pipeline.test.ts` — Fetch → chunk → index → search → results
+   - `tests/unit/search/test_chunker.py` — Heading detection, chunk sizing, section paths
+   - `tests/unit/search/test_bm25.py` — Ranking correctness, edge cases
+   - `tests/unit/search/test_engine.py` — Index + query orchestration, cross-library ranking
+   - `tests/unit/cache/test_page_cache.py` — Full page caching, offset slicing, hasMore
+   - `tests/integration/test_search_pipeline.py` — Fetch → chunk → index → search → results
 
 #### Phase 3 Verification Checklist
 
@@ -492,23 +721,23 @@ class TestBM25Index:
 #### Files to Create (in order)
 
 1. **Authentication**
-   - `src/auth/api-keys.ts` — Key generation (`pc_` prefix + random bytes), SHA-256 hashing, validation, CRUD operations on SQLite
-   - `src/auth/middleware.ts` — HTTP middleware: extract Bearer token, validate against DB, attach key info to request context
-   - `src/auth/admin-cli.ts` — CLI entry point: `key create`, `key list`, `key revoke`, `key stats` commands
+   - `src/pro_context/auth/api_keys.py` — Key generation (`pc_` prefix + random bytes), SHA-256 hashing, validation, CRUD operations on SQLite
+   - `src/pro_context/auth/middleware.py` — HTTP middleware: extract Bearer token, validate against DB, attach key info to request context
+   - `src/pro_context/auth/admin_cli.py` — CLI entry point: `key create`, `key list`, `key revoke`, `key stats` commands
 
 2. **Rate Limiting**
-   - `src/lib/rate-limiter.ts` — Token bucket implementation: per-key buckets, configurable capacity/refill, rate limit headers
+   - `src/pro_context/lib/rate_limiter.py` — Token bucket implementation: per-key buckets, configurable capacity/refill, rate limit headers
 
 3. **HTTP Transport**
-   - Update `src/index.ts` — Add HTTP transport path: when `config.server.transport === "http"`, create HTTP server with auth middleware, rate limiter, CORS headers, and Streamable HTTP transport
+   - Update `src/pro_context/__main__.py` — Add HTTP transport path: when `config.server.transport == "http"`, create HTTP server with auth middleware, rate limiter, CORS headers, and SSE transport
 
-4. **Package.json update**
-   - Add `bin` entry for `pro-context-admin` CLI
+4. **pyproject.toml update**
+   - Add `[project.scripts]` entry for `pro-context-admin` CLI
 
 5. **Tests**
-   - `tests/unit/lib/rate-limiter.test.ts` — Token bucket behavior, burst, refill
-   - `tests/integration/auth-flow.test.ts` — Create key → authenticate → rate limit → revoke
-   - `tests/e2e/http-server.test.ts` — Full MCP client ↔ server via HTTP with auth
+   - `tests/unit/lib/test_rate_limiter.py` — Token bucket behavior, burst, refill
+   - `tests/integration/test_auth_flow.py` — Create key → authenticate → rate limit → revoke
+   - `tests/e2e/test_http_server.py` — Full MCP client ↔ server via HTTP with auth
 
 #### Phase 4 Verification Checklist
 
@@ -535,20 +764,20 @@ class TestBM25Index:
 #### Files to Create (in order)
 
 1. **Prompts**
-   - `src/prompts/migrate-code.ts` — Migration prompt template
-   - `src/prompts/debug-with-docs.ts` — Debug prompt template
-   - `src/prompts/explain-api.ts` — API explanation prompt template
+   - `src/pro_context/prompts/migrate_code.py` — Migration prompt template
+   - `src/pro_context/prompts/debug_with_docs.py` — Debug prompt template
+   - `src/pro_context/prompts/explain_api.py` — API explanation prompt template
 
 2. **Registration**
-   - Update `src/server.ts` — Register prompt templates
+   - Update `src/pro_context/server.py` — Register prompt templates
 
 3. **Docker**
-   - `Dockerfile` — Multi-stage build: install deps → compile TS → slim runtime image
+   - `Dockerfile` — Multi-stage build: install deps → build package → slim runtime image
    - `docker-compose.yml` — Easy local HTTP-mode testing with volume mount for cache
 
 4. **E2E Tests**
-   - `tests/e2e/stdio-server.test.ts` — Full MCP client ↔ server via stdio: resolve → get-library-info → get-docs → search → read-page
-   - Update `tests/e2e/http-server.test.ts` — Add prompt and resource tests
+   - `tests/e2e/test_stdio_server.py` — Full MCP client ↔ server via stdio: resolve → get-library-info → get-docs → search → read-page
+   - Update `tests/e2e/test_http_server.py` — Add prompt and resource tests
 
 5. **README**
    - `README.md` — Project overview, quick start, configuration guide, deployment guide
@@ -563,7 +792,7 @@ class TestBM25Index:
 - [ ] Docker container responds to MCP requests
 - [ ] E2E stdio test: client connects → resolve-library → get-library-info → get-docs → search-docs → read-page → all succeed
 - [ ] E2E HTTP test: client authenticates → all tools work → rate limiting works
-- [ ] `npm test` passes with >80% code coverage on src/
+- [ ] `pytest --cov=pro_context` passes with >80% code coverage on src/
 
 ---
 
@@ -654,24 +883,73 @@ Excluded from coverage:
 
 ### 6.1 Dockerfile
 
+**Option 1: With uv (Recommended - Faster Builds)**
+
 ```dockerfile
 # Stage 1: Build
-FROM python:3.11-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 WORKDIR /app
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir hatchling
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies (uses uv.lock for reproducibility)
+RUN uv sync --frozen --no-dev
+
+# Copy application source
 COPY src/ src/
-RUN pip install --no-cache-dir .
+COPY pro-context.config.yaml ./
+COPY data/ data/
 
 # Stage 2: Production
-FROM python:3.11-slim
+FROM python:3.12-slim
+WORKDIR /app
+
+# Copy installed dependencies and application from builder
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
+COPY --from=builder /app/pro-context.config.yaml ./
+COPY --from=builder /app/data ./data
+
+# Create cache directory
+RUN mkdir -p /data/cache
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PRO_CONTEXT_TRANSPORT=http
+ENV PRO_CONTEXT_PORT=3100
+ENV PRO_CONTEXT_CACHE_DIR=/data/cache
+
+EXPOSE 3100
+CMD ["python", "-m", "pro_context"]
+```
+
+**Option 2: With pip (Compatibility)**
+
+```dockerfile
+# Stage 1: Build
+FROM python:3.12-slim AS builder
+WORKDIR /app
+
+# Install build dependencies
+COPY pyproject.toml requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
+COPY src/ src/
+COPY pro-context.config.yaml ./
+COPY data/ data/
+
+# Stage 2: Production
+FROM python:3.12-slim
 WORKDIR /app
 
 # Install production dependencies only
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir .
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY pro-context.config.yaml ./
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/pro-context.config.yaml ./
+COPY --from=builder /app/data ./data
 
 # Create cache directory
 RUN mkdir -p /data/cache
@@ -714,19 +992,62 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build-and-test:
+  test-uv:
+    name: Test with uv (primary)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v1
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen  # Use locked versions from uv.lock
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy src/
+
+      - name: Test
+        run: uv run pytest --cov=pro_context --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+
+  test-pip:
+    name: Test with pip (compatibility)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
-      - run: pip install -e ".[dev]"
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: mypy src/
-      - run: pytest --cov=pro_context --cov-report=xml
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy src/
+
+      - name: Test
+        run: pytest --cov=pro_context --cov-report=xml
 ```
 
 ### 6.4 pyproject.toml Configuration
@@ -738,27 +1059,27 @@ version = "1.0.0"
 description = "MCP documentation server for AI coding agents"
 authors = [{name = "Ankur Tewatia"}]
 license = {text = "GPL-3.0"}
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.0.0",
-    "aiosqlite>=0.20.0",
-    "pydantic>=2.0",
-    "cachetools>=5.3",
-    "structlog>=24.0",
-    "pyyaml>=6.0",
-    "httpx>=0.27",
-    "rapidfuzz>=3.6",
-    "starlette>=0.37",
-    "uvicorn>=0.29",
+    "mcp>=1.0.0,<2.0.0",
+    "aiosqlite>=0.20.0,<1.0.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "cachetools>=5.3.0,<6.0.0",
+    "structlog>=24.1.0,<25.0.0",
+    "pyyaml>=6.0.1,<7.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "rapidfuzz>=3.6.0,<4.0.0",
+    "starlette>=0.37.0,<1.0.0",
+    "uvicorn>=0.29.0,<1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.1",
-    "pytest-asyncio>=0.23",
-    "pytest-cov>=5.0",
-    "mypy>=1.9",
-    "ruff>=0.3",
+    "pytest>=8.1.0,<9.0.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-cov>=5.0.0,<6.0.0",
+    "mypy>=1.9.0,<2.0.0",
+    "ruff>=0.3.0,<1.0.0",
 ]
 
 [project.scripts]
@@ -769,16 +1090,25 @@ pro-context-admin = "pro_context.auth.admin_cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.1.0,<9.0.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-cov>=5.0.0,<6.0.0",
+    "mypy>=1.9.0,<2.0.0",
+    "ruff>=0.3.0,<1.0.0",
+]
+
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM"]
 ignore = []
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -789,9 +1119,48 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "--cov=pro_context",
+    "--cov-branch",
+    "--cov-fail-under=80",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]
+timeout = 10
 ```
 
-**Common commands:**
+**Common commands (uv)**:
+
+```bash
+# Install dependencies
+uv sync
+
+# Run tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=pro_context --cov-report=html
+
+# Lint and format
+uv run ruff check .
+uv run ruff format .
+
+# Type check
+uv run mypy src/
+
+# Run server (stdio mode)
+uv run python -m pro_context
+
+# Run admin CLI
+uv run pro-context-admin key create --name "test"
+```
+
+**Common commands (pip)**:
 
 ```bash
 # Install dependencies
@@ -824,52 +1193,59 @@ pro-context-admin key create --name "test"
 ### Phase 6: JavaScript/TypeScript Support
 
 **New files:**
-- `src/registry/npm-resolver.ts` — npm registry version/URL resolution
-- Extend `src/registry/known-libraries.ts` — Add JS/TS libraries (React, Next.js, Express, etc.)
+- `src/pro_context/registry/npm_resolver.py` — npm registry version/URL resolution
+- Extend `src/pro_context/registry/known_libraries.py` — Add JS/TS libraries (React, Next.js, Express, etc.)
 
 **Changes:**
-- `src/tools/resolve-library.ts` — Route to npm resolver when `language: "javascript"` or `"typescript"`
+- `src/pro_context/tools/resolve_library.py` — Route to npm resolver when `language: "javascript"` or `"typescript"`
 
 **No changes needed in:** adapters, cache, search, config, auth, transport
 
 ### Phase 7: HTML Documentation Adapter
 
 **New files:**
-- `src/adapters/html-docs.ts` — Fetch and parse HTML documentation sites
-- `src/lib/html-to-markdown.ts` — HTML → markdown conversion with sanitization
+- `src/pro_context/adapters/html_docs.py` — Fetch and parse HTML documentation sites
+- `src/pro_context/lib/html_to_markdown.py` — HTML → markdown conversion with sanitization
 
-**New dependency:** `cheerio` or `linkedom` for HTML parsing
+**New dependencies:** `beautifulsoup4` + `lxml` for HTML parsing, `markdownify` for conversion
 
 **Changes:**
-- `src/adapters/chain.ts` — Add HTML adapter to the chain with appropriate priority
+- `src/pro_context/adapters/chain.py` — Add HTML adapter to the chain with appropriate priority
 
 ### Phase 8: Vector Search (Hybrid)
 
 **New files:**
-- `src/search/embeddings.ts` — Embedding generation (local MiniLM or OpenAI API)
-- `src/search/vector-index.ts` — Vector similarity search using sqlite-vec
+- `src/pro_context/search/embeddings.py` — Embedding generation (local sentence-transformers or OpenAI API)
+- `src/pro_context/search/vector_index.py` — Vector similarity search using sqlite-vec
 
-**New dependencies:** `sqlite-vec` (SQLite extension), optionally `@xenova/transformers` for local embeddings
+**New dependencies:** `sqlite-vec` (SQLite extension), optionally `sentence-transformers` for local embeddings
 
 **Changes:**
-- `src/search/engine.ts` — Add hybrid search path: BM25 + vector → RRF merge
-- `src/config/schema.ts` — Add embedding model configuration
+- `src/pro_context/search/engine.py` — Add hybrid search path: BM25 + vector → RRF merge
+- `src/pro_context/config/schema.py` — Add embedding model configuration
 
 ### Phase 9: Prometheus Metrics
 
 **New files:**
-- `src/lib/metrics.ts` — Prometheus metric definitions
+- `src/pro_context/lib/metrics.py` — Prometheus metric definitions
 - Metrics endpoint at `/metrics` in HTTP mode
 
-**New dependency:** `prom-client`
+**New dependency:** `prometheus-client`
 
 ---
 
 ## 8. Quick Reference: MCP Client Configuration
 
-### Claude Code (stdio)
+### Claude Code (stdio with uv)
 
 ```bash
+claude mcp add pro-context -- uv run python -m pro_context
+```
+
+### Claude Code (stdio with pip)
+
+```bash
+# After activating virtual environment
 claude mcp add pro-context -- python -m pro_context
 ```
 
@@ -888,7 +1264,20 @@ claude mcp add pro-context -- python -m pro_context
 }
 ```
 
-### Cursor / Windsurf (stdio)
+### Cursor / Windsurf (stdio with uv)
+
+```json
+{
+  "mcpServers": {
+    "pro-context": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "pro_context"]
+    }
+  }
+}
+```
+
+### Cursor / Windsurf (stdio with pip)
 
 ```json
 {
@@ -905,12 +1294,35 @@ claude mcp add pro-context -- python -m pro_context
 
 ## 9. Development Workflow
 
-### Initial Setup
+### Initial Setup (uv - Recommended)
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install
+git clone <repo-url>
+cd pro-context
+uv sync
+
+# Run tests
+uv run pytest
+
+# Start in development mode (stdio)
+uv run python -m pro_context
+
+# Test with Claude Code
+claude mcp add pro-context -- uv run python -m pro_context
+```
+
+### Initial Setup (pip - Fallback)
 
 ```bash
 # Clone and install
 git clone <repo-url>
 cd pro-context
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
 # Run tests
@@ -921,23 +1333,44 @@ python -m pro_context
 
 # Test with Claude Code
 claude mcp add pro-context -- python -m pro_context
-
-# Or use uvicorn for HTTP mode with auto-reload
-uvicorn pro_context.server:app --reload --port 3100
 ```
+
+### Common Development Commands
+
+| Task | uv | pip |
+|------|-----|-----|
+| **Run tests** | `uv run pytest` | `pytest` |
+| **Run with coverage** | `uv run pytest --cov=pro_context` | `pytest --cov=pro_context` |
+| **Lint** | `uv run ruff check .` | `ruff check .` |
+| **Format** | `uv run ruff format .` | `ruff format .` |
+| **Type check** | `uv run mypy src/` | `mypy src/` |
+| **Run server (stdio)** | `uv run python -m pro_context` | `python -m pro_context` |
+| **Run server (HTTP)** | `PRO_CONTEXT_TRANSPORT=http uv run python -m pro_context` | `PRO_CONTEXT_TRANSPORT=http python -m pro_context` |
+| **Admin CLI** | `uv run pro-context-admin key create --name "test"` | `pro-context-admin key create --name "test"` |
+| **Update dependencies** | `uv lock --upgrade` | `pip-compile --upgrade pyproject.toml` |
 
 ### Adding a New Library to the Registry
 
+**With uv**:
+1. Edit `src/pro_context/registry/known_libraries.py`
+2. Add entry with `id`, `name`, `description`, `languages`, `package_name`, `docs_url`, `repo_url`
+3. Run tests: `uv run pytest tests/unit/registry/`
+4. Lint: `uv run ruff check .`
+5. Format: `uv run ruff format .`
+
+**With pip** (after activating venv):
 1. Edit `src/pro_context/registry/known_libraries.py`
 2. Add entry with `id`, `name`, `description`, `languages`, `package_name`, `docs_url`, `repo_url`
 3. Run tests: `pytest tests/unit/registry/`
 4. Lint: `ruff check .`
+5. Format: `ruff format .`
 
 ### Adding a New Source Adapter
 
 1. Create `src/pro_context/adapters/{name}.py` implementing `SourceAdapter` ABC
-2. Implement `can_handle`, `fetch_toc`, `fetch_page`, `check_freshness` methods
+2. Implement `can_handle`, `fetch_toc`, `fetch_page`, `check_freshness` async methods
 3. Register in `src/pro_context/adapters/chain.py` with appropriate priority
 4. Add tests in `tests/unit/adapters/test_{name}.py`
 5. Add integration test if the adapter has external dependencies
-6. Run full test suite: `pytest`
+6. Run full test suite: `uv run pytest` or `pytest`
+7. Type check: `uv run mypy src/pro_context/adapters/{name}.py` or `mypy src/pro_context/adapters/{name}.py`

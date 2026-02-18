@@ -19,10 +19,8 @@
 - [4. Resolution Algorithm](#4-resolution-algorithm)
   - [4.1 Input Normalization](#41-input-normalization)
   - [4.2 Resolution Steps](#42-resolution-steps)
-  - [4.3 Content Validation](#43-content-validation)
-  - [4.4 Deferred: Speculative URL Pattern Discovery](#44-deferred-speculative-url-pattern-discovery)
-  - [4.5 Resolution Priority](#45-resolution-priority)
-  - [4.6 What `resolve-library` Returns](#46-what-resolve-library-returns)
+  - [4.3 Resolution Priority](#43-resolution-priority)
+  - [4.4 What `resolve-library` Returns](#44-what-resolve-library-returns)
 - [5. Handling Edge Cases](#5-handling-edge-cases)
   - [5.1 Pip Extras](#51-pip-extras)
   - [5.2 Sub-packages in Monorepos](#52-sub-packages-in-monorepos)
@@ -113,6 +111,7 @@ The fundamental unit in Pro-Context's registry is a **Documentation Source** —
 A Documentation Source entry contains the following fields:
 
 **Core Fields:**
+
 - `id` (string, required): Unique identifier (human-readable, stable)
 - `name` (string, required): Display name
 - `docsUrl` (string or null): Documentation site URL (server tries {docsUrl}/llms.txt)
@@ -120,15 +119,18 @@ A Documentation Source entry contains the following fields:
 - `languages` (list of strings): Languages this library supports
 
 **Package Mappings:**
+
 - `packages` (object): Package registry mappings — multiple packages can map to one source
   - `pypi` (list of strings, optional): PyPI package names
   - `npm` (list of strings, optional): npm package names (future)
   - `crates` (list of strings, optional): crates.io names (future)
 
 **Matching Fields:**
+
 - `aliases` (list of strings): Alternative names/spellings for fuzzy matching
 
 **llms.txt Support:**
+
 - `llmsTxt` (object, optional): Present if library has a validated llms.txt file
   - `url` (string, required): llms.txt URL (validated)
   - `platform` (string, optional): Documentation platform (mintlify, vitepress, custom, etc.)
@@ -139,6 +141,7 @@ A Documentation Source entry contains the following fields:
 **What is llms.txt?** A proposed standard file (`/llms.txt`) that libraries publish at their documentation root to provide AI-optimized content. Research shows 60% adoption among surveyed libraries, with 100% adoption in AI/ML category.
 
 **Why prioritize llms.txt?**
+
 1. **AI-optimized content**: Designed specifically for LLM consumption
 2. **Fast resolution**: Direct URL, no HTML parsing needed
 3. **Structured format**: Markdown with clear sections and links
@@ -149,11 +152,13 @@ A Documentation Source entry contains the following fields:
 **Hub files as build-time discovery aids**: Some documentation sites (Svelte, Supabase) publish a "hub" llms.txt at their root that links to multiple per-product or per-language llms.txt files. These hubs are useful during registry construction — the build script follows the links to discover individual llms.txt files and creates a separate DocSource for each one. Hubs do not exist in the runtime data model. Each individual llms.txt file found via a hub becomes its own DocSource.
 
 **Content validation**: Not all URLs that return HTTP 200 serve valid llms.txt content. Some return HTML error pages. Pro-Context validates:
+
 - Content-Type header (should be text/plain or text/markdown, not HTML)
 - First 1KB doesn't contain HTML tags (`<!DOCTYPE`, `<html`, etc.)
 - Starts with markdown header (`#`)
 
 **URL patterns**: Based on research of 70+ libraries, common patterns include:
+
 - `docs.{library}.com/llms.txt` (30% of cases)
 - `{library}.dev/llms.txt` (popular with JS frameworks)
 - `{library}.com/llms.txt` (25% of cases)
@@ -174,7 +179,14 @@ A Documentation Source entry contains the following fields:
     "repoUrl": "https://github.com/langchain-ai/langchain",
     "languages": ["python"],
     "packages": {
-      "pypi": ["langchain", "langchain-openai", "langchain-anthropic", "langchain-community", "langchain-core", "langchain-text-splitters"]
+      "pypi": [
+        "langchain",
+        "langchain-openai",
+        "langchain-anthropic",
+        "langchain-community",
+        "langchain-core",
+        "langchain-text-splitters"
+      ]
     },
     "aliases": ["lang-chain", "lang chain"],
     "llmsTxt": {
@@ -201,7 +213,12 @@ A Documentation Source entry contains the following fields:
     "repoUrl": "https://github.com/pydantic/pydantic",
     "languages": ["python"],
     "packages": {
-      "pypi": ["pydantic", "pydantic-core", "pydantic-settings", "pydantic-extra-types"]
+      "pypi": [
+        "pydantic",
+        "pydantic-core",
+        "pydantic-settings",
+        "pydantic-extra-types"
+      ]
     },
     "aliases": [],
     "llmsTxt": {
@@ -373,17 +390,20 @@ resolve-library(query: "langchain-openai", language?: "python")
   │    Search DocSource.aliases
   │    → No match
   │
-  └─ Step 4: Fuzzy match (if step 3 fails)
-       Levenshtein distance against all IDs, names, package names, aliases
-       Max edit distance: 3
-       Return all matches ranked by relevance score
-       → Might match "langchain" with typo corrections
-       → If no matches within threshold: return empty results
+  ├─ Step 4: Fuzzy match (if step 3 fails)
+  │    Levenshtein distance against all IDs, names, package names, aliases
+  │    Max edit distance: 3
+  │    Return all matches ranked by relevance score
+  │    → Might match "langchain" with typo corrections
+  │
+  └─ Step 5: No match
+       If no matches found in Steps 1-4: return empty results
+       User gets: "Library not found in registry"
 ```
 
-**If library not found**: User has two options:
+**If library not found**, user has two options:
 
-1. **Wait for next registry update** (community: weekly, enterprise: daily)
+1. **Wait for next registry update** (weekly automatic rebuild)
 2. **Add via custom sources config** (immediate):
    ```yaml
    sources:
@@ -394,31 +414,33 @@ resolve-library(query: "langchain-openai", language?: "python")
          url: "https://docs.mynewlib.com/llms.txt"
    ```
 
-See Section 5 (Build Script) for how libraries are discovered and added to the registry.
+See Section 6 (Building the Registry) for how libraries are discovered and added to the registry at build-time.
 
 ### 4.3 Resolution Priority
 
-| Step | Source | Speed | Coverage | When Used |
-|------|--------|-------|----------|-----------|
-| 0 | Query parsing | <1ms | All queries | Extract context (language, version) |
-| 1 | Registry lookup | <10ms | 80% (curated) | Always (first check) |
-| 2 | DocSource ID exact match | <1ms | Curated libraries only | Agent uses known IDs |
-| 3 | Alias match | <1ms | Curated libraries only | Typos, alternative names |
-| 4 | Fuzzy match (Levenshtein) | <10ms | Curated libraries only | Misspellings |
-| 5 | PyPI metadata discovery | ~500ms | Any PyPI package | Unknown Python libraries (targeted: gets real docsUrl) |
-| 6 | GitHub discovery | ~500ms | Any GitHub repo | Non-PyPI libraries, or when query contains "/" |
+| Step | Source                    | Speed  | Coverage               | When Used                       |
+| ---- | ------------------------- | ------ | ---------------------- | ------------------------------- |
+| 0    | Query parsing             | <1ms   | All queries            | Extract context (language)      |
+| 1    | Package exact match       | <1ms   | Registry packages only | Direct package name lookup      |
+| 2    | DocSource ID exact match  | <1ms   | Registry libraries only | Agent uses known library IDs    |
+| 3    | Alias match               | <1ms   | Registry libraries only | Typos, alternative names        |
+| 4    | Fuzzy match (Levenshtein) | <10ms  | Registry libraries only | Misspellings (edit distance ≤3) |
+| 5    | No match                  | <1ms   | —                      | Return empty results            |
 
 **Key insights:**
-- Steps 0-4 are in-memory, fast (<10ms), depend on registry quality
-- Step 5 (PyPI) is a targeted lookup — gets the real docsUrl from package metadata, then probes 3-4 path variants for llms.txt (`/llms.txt`, `/en/llms.txt`, `/latest/llms.txt`, domain root). These are docsUrl-relative probes on a known domain, not speculative guesses across unknown TLDs.
-- Step 6 (GitHub) handles the long tail: libraries not on PyPI, GitHub-only projects.
-- Speculative URL pattern guessing (trying .com/.dev/.io) is deferred — see Section 4.4.
 
-**Performance optimization:**
-- Discovered DocSources are cached for future lookups
-- Registry hits (Step 1) resolve immediately (<10ms)
+- All steps are in-memory, fast (<10ms total)
+- No network calls during resolution
+- Registry quality directly determines coverage
+- Unknown libraries require custom sources config or registry update
 
-### 4.6 What `resolve-library` Returns
+**Performance characteristics:**
+
+- 95%+ queries resolve in <10ms (registry hit)
+- 5% queries return "not found" (registry miss)
+- Offline-capable: no external dependencies
+
+### 4.4 What `resolve-library` Returns
 
 `resolve-library` returns **DocSource** matches, not package matches. If "langchain-openai" resolves to the "langchain" DocSource, the response is:
 
@@ -456,6 +478,7 @@ The extras syntax (`[openai]`, `[vertexai]`, etc.) is stripped during normalizat
 ### 5.2 Sub-packages in Monorepos
 
 LangChain's monorepo publishes multiple PyPI packages:
+
 - `langchain` (main)
 - `langchain-openai` (OpenAI integration)
 - `langchain-anthropic` (Anthropic integration)
@@ -469,10 +492,12 @@ If the agent is specifically interested in the OpenAI integration docs, the TOC 
 ### 5.3 Related but Separate Projects
 
 Pydantic and Pydantic AI are related but have separate documentation sites:
+
 - `pydantic` → docs.pydantic.dev
 - `pydantic-ai` → ai.pydantic.dev
 
 These are separate DocSource entries. The package-to-source mapping distinguishes them:
+
 - PyPI package `pydantic` → DocSource "pydantic"
 - PyPI package `pydantic-ai` → DocSource "pydantic-ai"
 
@@ -489,6 +514,7 @@ A single DocSource represents a single documentation site. The `languages` field
 - **Separate docs sites** (tensorflow.org for Python vs js.tensorflow.org for JS): These are naturally separate DocSources — not because of language, but because they are different documentation sites with different URLs. No special handling required.
 
 This means:
+
 - No `language` parameter on `get-library-info`, `get-docs`, or `search-docs`
 - No `LANGUAGE_REQUIRED` error code
 - No language in cache keys or session tracking
@@ -501,6 +527,7 @@ This means:
 ### 5.5 GitHub-Only Libraries
 
 For libraries without a PyPI package:
+
 - Add them manually via custom sources config:
   ```yaml
   sources:
@@ -517,10 +544,10 @@ For libraries without a PyPI package:
 
 Some libraries publish separate PyPI packages for different release channels or build configurations:
 
-| Stable package | Variant packages | Relationship |
-|---|---|---|
-| `tensorflow` | `tf-nightly`, `tensorflow-gpu`, `tensorflow-cpu` | Nightly / build variants |
-| `torch` | `torch-nightly` | Nightly build |
+| Stable package | Variant packages                                 | Relationship             |
+| -------------- | ------------------------------------------------ | ------------------------ |
+| `tensorflow`   | `tf-nightly`, `tensorflow-gpu`, `tensorflow-cpu` | Nightly / build variants |
+| `torch`        | `torch-nightly`                                  | Nightly build            |
 
 These are **not** separate libraries — they're distribution variants of the same project and share the same documentation. The registry handles this by listing all variants under a single DocSource's `packages.pypi` array:
 
@@ -544,6 +571,12 @@ When an agent calls `resolve-library("tf-nightly")`, step 1 (exact package match
 The registry is built from multiple sources, combined and deduplicated:
 
 ```
+┌──────────────────────┐
+│  Curated Registries  │  100-200 libraries with validated llms.txt
+│  (seed data)         │  Sources: llms-txt-hub, Awesome-llms-txt
+└──────────┬───────────┘
+           │
+           ▼
 ┌──────────────────────┐
 │  top-pypi-packages   │  15,000 packages ranked by downloads
 │  (monthly snapshot)  │  Source: hugovk/top-pypi-packages
@@ -575,6 +608,22 @@ The registry is built from multiple sources, combined and deduplicated:
 └──────────────────────┘
 ```
 
+**Curated Registries (Seed Data)**
+
+Two community-maintained GitHub repositories provide a quick-start list of libraries with validated llms.txt files:
+
+1. **llms-txt-hub** (`github.com/thedaviddias/llms-txt-hub`)
+   - Largest community-maintained directory (100+ entries as of February 2026)
+   - Organized by category: AI/ML, Developer Tools, Data & Analytics, Infrastructure, etc.
+   - Regularly updated by community contributors
+   - Provides immediate high-quality seed data for the registry
+
+2. **Awesome-llms-txt** (`github.com/SecretiveShell/Awesome-llms-txt`)
+   - Community-curated index of llms.txt files across the web
+   - Good supplementary source for additional entries
+
+These registries give Pro-Context a "quick win" — 100-200 validated entries immediately, covering major AI/ML libraries (LangChain, Anthropic, Pydantic AI, OpenAI) and popular developer tools. The build script starts with these, then enriches with PyPI data for broader coverage.
+
 ### 6.2 Build Script
 
 A build script (not part of the runtime server) generates the registry. This is the ONLY place where PyPI API calls, llms.txt probing, and content validation happen.
@@ -582,23 +631,30 @@ A build script (not part of the runtime server) generates the registry. This is 
 ```python
 # scripts/build_registry.py
 
-1. Fetch top-pypi-packages (community: top 1,000; enterprise: top 5,000)
+1. Fetch curated registries (seed data):
+   a. Clone llms-txt-hub (github.com/thedaviddias/llms-txt-hub)
+   b. Clone Awesome-llms-txt (github.com/SecretiveShell/Awesome-llms-txt)
+   c. Parse entries: extract library name, docs URL, llms.txt URL
+   d. Validate each llms.txt URL (HEAD request + content check)
+   e. Create initial DocSource entries from validated entries
+
+2. Fetch top-pypi-packages (community: top 1,000; enterprise: top 5,000)
    Source: hugovk/top-pypi-packages monthly snapshot
 
-2. For each package:
+3. For each package:
    a. GET https://pypi.org/pypi/{name}/json
    b. Extract: name, summary, project_urls
    c. Determine docsUrl from project_urls.Documentation
    d. Determine repoUrl from project_urls.Source or project_urls.Repository
    e. Store package metadata for grouping step
 
-3. Group packages by Repository URL (see section 6.3):
+4. Group packages by Repository URL (see section 6.3):
    Primary signal: same Repository URL → same DocSource
    Fallback signal: same Homepage URL (if no Repository URL)
    Example: langchain, langchain-openai, langchain-core all have
      Repository → github.com/langchain-ai/langchain → grouped into one DocSource
 
-4. For each unique DocSource, discover llms.txt:
+5. For each unique DocSource, discover llms.txt:
    a. Try docsUrl-relative patterns:
       1. {docsUrl}/llms.txt           (direct — works for LangChain)
       2. {docsUrl}/en/llms.txt        (locale prefix — works for Anthropic)
@@ -621,14 +677,15 @@ A build script (not part of the runtime server) generates the registry. This is 
       - If repoUrl exists, try github.com/{owner}/{repo}/docs/ directory
       - Try llms.txt patterns on repoUrl
 
-5. Apply manual overrides from overrides.yaml:
+6. Apply manual overrides from overrides.yaml:
    - Force-group packages that automated rule missed
    - Force-separate packages that were incorrectly grouped
    - Add aliases for common misspellings/variations
    - Correct stale/wrong docsUrl from PyPI metadata
    - Add non-PyPI libraries (GitHub-only, private docs)
+   - Merge with curated registry entries from step 1
 
-6. Validate and output known-libraries.json:
+7. Validate and output known-libraries.json:
    - Deduplicate DocSource IDs
    - Sort by popularity (download rank)
    - Validate all URLs are accessible
@@ -670,6 +727,7 @@ async def validate_llms_txt(url: str) -> bool:
 ```
 
 **Hub detection and resolution**: If the llms.txt file contains multiple links to other llms.txt files (e.g., `https://svelte.dev/docs/svelte/llms.txt`, `https://svelte.dev/docs/kit/llms.txt`), the build script:
+
 1. Recognizes this as a hub
 2. Follows each link
 3. Validates each linked llms.txt
@@ -684,24 +742,25 @@ How do we know that `langchain-openai` belongs with `langchain`?
 
 The build script extracts the Repository URL (or Source URL, or Homepage if it's a GitHub URL) from each package's PyPI metadata. Packages sharing the exact same Repository URL are grouped into one DocSource.
 
-| Signal | Used for grouping? | Why |
-|--------|-------------------|-----|
-| Same Repository URL | **Yes (primary)** | Monorepo sub-packages share a repo. Verified against LangChain, Pydantic, HuggingFace, TensorFlow ecosystems. |
-| Same Homepage URL | **Yes (fallback)** | Only when Repository URL is missing. Catches packages like tensorflow/tensorflow-gpu/tf-nightly that have no repo but share `tensorflow.org` as Homepage. |
-| Same Documentation URL | No | Every sub-package has a unique Documentation URL pointing to its specific page. Not useful for grouping. |
-| Same GitHub org | No | Too loose. HuggingFace packages share the `huggingface` org but are separate products with separate repos. |
-| Same domain | No | Too loose. Multiple unrelated products can share a domain (e.g., `huggingface.co/docs/transformers/` vs `huggingface.co/docs/diffusers/`). |
+| Signal                 | Used for grouping? | Why                                                                                                                                                       |
+| ---------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Same Repository URL    | **Yes (primary)**  | Monorepo sub-packages share a repo. Verified against LangChain, Pydantic, HuggingFace, TensorFlow ecosystems.                                             |
+| Same Homepage URL      | **Yes (fallback)** | Only when Repository URL is missing. Catches packages like tensorflow/tensorflow-gpu/tf-nightly that have no repo but share `tensorflow.org` as Homepage. |
+| Same Documentation URL | No                 | Every sub-package has a unique Documentation URL pointing to its specific page. Not useful for grouping.                                                  |
+| Same GitHub org        | No                 | Too loose. HuggingFace packages share the `huggingface` org but are separate products with separate repos.                                                |
+| Same domain            | No                 | Too loose. Multiple unrelated products can share a domain (e.g., `huggingface.co/docs/transformers/` vs `huggingface.co/docs/diffusers/`).                |
 
 **Manual override.** For cases the automated rule misses, a manual override file specifies explicit groupings or separations.
 
 ### 6.4 Registry Size Estimates
 
-| Filter | Packages | Unique DocSources | With llms.txt | Registry File Size |
-|--------|----------|-------------------|---------------|-------------------|
-| Top 1,000 by downloads | 1,000 | ~600-700 | ~400-500 (80%) | ~150KB |
-| Top 5,000 by downloads | 5,000 | ~3,000-3,500 | ~2,000-2,500 (70%) | ~700KB |
+| Filter                 | Packages | Unique DocSources | With llms.txt      | Registry File Size |
+| ---------------------- | -------- | ----------------- | ------------------ | ------------------ |
+| Top 1,000 by downloads | 1,000    | ~600-700          | ~400-500 (80%)     | ~150KB             |
+| Top 5,000 by downloads | 5,000    | ~3,000-3,500      | ~2,000-2,500 (70%) | ~700KB             |
 
 **Notes:**
+
 - The package-to-source deduplication is significant — top 1,000 packages collapse to ~600-700 unique documentation sources because monorepo sub-packages share a Repository URL
 - Expected llms.txt adoption: 80% of top 1,000, 70% of top 5,000 (based on research showing 60% overall, 100% for AI/ML, 90% for dev platforms)
 
@@ -740,16 +799,19 @@ The build script extracts the Repository URL (or Source URL, or Homepage if it's
 At startup, the server loads `known-libraries.json` into memory and builds three lookup indexes:
 
 **Index 1: DocSource by ID**
+
 - Key: DocSource ID (string)
 - Value: Complete DocSource entry
 - Purpose: Fast lookup by known library ID
 
 **Index 2: Package name to DocSource ID**
+
 - Key: Package name (string)
 - Value: DocSource ID (string)
 - Purpose: Many-to-one mapping (multiple packages → one DocSource)
 
 **Index 3: Fuzzy search corpus**
+
 - List of searchable terms with their source IDs
 - Includes: IDs, names, package names, aliases (all lowercased)
 - Purpose: Fuzzy matching for typos/misspellings
@@ -759,44 +821,46 @@ At startup, the server loads `known-libraries.json` into memory and builds three
 **Input:** Query string (e.g., "langchain[openai]>=0.3") and optional language filter
 
 **Normalization:**
+
 - Strip pip extras: `"langchain[openai]"` → `"langchain"`
 - Strip version specifiers: `"langchain>=0.3"` → `"langchain"`
 - Lowercase: `"LangChain"` → `"langchain"`
+- Trim whitespace: `" langchain "` → `"langchain"`
 
 **Resolution Steps:**
 
 **Step 1: Exact package match**
+
 - Look up normalized query in package-to-ID index
 - If found, retrieve DocSource by ID
-- Return DocSource
+- Return DocSource with all metadata (including llmsTxt.url if available)
 - If not found, continue to Step 2
 
 **Step 2: Exact ID match**
+
 - Look up normalized query in DocSource-by-ID index
 - If found, return DocSource
 - If not found, continue to Step 3
 
-**Step 3: Fuzzy match**
-- Search normalized query against fuzzy corpus
-- Use Levenshtein distance or similar algorithm
-- If matches found with acceptable distance, return matching DocSources
+**Step 3: Alias match**
+
+- Look up normalized query in alias index
+- If found, retrieve DocSource by mapped ID
+- Return DocSource
 - If not found, continue to Step 4
 
-**Step 4: PyPI discovery** (if Python or language unspecified)
-- Query PyPI API for package metadata
-- If found, create ephemeral DocSource and cache
-- Return DocSource
+**Step 4: Fuzzy match**
+
+- Search normalized query against fuzzy corpus (all IDs, names, packages, aliases)
+- Use Levenshtein distance algorithm (max edit distance: 3)
+- If matches found with acceptable distance:
+  - Rank by relevance score (lower distance = higher relevance)
+  - Return all matching DocSources with relevance scores
 - If not found, continue to Step 5
 
-**Step 5: GitHub discovery** (if query looks like repo path)
-- If query contains "/" character
-- Query GitHub API for repository metadata
-- If found, create ephemeral DocSource and cache
-- Return DocSource
-- If not found, continue to Step 6
+**Step 5: No match**
 
-**Step 6: No match**
-- Return empty result
+- Return empty result with suggestion to add via custom sources config
 
 ### 7.3 Query Normalization Rules
 
@@ -818,57 +882,53 @@ At startup, the server loads `known-libraries.json` into memory and builds three
 
 ## 8. Comparison: PyPI vs GitHub as Primary Source
 
-| Dimension | PyPI | GitHub |
-|-----------|------|--------|
-| **Coverage (Python)** | ~500K packages. Covers all pip-installable libraries | Near-universal for open source. Also has non-Python projects |
-| **Structured metadata** | Yes: name, summary, project_urls, version list, classifiers | Limited: description, homepage, topics. No package-level metadata |
-| **Documentation URL** | Often in `project_urls.Documentation` — but not always set, sometimes stale | Homepage field — may or may not be docs. Often points to the repo itself |
-| **Download/popularity data** | Via BigQuery or top-pypi-packages dataset. Well-established | Stars, forks. Less reliable as popularity metric |
-| **Package grouping** | Shared Repository URL is the primary grouping signal. Homepage URL as fallback. | Monorepos are visible but sub-packages aren't distinct |
-| **Multi-language** | Python only | All languages |
-| **Non-public libraries** | Not on PyPI | May be on GitHub Enterprise, or not on GitHub at all |
-| **Rate limits** | No auth needed for JSON API. No rate limit documented | 60 req/hr unauthenticated, 5,000 with PAT |
+| Dimension                    | PyPI                                                                            | GitHub                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Coverage (Python)**        | ~500K packages. Covers all pip-installable libraries                            | Near-universal for open source. Also has non-Python projects             |
+| **Structured metadata**      | Yes: name, summary, project_urls, version list, classifiers                     | Limited: description, homepage, topics. No package-level metadata        |
+| **Documentation URL**        | Often in `project_urls.Documentation` — but not always set, sometimes stale     | Homepage field — may or may not be docs. Often points to the repo itself |
+| **Download/popularity data** | Via BigQuery or top-pypi-packages dataset. Well-established                     | Stars, forks. Less reliable as popularity metric                         |
+| **Package grouping**         | Shared Repository URL is the primary grouping signal. Homepage URL as fallback. | Monorepos are visible but sub-packages aren't distinct                   |
+| **Multi-language**           | Python only                                                                     | All languages                                                            |
+| **Non-public libraries**     | Not on PyPI                                                                     | May be on GitHub Enterprise, or not on GitHub at all                     |
+| **Rate limits**              | No auth needed for JSON API. No rate limit documented                           | 60 req/hr unauthenticated, 5,000 with PAT                                |
 
-**Recommendation: PyPI is the primary source for the build script.** It has structured metadata, a reliable popularity ranking (via top-pypi-packages), and the `project_urls` field often points to documentation. GitHub is the fallback at runtime — when a library isn't in the registry and isn't on PyPI, the GitHub adapter can fetch docs from the repo.
+**Recommendation: PyPI is the primary source for the build script.** It has structured metadata, a reliable popularity ranking (via top-pypi-packages), and the `project_urls` field often points to documentation. GitHub can be used as a secondary source during build-time discovery for libraries that aren't on PyPI.
 
-The build script uses PyPI for discovery and enrichment. The runtime server uses the pre-built registry for fast resolution and falls back to PyPI/GitHub for unknown libraries.
+The build script uses PyPI for discovery and enrichment. The runtime server uses only the pre-built registry for resolution — no network calls, no fallbacks to external APIs.
 
 ---
 
 ## 9. Open Questions
 
-### Q1: Should ephemeral discoveries be persisted?
-
-When the server discovers a library via PyPI at runtime (Step 5), should it persist the DocSource to SQLite so it's available across sessions? Or is session-scoped caching sufficient?
-
-**Lean**: Persist to SQLite with a TTL (e.g., 7 days). If a library is queried once, it's likely to be queried again. Persisting avoids repeated PyPI lookups.
-
-### Q2: Should the registry include packages below a popularity threshold?
+### Q1: Should the registry include packages below a popularity threshold?
 
 The top-pypi-packages dataset has 15,000 packages. Should we include all of them, or filter?
 
-**Lean**: Start with top 5,000 (>572K monthly downloads). This covers every library a typical developer encounters. The PyPI discovery fallback handles the long tail. We can expand later based on user feedback.
+**Lean**: Start with top 5,000 (>572K monthly downloads). This covers every library a typical developer encounters. Unknown libraries can be added via custom sources config or the next registry update. We can expand the registry size later based on user feedback.
 
-### Q3: How do we handle the agent passing a requirements.txt dump?
+### Q2: How do we handle the agent passing a requirements.txt dump?
 
 An agent might call `resolve-library` with each line from a requirements.txt. Some of those will be transitive dependencies (e.g., `certifi`, `urllib3`) that the developer never directly uses and doesn't need docs for.
 
 **Lean**: Not our problem. The agent decides what to resolve. If it's smart, it resolves direct dependencies only. Pro-Context resolves whatever it's asked to resolve.
 
-### Q4: Should llms.txt take absolute priority over docsUrl?
+### Q3: Should llms.txt take absolute priority over docsUrl?
 
 If a DocSource has both `docsUrl` and `llmsTxt.url`, should llms.txt always be used first, or should we fall back to GitHub/HTML scraping if llms.txt content seems incomplete?
 
 **Lean**: llms.txt takes absolute priority. If a library publishes llms.txt, they're explicitly supporting AI agents. Trust their curation. If content is incomplete, that's the library maintainer's problem to fix, not ours to work around.
 
-### Q5: How do we handle llms.txt URL migrations?
+### Q4: How do we handle llms.txt URL migrations?
 
 A library might move their llms.txt from `library.com/llms.txt` to `docs.library.com/llms.txt`. Should we:
+
 - Keep old URL and periodically re-check for 301 redirects
 - Try rediscovery when validation fails
 - Require manual registry updates
 
 **Lean**: Combine approaches:
+
 - Follow 301/302 redirects automatically during validation
 - If old URL returns 404, trigger rediscovery (try all patterns)
 - If rediscovery succeeds, update registry entry

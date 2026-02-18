@@ -120,7 +120,8 @@
 │  │  Infrastructure                           │           │
 │  │  ┌────────┐ ┌────────┐ ┌──────────────┐  │           │
 │  │  │ Logger │ │ Errors │ │ Rate Limiter │  │           │
-│  │  │ (pino) │ │        │ │              │  │           │
+│  │  │(struct)│ │        │ │              │  │           │
+│  │  │  log   │ │        │ │              │  │           │
 │  │  └────────┘ └────────┘ └──────────────┘  │           │
 │  └──────────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────────┘
@@ -141,7 +142,7 @@ MCP Client
   ├─ get-library-info("langchain-ai/langchain")
   │    │
   │    ├─ 1. Look up libraryId in registry (exact match)
-  │    ├─ 2. If not found → attempt package registry resolution
+  │    ├─ 2. If not found → return LIBRARY_NOT_FOUND error
   │    ├─ 3. Fetch TOC via adapter chain (llms.txt → GitHub → Custom)
   │    ├─ 4. Extract availableSections from TOC
   │    ├─ 5. Apply sections filter if specified
@@ -188,23 +189,27 @@ MCP Client
 
 | Component | Technology | Version | Rationale |
 |-----------|-----------|---------|-----------|
-| Language | Python | 3.11+ | Target ecosystem alignment (PyPI), batteries-included SQLite, strong text processing |
-| MCP SDK | `mcp` | latest | Official SDK, maintained by protocol authors |
-| Schema validation | Pydantic | 2.x | Runtime validation, excellent type integration, widely adopted |
-| Persistent cache | SQLite via `aiosqlite` | latest | Async-friendly, zero-config, embedded, no external infra |
-| In-memory cache | `cachetools` | 5.x | TTL support, LRU eviction, drop-in replacement for functools.lru_cache |
-| HTTP client | `httpx` | 0.27+ | Async-first, HTTP/2 support, timeout management |
+| Language | Python | 3.12+ | Latest stable, per-interpreter GIL, improved error messages, asyncio improvements |
+| Package manager | `uv` (recommended) | latest | 10-100x faster than pip, built-in lock files, better dependency resolution |
+| MCP SDK | `mcp` | >=1.0.0,<2.0.0 | Official SDK, maintained by protocol authors |
+| Schema validation | Pydantic | >=2.9.0,<3.0.0 | Runtime validation, excellent type integration, v2 Rust core for performance |
+| Persistent cache | SQLite via `aiosqlite` | >=0.20.0,<1.0.0 | Async-friendly, zero-config, embedded, no external infra |
+| In-memory cache | `cachetools` | >=5.3.0,<6.0.0 | TTL support, LRU eviction, simple async-compatible usage |
+| HTTP client | `httpx` | >=0.27.0,<1.0.0 | Async-first, HTTP/2 support, timeout management |
 | Search/ranking | BM25 via SQLite FTS5 | — | FTS5 for indexing + custom BM25 scoring; no embedding dependency |
-| Logging | `structlog` | 24.x | Structured logging, context binding, processor pipelines |
-| Testing | `pytest` + `pytest-asyncio` | 8.x / 0.23+ | De facto standard, excellent async support, rich plugin ecosystem |
-| Linting + Format | `ruff` | 0.3+ | Extremely fast, replaces flake8/black/isort, pyproject.toml config |
-| Type checking | `mypy` | 1.9+ | Static type analysis, strict mode enforcement |
-| YAML parsing | `pyyaml` | 6.x | Standard library equivalent for config parsing |
-| Fuzzy matching | `rapidfuzz` | 3.x | Fast Levenshtein distance, C++ backend |
+| Logging | `structlog` | >=24.1.0,<25.0.0 | Structured logging, context binding, processor pipelines |
+| Testing | `pytest` + `pytest-asyncio` | >=8.1.0,<9.0.0 / >=0.23.0,<1.0.0 | De facto standard, excellent async support, rich plugin ecosystem |
+| Linting + Format | `ruff` | >=0.3.0,<1.0.0 | Extremely fast, replaces flake8/black/isort, pyproject.toml config |
+| Type checking | `mypy` | >=1.9.0,<2.0.0 | Static type analysis, strict mode enforcement |
+| YAML parsing | `pyyaml` | >=6.0.1,<7.0.0 | Standard library equivalent for config parsing |
+| Fuzzy matching | `rapidfuzz` | >=3.6.0,<4.0.0 | Fast Levenshtein distance, C++ backend |
+
+**Version Pinning Strategy**: All dependencies use SemVer-compatible ranges. Lower bounds represent minimum tested versions (latest at project start). Lock files (`uv.lock` + `requirements.txt`) pin exact versions for reproducible builds. See Implementation Guide (Doc 04) for detailed dependency management workflow.
 
 ### Dependency Justification
 
-- **Python 3.11+**: Pattern matching, faster runtime, improved async performance, ExceptionGroup support.
+- **Python 3.12**: Latest stable release with per-interpreter GIL (better performance), improved error messages, asyncio improvements, all needed features.
+- **`uv` over `pip`**: 10-100x faster installation, built-in lock file support, better dependency resolution. Fallback to `pip` + `pip-tools` for compatibility.
 - **`aiosqlite` over `sqlite3`**: Async compatibility with `asyncio` event loop. Stdlib `sqlite3` blocks the event loop on writes.
 - **`cachetools` over `functools.lru_cache`**: TTL support is essential for cache expiry. `functools.lru_cache` has no TTL mechanism.
 - **`httpx` over `aiohttp`**: Cleaner API, better timeout handling, HTTP/2 support, sync/async unified interface.
@@ -343,9 +348,10 @@ class ErrorCode(str, Enum):
     URL_NOT_ALLOWED = "URL_NOT_ALLOWED"
     INVALID_CONTENT = "INVALID_CONTENT"
     SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
-    REGISTRY_TIMEOUT = "REGISTRY_TIMEOUT"
+    NETWORK_FETCH_FAILED = "NETWORK_FETCH_FAILED"
+    LLMS_TXT_NOT_FOUND = "LLMS_TXT_NOT_FOUND"
+    STALE_CACHE_EXPIRED = "STALE_CACHE_EXPIRED"
     RATE_LIMITED = "RATE_LIMITED"
-    INDEXING_IN_PROGRESS = "INDEXING_IN_PROGRESS"
     AUTH_REQUIRED = "AUTH_REQUIRED"
     AUTH_INVALID = "AUTH_INVALID"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -359,6 +365,7 @@ class ProContextError(Exception):
     recoverable: bool  # Whether error can be resolved by retrying or changing input
     suggestion: str  # Actionable suggestion for the user/agent
     retry_after: int | None = None  # Seconds to wait before retrying (if applicable)
+    details: dict | None = None  # Additional context (URLs, library names, etc.)
 ```
 
 ### 3.2 Cache Types
@@ -865,6 +872,25 @@ When a stale cache entry is served, a background refresh is triggered:
    d. If unchanged → update expiresAt timestamp only
 ```
 
+**Handling refresh failures:**
+
+If background refresh fails (network error, site down, 404), the server:
+
+1. **Keeps serving stale content** with `stale: true` flag
+2. **Logs warning** with error details and next retry timestamp
+3. **Continues retry attempts** on subsequent requests (with exponential backoff)
+4. **Maximum stale age**: 7 days (configurable)
+   - After 7 days without successful refresh, cache entry is invalidated
+   - Next request triggers fresh fetch (not background)
+   - If fresh fetch also fails, return `SOURCE_UNAVAILABLE` error
+
+**Agent behavior recommendations:**
+- `stale: false` → content is fresh, use confidently
+- `stale: true` → content may be outdated but likely still accurate; agent can choose to:
+  - Use the content (most cases)
+  - Show warning to user ("documentation may be outdated")
+  - Skip if absolute freshness required (rare)
+
 ---
 
 ## 6. Search Engine Design
@@ -1123,7 +1149,7 @@ pro-context-admin key revoke --id <key-id>
 pro-context-admin key stats --id <key-id>
 ```
 
-The admin CLI is a separate entry point (`src/auth/admin-cli.ts`) that operates directly on the SQLite database.
+The admin CLI is a separate entry point (`src/pro_context/auth/admin_cli.py`) that operates directly on the SQLite database.
 
 ---
 
@@ -1172,42 +1198,82 @@ SELECT rate_limit_per_minute FROM api_keys WHERE key_hash = ?;
 
 ### 11.1 Input Validation
 
-All inputs are validated at the MCP boundary using Zod schemas before any processing:
+All inputs are validated at the MCP boundary using Pydantic models before any processing:
 
-```typescript
-const GetDocsInput = z.object({
-  libraries: z.array(z.object({
-    libraryId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9\-_./]+$/),
-  })).min(1).max(10),
-  topic: z.string().min(1).max(500),
-  maxTokens: z.number().int().min(500).max(10000).default(5000),
-});
+```python
+from pydantic import BaseModel, Field, field_validator
+import re
 
-const ReadPageInput = z.object({
-  url: z.string().url().max(2000),
-  maxTokens: z.number().int().min(500).max(50000).default(10000),
-  offset: z.number().int().min(0).default(0),
-});
+class LibraryInput(BaseModel):
+    """Input for a single library reference"""
+    library_id: str = Field(min_length=1, max_length=200)
+
+    @field_validator('library_id')
+    @classmethod
+    def validate_library_id(cls, v: str) -> str:
+        if not re.match(r'^[a-zA-Z0-9\-_./]+$', v):
+            raise ValueError('library_id must contain only alphanumeric, dash, underscore, dot, or slash characters')
+        return v
+
+class GetDocsInput(BaseModel):
+    """Input schema for get-docs tool"""
+    libraries: list[LibraryInput] = Field(min_length=1, max_length=10)
+    topic: str = Field(min_length=1, max_length=500)
+    max_tokens: int = Field(default=5000, ge=500, le=10000)
+
+class ReadPageInput(BaseModel):
+    """Input schema for read-page tool"""
+    url: str = Field(max_length=2000)
+    max_tokens: int = Field(default=10000, ge=500, le=50000)
+    offset: int = Field(default=0, ge=0)
+
+    @field_validator('url')
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        from urllib.parse import urlparse
+        parsed = urlparse(v)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError('url must be a valid URL')
+        return v
 ```
 
 ### 11.2 SSRF Prevention
 
 URL fetching is restricted to known documentation domains:
 
-```typescript
-const DEFAULT_ALLOWLIST = [
-  "github.com",
-  "raw.githubusercontent.com",
-  "pypi.org",
-  "registry.npmjs.org",
-  "*.readthedocs.io",
-  "*.github.io",
-];
+```python
+from urllib.parse import urlparse
+import fnmatch
+import ipaddress
 
-function isAllowedUrl(url: string, allowlist: string[]): boolean {
-  const parsed = new URL(url);
-  return allowlist.some(pattern => matchDomain(parsed.hostname, pattern));
-}
+DEFAULT_ALLOWLIST = [
+    "github.com",
+    "raw.githubusercontent.com",
+    "pypi.org",
+    "registry.npmjs.org",
+    "*.readthedocs.io",
+    "*.github.io",
+]
+
+def is_allowed_url(url: str, allowlist: list[str]) -> bool:
+    """Check if URL is allowed based on domain allowlist"""
+    parsed = urlparse(url)
+
+    # Block file:// URLs
+    if parsed.scheme == "file":
+        return False
+
+    # Block private IP addresses
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+        if ip.is_private or ip.is_loopback:
+            return False
+    except ValueError:
+        # Not an IP address, continue with domain check
+        pass
+
+    # Check against allowlist with wildcard matching
+    return any(fnmatch.fnmatch(parsed.hostname, pattern) for pattern in allowlist)
 ```
 
 - No fetching of private IPs (127.0.0.1, 10.x, 192.168.x, etc.)
@@ -1218,20 +1284,37 @@ function isAllowedUrl(url: string, allowlist: string[]): boolean {
 
 ### 11.3 Secret Redaction
 
-Pino logger is configured with redaction paths:
+structlog logger is configured with processor pipelines for secret redaction:
 
-```typescript
-const logger = pino({
-  redact: {
-    paths: [
-      "req.headers.authorization",
-      "config.sources.github.token",
-      "*.apiKey",
-      "*.token",
+```python
+import structlog
+
+def redact_secrets(logger, method_name, event_dict):
+    """Processor to redact sensitive fields"""
+    sensitive_keys = {
+        "authorization", "api_key", "apiKey", "token",
+        "password", "secret", "key_hash"
+    }
+
+    def redact_dict(d):
+        if not isinstance(d, dict):
+            return d
+        return {
+            k: "[REDACTED]" if k.lower() in sensitive_keys else redact_dict(v)
+            for k, v in d.items()
+        }
+
+    return redact_dict(event_dict)
+
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        redact_secrets,  # Custom redaction processor
+        structlog.processors.JSONRenderer(),
     ],
-    censor: "[REDACTED]",
-  },
-});
+)
 ```
 
 ### 11.4 Content Sanitization
@@ -1309,35 +1392,35 @@ Status determination:
 
 ### 13.1 Adding a New Language
 
-1. **Create registry resolver**: `src/registry/{language}-resolver.ts`
+1. **Create registry resolver**: `src/pro_context/registry/{language}_resolver.py`
    - Implement version resolution for the language's package registry
-   - Follow the same interface as `pypi-resolver.ts`
+   - Follow the same interface as `pypi_resolver.py`
 
-2. **Add known libraries**: Add entries to `src/registry/known-libraries.ts`
+2. **Add known libraries**: Add entries to `src/pro_context/registry/known_libraries.py`
    - Each entry includes `languages: ["{language}"]` and language-specific metadata
 
 3. **No changes required in**: adapters, cache, search, tools, config
    - Adapters work by URL — they don't care about the language
-   - Cache is keyed by libraryId + version — language-agnostic
+   - Cache is keyed by libraryId — language-agnostic
    - Search indexes content — language-agnostic
 
 ### 13.2 Adding a New Documentation Source
 
-1. **Create adapter**: `src/adapters/{source-name}.ts`
-   - Implement the `SourceAdapter` interface (canHandle, fetchToc, fetchPage, checkFreshness)
-   - Define `priority` relative to existing adapters
+1. **Create adapter**: `src/pro_context/adapters/{source_name}.py`
+   - Implement the `SourceAdapter` ABC (can_handle, fetch_toc, fetch_page, check_freshness)
+   - Define `priority` property relative to existing adapters
 
-2. **Register adapter**: Add to the adapter chain in `src/adapters/chain.ts`
+2. **Register adapter**: Add to the adapter chain in `src/pro_context/adapters/chain.py`
 
 3. **No changes required in**: tools, cache, search, config schema (unless source-specific config is needed)
 
 ### 13.3 Adding a New Tool
 
-1. **Create tool handler**: `src/tools/{tool-name}.ts`
-   - Define Zod input/output schemas
-   - Implement handler function
+1. **Create tool handler**: `src/pro_context/tools/{tool_name}.py`
+   - Define Pydantic input/output schemas
+   - Implement async handler function
 
-2. **Register tool**: Add to server setup in `src/server.ts`
+2. **Register tool**: Add to server setup in `src/pro_context/server.py`
 
 3. **No changes required in**: adapters, cache, search, other tools
 
