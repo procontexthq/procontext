@@ -78,4 +78,8 @@ Thumbs.db
 .claude/settings.local*
 
 comments
-docs/specs/hosted-version-notes.md
+
+# Private/commercial notes (not for public repo)
+CLAUDE.local.md
+docs/private/
+docs/builder/
