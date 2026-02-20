@@ -490,6 +490,26 @@ class TestBM25Index:
 - Use `httpx.AsyncClient` for network fetches with timeout configuration
 - Use `asyncio.create_task()` for background tasks (e.g., cache refresh)
 - Avoid blocking operations in async functions — use `asyncio.to_thread()` if needed
+- **Never use `threading.Lock` in async code** — it blocks the entire event loop. Use `asyncio.Lock` instead
+- **Use `AsyncTTLCache` (not raw `cachetools.TTLCache`) for all in-memory caching** — see `src/pro_context/cache/memory.py` and technical spec Section 5.3
+
+### 3.6 Security Rules
+
+- **Always use `yaml.safe_load()`** when parsing YAML config files — never `yaml.load()`. The full loader can execute arbitrary Python via `!!python/object` tags in user-supplied config files
+  ```python
+  # Correct
+  import yaml
+  config = yaml.safe_load(f.read())
+
+  # NEVER do this
+  config = yaml.load(f.read())           # insecure
+  config = yaml.load(f.read(), Loader=yaml.Loader)  # also insecure
+  ```
+
+### 3.7 Known Type Checking Gotchas
+
+- **`aiosqlite` stubs are incomplete** — expect `type: ignore` comments on some `aiosqlite` calls when running `mypy --strict`. This is a known upstream issue. Do not suppress the entire module; use targeted `# type: ignore[assignment]` on the specific lines that need it
+- **`cachetools` stubs** — `TTLCache` is typed but the generic `__getitem__`/`__setitem__` signatures can cause mypy to infer `Any`. Explicitly annotate `AsyncTTLCache` attributes to avoid propagation
 
 ---
 

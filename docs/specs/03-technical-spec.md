@@ -141,7 +141,7 @@ MCP Client
   │    │
   │    ├─ 1. Look up libraryId in registry (exact match)
   │    ├─ 2. If not found → return LIBRARY_NOT_FOUND error
-  │    ├─ 3. Fetch TOC from library.llmsTxtUrl via fetcher
+  │    ├─ 3. Fetch TOC from library.llms_txt_url via fetcher
   │    ├─ 4. Extract availableSections from TOC
   │    ├─ 5. Apply sections filter if specified
   │    ├─ 6. Cache TOC, add to session resolved list
@@ -242,6 +242,7 @@ class Library:
     description: str  # Brief description
     languages: list[str]  # Languages this library is available in
     package_name: str  # Package name in registry (e.g., "langchain" on PyPI)
+    llms_txt_url: str  # llms.txt URL — builder guarantee: always present, always valid
     docs_url: str | None  # Documentation site URL
     repo_url: str | None  # GitHub repository URL
 
@@ -263,10 +264,10 @@ class LibraryInfo:
     library_id: str
     name: str
     languages: list[str]  # Informational metadata — not used for routing/validation
-    sources: list[str]  # Documentation sources (e.g., ["llms.txt", "github"])
     toc: list[TocEntry]  # Full or filtered TOC
     available_sections: list[str]  # All unique section names in TOC
     filtered_by_sections: list[str] | None = None  # Sections filter applied
+    # Note: no `sources` field — source is always llms.txt (builder guarantee)
 
 
 # ===== Documentation Types =====
@@ -388,6 +389,8 @@ class CacheEntry:
     content_hash: str  # Content SHA-256 hash (for freshness checking)
     fetched_at: datetime  # When this entry was created
     expires_at: datetime  # When this entry expires
+    etag: str | None = None  # ETag from source (used by check_freshness for cheap HEAD comparison)
+    last_modified: str | None = None  # Last-Modified from source (fallback if no ETag)
 
 
 @dataclass
@@ -400,6 +403,8 @@ class PageCacheEntry:
     content_hash: str  # Content SHA-256 hash
     fetched_at: datetime  # When this page was fetched
     expires_at: datetime  # When this entry expires
+    etag: str | None = None  # ETag from source (used by check_freshness)
+    last_modified: str | None = None  # Last-Modified from source (fallback if no ETag)
 
 
 @dataclass
@@ -547,7 +552,7 @@ class LlmsTxtFetcher:
 
     async def fetch_toc(self, library: Library) -> list[TocEntry]:
         """Fetch TOC from llms.txt URL (guaranteed by builder)"""
-        llms_txt_url = library.llmsTxtUrl
+        llms_txt_url = library.llms_txt_url
 
         try:
             response = await self.client.get(
@@ -698,20 +703,63 @@ Pages are cached separately because they're shared across tools — `read-page` 
 
 ### 5.3 Cache Manager
 
+**Memory cache implementation**: `cachetools.TTLCache` is not async-safe — using `threading.Lock` blocks the event loop. Instead, `src/pro_context/cache/memory.py` implements a thin `AsyncTTLCache` wrapper using `asyncio.Lock` for the check-then-set path to prevent cache stampede (concurrent coroutines all missing the same key). Individual reads (`cache.get(key)`) are safe without a lock in asyncio's cooperative scheduling model.
+
 ```python
+# src/pro_context/cache/memory.py
 from cachetools import TTLCache
+import asyncio
+
+class AsyncTTLCache:
+    """asyncio-safe TTL+LRU cache wrapping cachetools.TTLCache.
+
+    cachetools.TTLCache is not safe with threading.Lock in asyncio (blocks event loop).
+    This wrapper uses asyncio.Lock for the miss→fetch→store path to prevent stampede.
+    Individual get/set ops are atomic in asyncio (no await = no context switch).
+    """
+
+    def __init__(self, maxsize: int, ttl: int):
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def get(self, key: str):
+        """Read from cache — atomic in asyncio, no lock needed."""
+        return self._cache.get(key)
+
+    def set(self, key: str, value) -> None:
+        """Write to cache — atomic in asyncio, no lock needed."""
+        self._cache[key] = value
+
+    def pop(self, key: str, default=None):
+        return self._cache.pop(key, default)
+
+    async def get_or_set(self, key: str, fetch_fn) -> any:
+        """Fetch from cache or call fetch_fn, serializing concurrent misses."""
+        if key in self._cache:                     # fast path
+            return self._cache[key]
+        if key not in self._locks:
+            self._locks[key] = asyncio.Lock()
+        async with self._locks[key]:               # serialize concurrent misses
+            if key in self._cache:                 # double-check after acquiring lock
+                return self._cache[key]
+            result = await fetch_fn()
+            self._cache[key] = result
+            return result
+
+
+# src/pro_context/cache/manager.py
 from datetime import datetime
 
 class CacheManager:
-    """Two-tier cache orchestrator: memory (LRU) → SQLite → miss"""
+    """Two-tier cache orchestrator: memory (LRU+TTL) → SQLite → miss"""
 
-    def __init__(self, memory_cache: TTLCache, sqlite_cache: SqliteCache):
+    def __init__(self, memory_cache: AsyncTTLCache, sqlite_cache: SqliteCache):
         self.memory = memory_cache
         self.sqlite = sqlite_cache
 
     async def get(self, key: str) -> CacheEntry | None:
         """Get entry from cache (memory → SQLite → miss)"""
-        # Tier 1: Memory
+        # Tier 1: Memory (atomic get, no lock needed)
         mem_result = self.memory.get(key)
         if mem_result and not self._is_expired(mem_result):
             return mem_result
@@ -719,8 +767,8 @@ class CacheManager:
         # Tier 2: SQLite
         sql_result = await self.sqlite.get(key)
         if sql_result and not self._is_expired(sql_result):
-            # Promote to memory cache
-            self.memory[key] = sql_result
+            # Promote to memory cache (atomic set, no lock needed)
+            self.memory.set(key, sql_result)
             return sql_result
 
         # Return stale entry if exists (caller decides whether to use it)
@@ -728,7 +776,7 @@ class CacheManager:
 
     async def set(self, key: str, entry: CacheEntry) -> None:
         """Write to both cache tiers"""
-        self.memory[key] = entry
+        self.memory.set(key, entry)
         await self.sqlite.set(key, entry)
 
     async def invalidate(self, key: str) -> None:
@@ -737,7 +785,6 @@ class CacheManager:
         await self.sqlite.delete(key)
 
     def _is_expired(self, entry: CacheEntry) -> bool:
-        """Check if cache entry has expired"""
         return datetime.now() > entry.expires_at
 ```
 
@@ -749,7 +796,7 @@ Pages fetched by `read-page` are cached in full. Offset-based reads serve slices
 class PageCache:
     """Page-specific cache with offset-based slice support"""
 
-    def __init__(self, memory_cache: TTLCache, sqlite_cache: SqlitePageCache):
+    def __init__(self, memory_cache: AsyncTTLCache, sqlite_cache: SqlitePageCache):
         self.memory = memory_cache
         self.sqlite = sqlite_cache
 
@@ -763,7 +810,7 @@ class PageCache:
         # Tier 2: SQLite
         sql_result = await self.sqlite.get(url)
         if sql_result and not self._is_expired(sql_result):
-            self.memory[url] = sql_result
+            self.memory.set(url, sql_result)
             return sql_result
 
         return sql_result or mem_result or None
@@ -1494,6 +1541,8 @@ CREATE TABLE IF NOT EXISTS doc_cache (
   content TEXT NOT NULL,
   source_url TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  etag TEXT,                      -- ETag header from source (NULL if not provided)
+  last_modified TEXT,             -- Last-Modified header from source (NULL if not provided)
   fetched_at TEXT NOT NULL,       -- ISO 8601
   expires_at TEXT NOT NULL,       -- ISO 8601
   stale INTEGER NOT NULL DEFAULT 0, -- 1 if registry URL changed, requires background refresh
@@ -1513,6 +1562,8 @@ CREATE TABLE IF NOT EXISTS page_cache (
   content TEXT NOT NULL,
   total_tokens INTEGER NOT NULL,
   content_hash TEXT NOT NULL,
+  etag TEXT,                      -- ETag header from source (NULL if not provided)
+  last_modified TEXT,             -- Last-Modified header from source (NULL if not provided)
   fetched_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   stale INTEGER NOT NULL DEFAULT 0, -- 1 if registry URL changed, requires background refresh
