@@ -76,13 +76,21 @@ Thumbs.db
 
 # Claude
 .claude/settings.local*
+.playwright-mcp/
 
 # Notepads for personal use and for communicating ideas to Claude
 comments
 comments.txt
 comments.md
 
+#inforgraphics
+infographic*
+
 # Private notes (not for public eyes)
 CLAUDE.local.md
 docs/private/
 docs/builder/
+docs/specs_old/
+docs/reviews/
+docs/research/
+docs/notes/

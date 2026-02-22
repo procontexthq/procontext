@@ -25,52 +25,32 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 
 ## Implementation Phases
 
-0. **Specification/Design Phase** - Define the problem, design the system architecture, and create detailed specifications for each component. This phase will culminate in a comprehensive documentation that will guide the implementation.
-1. **Foundation** — MCP server skeleton, config, logging, errors, stdio transport, health check
-2. **Core Documentation Pipeline** — llms.txt fetcher, cache, `resolve-library` + `get-library-info` + `read-page` tools
-3. **Search & Navigation** — BM25 chunker/indexer, `get-docs` + `search-docs` tools, prompt templates
-4. **HTTP Mode & Authentication** — HTTP transport, API key auth, rate limiting, admin CLI
-5. **Polish & Production Readiness** — CI/CD, Docker, E2E tests, performance tuning
+0. **Specification/Design Phase** — Define the problem, design the system architecture, and create detailed specifications. Complete when all specs in `docs/specs/` are finalized and approved by Ankur.
+1. **Foundation** — MCP server skeleton, config, structured logging, error types, stdio transport, health check, registry loader
+2. **Core Pipeline** — llms.txt fetcher, SQLite cache, `resolve-library` + `get-library-docs` + `read-page` tools
+3. **HTTP Transport** — Streamable HTTP transport (MCP spec 2025-11-25), Origin validation, session management
+4. **Polish & Production Readiness** — CI/CD, Docker, E2E tests, performance tuning, packaging (`uvx`-installable)
 
-**Current state**: The project is in the specification/design phase. There is no source code yet — only design documents in `docs/specs/`. **You are not allowed to write any code until the design phase is complete.** The design phase will be considered complete when all the documents are finalized and approved by Ankur.
+**Current state**: The project is in the specification/design phase. There is no source code yet. **Do not write any code until the design phase is complete.** The design phase will be considered complete when all documents in `docs/specs/` are finalized and approved by Ankur.
 
-All implementation decisions are captured in these six spec documents, which are the authoritative design source. Additionally, the builder system (data engineering pipeline) is documented separately in `docs/builder/`.
+### Active Specifications (`docs/specs/`)
 
-- `docs/specs/01-competitive-analysis.md` — Market analysis and key insight: query understanding is the accuracy bottleneck
-- `docs/specs/02-functional-spec.md` — Problem statement, 5 MCP tools, 2 resources, 3 prompt templates, documentation fetching, security model
-- `docs/specs/03-technical-spec.md` — System architecture, library resolution (registry schema, in-memory indexes, 5-step algorithm, edge cases), data models, two-tier cache, BM25 search, database schema (6 SQLite tables)
-- `docs/specs/04-implementation-guide.md` — Project structure, dependencies, coding conventions, 6 implementation phases (0-5), testing strategy
-- `docs/specs/06-api-reference.md` — Formal MCP API reference: server capabilities, 5 tool definitions (JSON-RPC wire format), 2 resources, 3 prompts, error handling, HTTP mode API, versioning policy. Aligned with MCP spec v2025-11-25
-- `docs/specs/07-testing-and-qa.md` — Testing strategy (mocking with respx, performance benchmarks, MCP client compatibility), CI pipeline design, code review and PR workflow, definition of done per phase
+These are the authoritative design documents for the current open-source version.
 
-### Builder System Documentation
+- `docs/specs/01-functional-spec.md` — Problem statement, 3 MCP tools (`resolve-library`, `get-library-docs`, `read-page`), 1 resource, transport modes, registry, SQLite cache, security model, design decisions
+- `docs/specs/02-technical-spec.md` — *(in progress)* System architecture, data models, in-memory registry indexes, fetcher, SQLite schema, transport layer
+- `docs/specs/03-implementation-guide.md` — *(pending)* Project structure, dependencies, coding conventions, implementation phases, testing strategy
+- `docs/specs/04-api-reference.md` — *(pending)* Formal MCP API: tool definitions (JSON-RPC wire format), resource, error codes, versioning
 
-The registry builder system is documented separately (data engineering vs data serving separation):
+### Research Documents (`docs/research/`)
 
-- `docs/builder/01-overview.md` — Problem statement, architecture, relationship to pro-context MCP server
-- `docs/builder/02-functional-spec.md` — Requirements, input sources, output artifacts, quality criteria
-- `docs/builder/03-technical-spec.md` — Technology stack, 8-step pipeline, data models, rate limiting
-- `docs/builder/04-implementation-guide.md` — Project structure, dependencies, implementation phases, testing
-- `docs/builder/05-discovery-pipeline.md` — PyPI collection, llms.txt probing (10+ URL patterns), GitHub fallback
-- `docs/builder/06-normalization.md` — Converting all sources to llms.txt format, TOC generation
-- `docs/builder/07-deployment.md` — GitHub Actions, GitHub Pages, monitoring, incremental updates
+Factual research that informs the specifications — still valid regardless of scope:
 
-### Research Documents
+- `docs/research/llms-txt-deployment-patterns.md` — Survey of 70+ libraries: llms.txt is always a TOC with links, never full inline content. `llms-full.txt` variant (rare) contains full content.
+- `docs/research/llms-txt-resolution-strategy.md` — Registry-first resolution approach, hub detection, content validation
+- `docs/research/llms-txt-discovery-research.md` — Curated registries (llms-txt-hub, Awesome-llms-txt), Mintlify auto-generation
 
-Additional research documents that inform the specifications:
-
-- `docs/research/llms-txt-deployment-patterns.md` — Comprehensive survey of 70+ libraries showing real-world llms.txt deployment patterns, URL structures, version handling, and multi-variant strategies
-- `docs/research/llms-txt-resolution-strategy.md` — Approved strategy for resolving library names to llms.txt URLs: registry-first approach with smart fallback, hub detection, content validation, and maintenance plan
-- `docs/research/llms-txt-discovery-research.md` — Research on discovering libraries with llms.txt support, including curated registries (llms-txt-hub, Awesome-llms-txt) and Mintlify auto-generation findings
-
-### Review Documents
-
-Documents tracking gaps, issues, and decisions made during the design phase:
-
-- `docs/reviews/spec-gap-analysis.md` — Pre-implementation gap analysis of `docs/specs/`: identifies missing documents (operations guide, user docs, security spec, API reference) and missing components within each existing spec, with a prioritized action list
-- `docs/reviews/pending-items.md` — Living document tracking pending decisions, missing components, and open questions: technology stack gaps (markdown parser, CLI framework), registry update mechanism design, FTS5 sync triggers, implementation decisions, and future enhancements
-
-You are allowed to create new documents if you think that the discussion warrants it. Make sure you edit this section to link to any new documents you create.
+You are allowed to create new documents if the discussion warrants it. Update this section to link to any new documents you create.
 
 ## Overview of tech stack, architecture, coding conventions, configurations, commands and testing strategy
 
