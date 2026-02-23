@@ -15,15 +15,14 @@
   - [4.1 resolve-library](#41-resolve-library)
   - [4.2 get-library-docs](#42-get-library-docs)
   - [4.3 read-page](#43-read-page)
-- [5. MCP Resources](#5-mcp-resources)
-- [6. Transport Modes](#6-transport-modes)
-  - [6.1 stdio Transport](#61-stdio-transport)
-  - [6.2 HTTP Transport](#62-http-transport)
-- [7. Library Registry](#7-library-registry)
-- [8. Documentation Fetching & Caching](#8-documentation-fetching--caching)
-- [9. Security Model](#9-security-model)
-- [10. Error Handling](#10-error-handling)
-- [11. Design Decisions](#11-design-decisions)
+- [5. Transport Modes](#5-transport-modes)
+  - [5.1 stdio Transport](#51-stdio-transport)
+  - [5.2 HTTP Transport](#52-http-transport)
+- [6. Library Registry](#6-library-registry)
+- [7. Documentation Fetching & Caching](#7-documentation-fetching--caching)
+- [8. Security Model](#8-security-model)
+- [9. Error Handling](#9-error-handling)
+- [10. Design Decisions](#10-design-decisions)
 
 ---
 
@@ -219,30 +218,11 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 ---
 
-## 5. MCP Resources
-
-Pro-Context exposes one MCP resource for session context:
-
-**`pro-context://session/libraries`**
-
-Returns the list of library IDs that have been resolved in the current session. Allows the agent to recall which libraries it has already looked up without calling `resolve-library` again.
-
-```json
-{
-  "resolvedLibraries": [
-    { "libraryId": "langchain", "name": "LangChain", "resolvedAt": "2026-02-22T10:00:00Z" },
-    { "libraryId": "pydantic", "name": "Pydantic", "resolvedAt": "2026-02-22T10:05:00Z" }
-  ]
-}
-```
-
----
-
-## 6. Transport Modes
+## 5. Transport Modes
 
 Pro-Context supports two transport modes. The same MCP tools are available in both modes.
 
-### 6.1 stdio Transport
+### 5.1 stdio Transport
 
 The default mode for local development. The MCP client (e.g., Claude Code, Cursor) spawns Pro-Context as a subprocess and communicates over stdin/stdout using the MCP JSON-RPC protocol.
 
@@ -265,29 +245,29 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 }
 ```
 
-### 6.2 HTTP Transport
+### 5.2 HTTP Transport
 
 For shared or remote deployments. Implements the MCP Streamable HTTP transport spec (2025-11-25) — a single `/mcp` endpoint accepting both POST (requests) and GET (SSE streams).
 
 **Characteristics**:
 - Exposes a single `/mcp` endpoint
 - Session management via `MCP-Session-Id` header
-- Origin validation enforced (see Section 9)
+- Origin validation enforced (see Section 8)
 - Protocol version validation via `MCP-Protocol-Version` header
 - Supports `SUPPORTED_PROTOCOL_VERSIONS = {"2025-11-25", "2025-03-26"}`
 
 **Configuration**:
-```toml
-# pro-context.toml
-[server]
-transport = "http"
-host = "0.0.0.0"
-port = 8080
+```yaml
+# pro-context.yaml
+server:
+  transport: http
+  host: "0.0.0.0"
+  port: 8080
 ```
 
 ---
 
-## 7. Library Registry
+## 6. Library Registry
 
 The library registry (`known-libraries.json`) is the data backbone of Pro-Context. It is hosted on GitHub Pages and updated weekly. The MCP server consumes it — it never modifies it.
 
@@ -307,7 +287,7 @@ These three indexes serve all `resolve-library` lookups. No database reads durin
 
 ---
 
-## 8. Documentation Fetching & Caching
+## 7. Documentation Fetching & Caching
 
 ### Fetching
 
@@ -331,7 +311,7 @@ A single SQLite database (`cache.db`) stores all fetched content.
 
 ---
 
-## 9. Security Model
+## 8. Security Model
 
 ### SSRF Prevention
 
@@ -355,7 +335,7 @@ A single SQLite database (`cache.db`) stores all fetched content.
 
 ---
 
-## 10. Error Handling
+## 9. Error Handling
 
 Every error response follows the same structure:
 
@@ -391,7 +371,7 @@ Every error response follows the same structure:
 
 ---
 
-## 11. Design Decisions
+## 10. Design Decisions
 
 **D1: Agent-driven navigation**
 Pro-Context does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it sees the TOC, picks sections, reads pages. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.

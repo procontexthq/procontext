@@ -38,17 +38,9 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 These are the authoritative design documents for the current open-source version.
 
 - `docs/specs/01-functional-spec.md` — Problem statement, 3 MCP tools (`resolve-library`, `get-library-docs`, `read-page`), 1 resource, transport modes, registry, SQLite cache, security model, design decisions
-- `docs/specs/02-technical-spec.md` — *(in progress)* System architecture, data models, in-memory registry indexes, fetcher, SQLite schema, transport layer
-- `docs/specs/03-implementation-guide.md` — *(pending)* Project structure, dependencies, coding conventions, implementation phases, testing strategy
-- `docs/specs/04-api-reference.md` — *(pending)* Formal MCP API: tool definitions (JSON-RPC wire format), resource, error codes, versioning
-
-### Research Documents (`docs/research/`)
-
-Factual research that informs the specifications — still valid regardless of scope:
-
-- `docs/research/llms-txt-deployment-patterns.md` — Survey of 70+ libraries: llms.txt is always a TOC with links, never full inline content. `llms-full.txt` variant (rare) contains full content.
-- `docs/research/llms-txt-resolution-strategy.md` — Registry-first resolution approach, hub detection, content validation
-- `docs/research/llms-txt-discovery-research.md` — Curated registries (llms-txt-hub, Awesome-llms-txt), Mintlify auto-generation
+- `docs/specs/02-technical-spec.md` — System architecture, technology stack, data models (Pydantic), in-memory registry indexes, 5-step resolution algorithm, fetcher (httpx + SSRF), SQLite cache schema, heading parser, stdio + Streamable HTTP transport, registry update mechanism, configuration, logging
+- `docs/specs/03-implementation-guide.md` — Project structure, pyproject.toml, coding conventions (AppState injection, ProContextError pattern), 6 implementation phases, testing strategy (respx + in-memory SQLite), CI/CD
+- `docs/specs/04-api-reference.md` — Formal MCP API: tool definitions (JSON Schema + wire format examples), resource schema, full error code catalogue, stdio and HTTP transport reference, versioning policy
 
 You are allowed to create new documents if the discussion warrants it. Update this section to link to any new documents you create.
 
