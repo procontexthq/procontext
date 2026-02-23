@@ -63,6 +63,9 @@ ENV/
 .dmypy.json
 dmypy.json
 
+# Ruff
+.ruff_cache/
+
 # IDE
 .idea/
 .vscode/
@@ -74,7 +77,15 @@ dmypy.json
 .DS_Store
 Thumbs.db
 
-# Claude
+# Logs
+*.log
+
+# SQLite (runtime cache)
+*.db
+*.sqlite
+*.sqlite3
+
+# Claude Code
 .claude/settings.local*
 .playwright-mcp/
 
@@ -83,8 +94,11 @@ comments
 comments.txt
 comments.md
 
-#inforgraphics
+# Infographics (generated pitch assets)
 infographic*
+
+# Pro-Context local config (user-specific settings)
+pro-context.yaml
 
 # Private notes (not for public eyes)
 CLAUDE.local.md

@@ -109,7 +109,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `relevance` | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance |
 
 **Notes**:
-- Returns multiple matches ranked by relevance when fuzzy matching produces several candidates.
+- `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
+- Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
 
 ---
@@ -138,7 +139,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
   "name": "LangChain",
   "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://...): Interface for language models...\n- [Streaming](https://...): Stream model outputs...\n\n## API Reference\n\n- [Create Deployment](https://...): Create a new deployment.\n",
   "cached": false,
-  "cachedAt": null
+  "cachedAt": null,
+  "stale": false
 }
 ```
 
@@ -146,7 +148,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 |-------|-------------|
 | `content` | Raw llms.txt content as markdown. The agent reads this directly to understand available documentation and extract URLs to pass to `read-page` |
 | `cached` | Whether this response was served from cache |
-| `cachedAt` | ISO 8601 timestamp of when the content was originally fetched. `null` if not cached |
+| `cachedAt` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached |
+| `stale` | `true` if the content is past its TTL and a background refresh has been triggered. The content is still valid but may be slightly outdated. Always present; defaults to `false` |
 
 **Notes**:
 - The llms.txt format is a markdown file with section headings and links — exactly what LLMs read well. No server-side parsing needed.
@@ -156,34 +159,32 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 ### 4.3 read-page
 
-**Purpose**: Fetch the content of a specific documentation page. Returns the full page content and its heading structure, with optional filtering to a specific section.
+**Purpose**: Fetch the full content of a specific documentation page and its heading structure.
 
 **Input**:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `url` | string | Yes | URL of the documentation page, typically from `get-library-docs` sections |
-| `section` | string | No | Heading title to filter to. Returns only that section's content |
 
 **Processing**:
 1. Validate URL against SSRF allowlist
 2. Check SQLite cache for `page:{sha256(url)}` — if fresh, return from cache
 3. On cache miss: HTTP GET the URL, store full content in SQLite cache (TTL: 24 hours)
-4. Parse markdown: extract heading tree
-5. If `section` specified: extract content under that heading only
-6. Return content and heading structure
+4. Parse markdown: extract heading tree with line numbers
+5. Return content and heading structure
 
-**Output — without `section` (full page)**:
+**Output**:
 
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "title": "Streaming",
   "headings": [
-    { "level": 2, "title": "Overview" },
-    { "level": 2, "title": "Streaming with Chat Models" },
-    { "level": 3, "title": "Using .stream()" },
-    { "level": 2, "title": "Streaming with Chains" }
+    { "level": 1, "title": "Streaming", "anchor": "streaming", "line": 1 },
+    { "level": 2, "title": "Overview", "anchor": "overview", "line": 3 },
+    { "level": 2, "title": "Streaming with Chat Models", "anchor": "streaming-with-chat-models", "line": 12 },
+    { "level": 3, "title": "Using .stream()", "anchor": "using-stream", "line": 18 },
+    { "level": 2, "title": "Streaming with Chains", "anchor": "streaming-with-chains", "line": 35 }
   ],
   "content": "# Streaming\n\n## Overview\n...",
   "cached": true,
@@ -191,30 +192,19 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 }
 ```
 
-**Output — with `section="Streaming with Chat Models"`**:
-
-```json
-{
-  "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "title": "Streaming",
-  "section": "Streaming with Chat Models",
-  "headings": [...],
-  "content": "## Streaming with Chat Models\n\nTo stream...",
-  "cached": true,
-  "cachedAt": "2026-02-22T10:00:00Z"
-}
-```
-
 | Field | Description |
 |-------|-------------|
-| `headings` | All headings on the page with level (2 = `##`, 3 = `###`) and title |
-| `content` | Full page markdown, or section content if `section` specified |
-| `section` | The section name if filtering was applied |
+| `headings` | All headings on the page in document order (top to bottom). Each entry includes `level` (1–4), `title`, `anchor`, and `line` |
+| `headings[].anchor` | Slugified heading title for constructing deep links (e.g., `"streaming-with-chat-models"`). Format: lowercase, punctuation removed, spaces and underscores replaced with hyphens, consecutive hyphens collapsed. Duplicate anchors within a page are suffixed: `-2`, `-3`, etc. This format is stable |
+| `headings[].line` | 1-based line number where the heading appears in the page content |
+| `content` | Full page markdown |
+| `cached` | Whether this response was served from cache |
+| `cachedAt` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached |
+| `stale` | `true` if the content is past its TTL and a background refresh has been triggered. Always present; defaults to `false` |
 
 **Notes**:
-- The full page is always cached on first fetch. Subsequent calls (even with different `section`) are served from cache — no re-fetch.
-- `section` matching is case-insensitive. If no heading matches the given `section`, returns an error listing the available headings.
-- URLs must be from the allowlist. See Section 9.
+- The full page is cached on first fetch. Subsequent calls are served from cache — no re-fetch.
+- URLs must be from the allowlist. See Section 8.
 
 ---
 
@@ -273,10 +263,12 @@ The library registry (`known-libraries.json`) is the data backbone of Pro-Contex
 
 **Registry update cadence**: Weekly automated builds. Registry updates are independent of MCP server releases.
 
+**Custom registry**: The registry URL is configurable. Point `registry.url` and `registry.metadata_url` in `pro-context.yaml` at any HTTP endpoint that serves the same JSON format to use a private registry. See D6 in Section 10 for details.
+
 **At server startup**:
 1. Load local registry file from `~/.local/share/pro-context/registry/`
 2. If no local file exists: fall back to bundled snapshot (shipped with the package)
-3. In the background: check GitHub for a newer registry version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory (HTTP long-running mode).
+3. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory (HTTP long-running mode).
 
 **In-memory indexes** (rebuilt from registry on each load, <100ms for 1,000 entries):
 - Package name → library ID (many-to-one): `"langchain-openai"` → `"langchain"`
@@ -325,7 +317,7 @@ A single SQLite database (`cache.db`) stores all fetched content.
 ### Input Validation
 
 - All tool inputs are validated with Pydantic before processing
-- String inputs are trimmed and length-capped (query: 500 chars, URL: 2048 chars, section: 200 chars)
+- String inputs are trimmed and length-capped (query: 500 chars, URL: 2048 chars)
 - Library IDs are validated against a strict pattern (`[a-z0-9_-]+`)
 
 ### Content Sanitization
@@ -345,7 +337,7 @@ Every error response follows the same structure:
     "code": "LIBRARY_NOT_FOUND",
     "message": "No library found matching 'langchan'.",
     "suggestion": "Did you mean 'langchain'? Call resolve-library to find the correct ID.",
-    "recoverable": true
+    "recoverable": false
   }
 }
 ```
@@ -355,19 +347,18 @@ Every error response follows the same structure:
 | `code` | Machine-readable error code (see table below) |
 | `message` | Human-readable description of what went wrong |
 | `suggestion` | Actionable next step for the agent |
-| `recoverable` | Whether retrying the same request might succeed |
+| `recoverable` | `true` if retrying the identical request may succeed (transient failure). `false` if the request must change before it can succeed (permanent failure) |
 
 **Error codes**:
 
-| Code | Tool | Description |
-|------|------|-------------|
-| `LIBRARY_NOT_FOUND` | `get-library-docs` | `libraryId` not found in registry |
-| `LLMS_TXT_FETCH_FAILED` | `get-library-docs` | Network error or non-200 response fetching llms.txt |
-| `PAGE_NOT_FOUND` | `read-page` | HTTP 404 for the requested URL |
-| `PAGE_FETCH_FAILED` | `read-page` | Network error or non-200 response fetching page |
-| `SECTION_NOT_FOUND` | `read-page` | Specified `section` heading not found on the page |
-| `URL_NOT_ALLOWED` | `read-page` | URL domain not in SSRF allowlist |
-| `INVALID_INPUT` | Any | Input validation failed (malformed parameters) |
+| Code | Tool | `recoverable` | Description |
+|------|------|--------------|-------------|
+| `LIBRARY_NOT_FOUND` | `get-library-docs` | `false` | `libraryId` not in registry; retrying won't help |
+| `LLMS_TXT_FETCH_FAILED` | `get-library-docs` | `true` | Transient network error or non-200 fetching llms.txt; retry may succeed |
+| `PAGE_NOT_FOUND` | `read-page` | `false` | HTTP 404 — the page does not exist at that URL |
+| `PAGE_FETCH_FAILED` | `read-page` | `true` | Transient network error fetching page; retry may succeed |
+| `URL_NOT_ALLOWED` | `read-page` | `false` | URL domain not in SSRF allowlist; only a different URL will succeed |
+| `INVALID_INPUT` | Any | `false` | Input validation failed; the request must be corrected before retrying |
 
 ---
 
@@ -389,3 +380,20 @@ The registry (`known-libraries.json`) has its own release cadence (weekly) compl
 
 **D5: llms.txt as the documentation contract**
 Pro-Context treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and parsing that format.
+
+**D6: Custom registry as the escape hatch for private documentation**
+Teams with internal libraries or private documentation can point Pro-Context at a custom registry by setting `registry.url` and `registry.metadata_url` in `pro-context.yaml`:
+
+```yaml
+registry:
+  url: "https://docs.internal.example.com/pro-context/known-libraries.json"
+  metadata_url: "https://docs.internal.example.com/pro-context/registry_metadata.json"
+```
+
+The custom registry must serve:
+- **`known-libraries.json`**: An array of library entries in the same schema as the public registry. Each entry must include a valid `llms_txt_url`.
+- **`registry_metadata.json`**: A JSON object with `version` (string), `download_url` (string), and `checksum` (`"sha256:<hex>"`) fields so the server's background update check works correctly.
+
+**Important**: The SSRF allowlist is built from domains in the loaded registry. Documentation domains in a custom registry entry are automatically permitted by `read-page` — no additional SSRF configuration is needed.
+
+*Trade-off*: The custom registry completely replaces the public registry — there is no merging. Teams that want both public and private libraries must include the public entries in their custom registry. This is intentional: a merge strategy introduces ordering and conflict-resolution complexity that is not warranted for the open-source version.

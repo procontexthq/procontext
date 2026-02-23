@@ -8,7 +8,7 @@
 
 Pro-Context is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that will deliver accurate, fresh documentation to AI coding agents like Claude Code, Cursor, and Windsurf. It prevents hallucinated APIs by serving real documentation from Python libraries, MCP servers, GitHub projects, and any source that publishes [llms.txt](https://llmstxt.org) files.
 
-> ⚠️ **Project Status**: Currently in **Specification/Design Phase** (Phase 0). No implementation yet — only design documents. See [Development Status](#development-status) below.
+> ⚠️ **Project Status**: **Phase 0 complete** (foundation implemented). Phase 1 (registry & resolution) is next. Not yet usable — see [Development Status](#development-status) below.
 
 ---
 
@@ -28,21 +28,19 @@ AI coding agents often hallucinate outdated or incorrect API details because:
 
 Existing documentation tools fall into two categories, each with limitations:
 
-| Approach                 | Examples               | Speed                 | Accuracy | Limitation                                                                            |
-| ------------------------ | ---------------------- | --------------------- | -------- | ------------------------------------------------------------------------------------- |
-| **Server-Side Search**   | Context7, Deepcon      | Fast (1 tool call)    | 65-75%   | Requires expensive query understanding model; server must interpret vague user intent |
-| **Agent-Side RAG**       | Custom implementations | Slow (2-4 tool calls) | 90%+     | Agent controls search but makes multiple trips; 5-15s per query                       |
-| **Pro-Context (Hybrid)** | _This project_         | **Fast + Flexible**   | **90%+** | Best of both: Server BM25 search (2-5s, 1 call) + Agent navigation when needed        |
+| Approach               | Examples               | Accuracy | Limitation                                                                            |
+| ---------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------- |
+| **Server-Side Search** | Context7, Deepcon      | 65-75%   | Server must interpret vague user intent; requires expensive query understanding model |
+| **Agent-Side RAG**     | Custom implementations | 90%+     | High accuracy but brittle — agent must discover and validate sources itself           |
+| **Pro-Context**        | _This project_         | **90%+** | Agent navigates pre-validated, always-fresh sources; no discovery overhead            |
 
 **Key differentiators:**
 
-- 🧠 **No query understanding model needed** — Agent's LLM already knows what it wants; just needs fast search
-- ⚡ **Registry-first resolution** — <10ms library lookup, no runtime discovery API calls
-- 📦 **Curated registry** — 1000+ pre-validated sources (PyPI, MCP servers, GitHub projects)
-- 🎯 **llms.txt native** — Purpose-built for AI-optimized documentation format
-- 🔄 **Always fresh** — On-demand fetching ensures docs are never stale
-
-See [`docs/specs/01-competitive-analysis.md`](docs/specs/01-competitive-analysis.md) for detailed benchmarks and research.
+- **Registry-first resolution** — <10ms library lookup from a pre-built curated registry; no runtime discovery calls
+- **Pre-processed sources** — Documentation URLs are validated at build time, not discovered at query time
+- **Agent-driven navigation** — The agent's LLM reads the TOC and navigates to exactly what it needs; no server-side guessing
+- **llms.txt native** — Purpose-built for AI-optimized documentation format
+- **Always fresh** — On-demand fetching with a 24hr cache; never serves stale docs
 
 ---
 
@@ -64,14 +62,13 @@ See [`docs/specs/01-competitive-analysis.md`](docs/specs/01-competitive-analysis
 
 - **First query**: 2-5 seconds (fetch + parse + cache)
 - **Subsequent queries**: <100ms (served from cache)
-- BM25 full-text search across indexed documentation
-- Incremental indexing (only indexes what you actually use)
+- Incremental loading: only fetches documentation that is actually used
 
-### 🔍 **Hybrid Retrieval**
+### 🔍 **Agent-Driven Navigation**
 
-- **Fast path**: Server-side BM25 search for keyword queries
-- **Navigation path**: Agent-driven browsing of TOC and pages
-- Agents get the best of both: speed + flexibility
+- The agent reads the table of contents (`get-library-docs`) and navigates to specific pages (`read-page`)
+- No server-side keyword search or query interpretation — the agent's LLM already knows what it's looking for
+- Gives agents full control over what they read and in what order
 
 ### 🔄 **Always Fresh**
 
@@ -123,97 +120,81 @@ Pro-Context uses a **registry-first, lazy-fetch** architecture:
 │ Runtime: Documentation Server                   │
 │ • Load registry into memory (fast lookups)     │
 │ • Fetch docs on-demand when agent queries      │
-│ • Cache aggressively (SQLite + memory)         │
-│ • BM25 search across indexed content           │
+│ • Cache aggressively (SQLite, 24hr TTL)        │
+│ • Agent navigates TOC and pages directly       │
 └─────────────────────────────────────────────────┘
 ```
 
 **Key principles:**
 
-- **Registry-only resolution**: No runtime network calls for discovery
+- **Registry-only resolution**: No runtime network calls for discovery; all sources pre-validated at build time
 - **On-demand content fetching**: Only fetch docs that are actually used
-- **Incremental indexing**: Search index grows as agents use the server
+- **Agent-driven navigation**: Agents read the TOC and navigate pages directly — no server-side search or query interpretation
 - **Always latest**: No version-specific docs, always serves current documentation
 
 ---
 
 ## Development Status
 
-**Current Phase**: Specification/Design (Phase 0)
+**Current Phase**: Phase 1 — Registry & Resolution
 
-We are finalizing comprehensive design specifications before implementation begins. All design decisions, architecture choices, and implementation details are documented in [`docs/specs/`](docs/specs/).
+Phase 0 (foundation) is complete. The server skeleton, configuration, data models, and all supporting infrastructure are implemented in `src/pro_context/`. Phase 1 will implement the first MCP tool (`resolve-library`) and the registry loader.
 
-### Documentation Structure
+### Specification Documents (`docs/specs/`)
 
-The project has five detailed specification documents for the MCP server, plus separate builder system documentation:
+All design decisions are captured here before implementation begins.
 
-**MCP Server Specifications:**
-1. **[Competitive Analysis](docs/specs/01-competitive-analysis.md)** — Market research, accuracy benchmarks, key insights
-2. **[Functional Specification](docs/specs/02-functional-spec.md)** — MCP tools, user stories, error handling, security model
-3. **[Technical Specification](docs/specs/03-technical-spec.md)** — System architecture, data models, cache design, search engine
-4. **[Implementation Guide](docs/specs/04-implementation-guide.md)** — Project structure, dependencies, coding conventions, testing strategy
-5. **[Library Resolution](docs/specs/05-library-resolution.md)** — Registry schema, resolution algorithm, package grouping
-
-**Builder System Documentation** (data engineering pipeline, see `docs/builder/`):
-- 7 comprehensive documents covering PyPI scraping, llms.txt probing, GitHub extraction, normalization, and weekly GitHub Actions deployment
-
-**Design status**: All specifications are in draft/review phase. Implementation will begin once specs are finalized and approved.
+1. **[Functional Specification](docs/specs/01-functional-spec.md)** — Problem statement, 3 MCP tools (`resolve-library`, `get-library-docs`, `read-page`), security model, design decisions
+2. **[Technical Specification](docs/specs/02-technical-spec.md)** — System architecture, data models, resolution algorithm, SQLite cache, heading parser, transports
+3. **[Implementation Guide](docs/specs/03-implementation-guide.md)** — Project structure, coding conventions, 6 implementation phases, testing strategy
+4. **[API Reference](docs/specs/04-api-reference.md)** — Formal MCP API: tool schemas, wire format examples, error codes, versioning policy
 
 ### Implementation Roadmap
 
-- ✅ **Phase 0**: Specification/Design — _In Progress_
-- ⬜ **Phase 1**: Foundation (MCP server skeleton, config, logging) — _Not Started_
-- ⬜ **Phase 2**: Core Documentation Pipeline (llms.txt fetcher, cache, basic tools) — _Not Started_
-- ⬜ **Phase 3**: Search & Navigation (BM25 indexing, search-docs, read-page) — _Not Started_
-- ⬜ **Phase 4**: HTTP Mode & Authentication (API keys, rate limiting) — _Not Started_
-- ⬜ **Phase 5**: Polish & Production Readiness (prompts, Docker, CI/CD) — _Not Started_
+- ✅ **Phase 0**: Foundation — server skeleton, config, logging, errors, models, protocols, `AppState`
+- ⬜ **Phase 1**: Registry & Resolution — `load_registry()`, `resolve-library` tool, fuzzy matching
+- ⬜ **Phase 2**: Fetcher & Cache — `get-library-docs` tool, httpx fetcher, SQLite cache
+- ⬜ **Phase 3**: Page Reading & Parser — `read-page` tool, heading parser, section extraction
+- ⬜ **Phase 4**: HTTP Transport — Streamable HTTP, `MCPSecurityMiddleware`, uvicorn
+- ⬜ **Phase 5**: Registry Updates & Polish — background updates, cache cleanup, CI/CD, Docker, `uvx` packaging
 
 ---
 
 ## Installation
 
-> 🚧 **Coming Soon** — Installation instructions will be added once Phase 1 implementation begins.
+> 🚧 **Coming Soon** — Installation instructions will be added once the first usable tool (`resolve-library`, Phase 1) is complete.
 
-The server will support both **stdio** (local) and **HTTP** (remote) modes, installable via uv or pip, and configurable for Claude Code, Cursor, Windsurf, and other MCP clients.
+The server will support both **stdio** (local) and **HTTP** (remote) modes, installable via `uvx` or pip, and configurable for Claude Code, Cursor, Windsurf, and other MCP clients.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Since we're in the design phase:
+Contributions are welcome!
 
-### How to Contribute Now
+### How to Contribute
 
-1. **Review specifications**: Read through [`docs/specs/`](docs/specs/) and provide feedback
-2. **Open issues**: Report inconsistencies, suggest improvements, ask questions
-3. **Discuss design decisions**: Join conversations in GitHub Discussions
-4. **Report typos/errors**: Documentation improvements are always welcome
-
-### Future Contributions
-
-Once implementation begins (after Phase 0), we'll welcome:
-
-- Code contributions following the implementation guide
-- Additional documentation sources for the registry
-- Bug reports and fixes
-- Performance improvements
-- Test coverage enhancements
+1. **Review specifications**: Read through [`docs/specs/`](docs/specs/) and open issues for anything unclear or inconsistent
+2. **Code contributions**: Follow the [Implementation Guide](docs/specs/03-implementation-guide.md) — one module per phase, AppState injection pattern, ProContextError for all tool errors
+3. **Registry sources**: Suggest libraries or MCP servers that should be in the curated registry
+4. **Bug reports and fixes**: Open an issue describing the problem and steps to reproduce
+5. **Test coverage**: Additional tests using respx (HTTP mocking) and in-memory SQLite are welcome
 
 ---
 
 ## Technology Stack
 
-**Planned stack** (as specified in design docs):
-
 - **Language**: Python 3.12+
-- **Package Manager**: uv (with pip fallback)
-- **MCP SDK**: Official Python SDK
-- **Database**: SQLite (via aiosqlite)
-- **Search**: BM25 via SQLite FTS5
-- **Logging**: structlog
-- **Testing**: pytest + pytest-asyncio
+- **Package Manager**: uv
+- **MCP SDK**: `mcp` (FastMCP)
+- **HTTP Client**: httpx (async, with SSRF protection)
+- **Database**: SQLite via aiosqlite
+- **Settings**: pydantic-settings (YAML + env vars)
+- **Fuzzy Matching**: rapidfuzz (Phase 1)
+- **Logging**: structlog (structured JSON to stderr)
+- **Testing**: pytest + pytest-asyncio + respx
 - **Linting**: ruff
-- **Type Checking**: mypy
+- **Type Checking**: pyright
 
 ---
 
@@ -242,7 +223,7 @@ Pro-Context was created to solve the accuracy problem in AI coding agents by pro
 
 ## Links
 
-- **Documentation**: [`docs/specs/`](docs/specs/)
+- **Specifications**: [`docs/specs/`](docs/specs/)
 - **Issues**: [GitHub Issues](https://github.com/tewatia/pro-context/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/tewatia/pro-context/discussions)
 - **MCP Documentation**: [modelcontextprotocol.io](https://modelcontextprotocol.io)

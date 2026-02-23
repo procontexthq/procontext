@@ -168,7 +168,7 @@ The `text` field is a JSON-encoded string. Clients parse it to get the structure
 
 There are two distinct error channels:
 
-**Tool-level errors** — business logic failures (unknown library, SSRF block, section not found). These are returned inside the MCP `result` envelope with `isError: true`. The agent receives the error and can take corrective action.
+**Tool-level errors** — business logic failures (unknown library, SSRF block, fetch failure). These are returned inside the MCP `result` envelope with `isError: true`. The agent receives the error and can take corrective action.
 
 ```json
 {
@@ -496,14 +496,14 @@ Result:
 
 ## 4. Tool: read-page
 
-**Purpose**: Fetch the full content of a documentation page, with heading structure and optional section filtering.
+**Purpose**: Fetch the full content of a documentation page. Returns heading structure with line numbers for navigation.
 
 ### 4.1 Input Schema
 
 ```json
 {
   "name": "read-page",
-  "description": "Fetch the content of a documentation page. Returns the full page markdown and its heading structure. Use the section parameter (with a heading anchor from headings[].anchor) to retrieve only a specific section of a large page.",
+  "description": "Fetch the content of a documentation page. Returns the full page markdown and its heading structure. Each heading includes its line number for direct navigation.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -511,11 +511,6 @@ Result:
         "type": "string",
         "description": "URL of the documentation page, typically extracted from get-library-docs output. Must use http or https. Must be a domain from the library registry.",
         "maxLength": 2048
-      },
-      "section": {
-        "type": "string",
-        "description": "Optional. Anchor of the heading to filter to (e.g. 'streaming-with-chat-models'). Use headings[].anchor from a previous read-page call. Case-insensitive title match used as fallback if anchor not found. Returns SECTION_NOT_FOUND error (with available anchors) if neither anchor nor title matches.",
-        "maxLength": 200
       }
     },
     "required": ["url"]
@@ -523,15 +518,9 @@ Result:
 }
 ```
 
-**Section parameter notes**:
-- Primary match: anchor string (`"streaming-with-chat-models"`)
-- Fallback match: case-insensitive heading title (`"Streaming with Chat Models"`)
-- On mismatch: `SECTION_NOT_FOUND` error lists all available anchors
-- The full page is always cached on first fetch. Subsequent calls with different `section` values are served from cache — no re-fetch.
-
 ### 4.2 Output Schema
 
-**Full page (no `section`)**:
+**Output schema**:
 
 ```json
 {
@@ -559,31 +548,26 @@ Result:
           },
           "anchor": {
             "type": "string",
-            "description": "URL-safe slug. Deduplicated: if the same title appears multiple times, subsequent occurrences get a numeric suffix (-2, -3, ...). Use this as the section parameter in subsequent read-page calls."
+            "description": "URL-safe slug. Deduplicated: if the same title appears multiple times, subsequent occurrences get a numeric suffix (-2, -3, ...)."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line number where the heading appears in the page content. Use this to navigate directly to a section."
           }
         },
-        "required": ["title", "level", "anchor"]
+        "required": ["title", "level", "anchor", "line"]
       }
     },
     "content": {
       "type": "string",
       "description": "Full page markdown."
     },
-    "section": {
-      "type": ["string", "null"],
-      "description": "The section anchor if filtering was applied, null otherwise."
-    },
     "cached": { "type": "boolean" },
     "cachedAt": { "type": ["string", "null"], "format": "date-time" },
     "stale": { "type": "boolean" }
   },
-  "required": ["url", "headings", "content", "section", "cached", "cachedAt", "stale"]
+  "required": ["url", "headings", "content", "cached", "cachedAt", "stale"]
 }
-```
-
-**Filtered page (with `section`)**:
-
-Same schema. `content` contains only the heading line and body of the matched section, not the full page. `section` field is the matched anchor.
 
 ### 4.3 Examples
 
@@ -599,61 +583,28 @@ Result:
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
   "headings": [
-    { "title": "Streaming", "level": 1, "anchor": "streaming" },
-    { "title": "Overview", "level": 2, "anchor": "overview" },
-    { "title": "Streaming with Chat Models", "level": 2, "anchor": "streaming-with-chat-models" },
-    { "title": "Using .stream()", "level": 3, "anchor": "using-stream" },
-    { "title": "Using .astream()", "level": 3, "anchor": "using-astream" },
-    { "title": "Streaming with Chains", "level": 2, "anchor": "streaming-with-chains" }
+    { "title": "Streaming", "level": 1, "anchor": "streaming", "line": 1 },
+    { "title": "Overview", "level": 2, "anchor": "overview", "line": 3 },
+    { "title": "Streaming with Chat Models", "level": 2, "anchor": "streaming-with-chat-models", "line": 12 },
+    { "title": "Using .stream()", "level": 3, "anchor": "using-stream", "line": 18 },
+    { "title": "Using .astream()", "level": 3, "anchor": "using-astream", "line": 27 },
+    { "title": "Streaming with Chains", "level": 2, "anchor": "streaming-with-chains", "line": 35 }
   ],
   "content": "# Streaming\n\n## Overview\n\nLangChain supports streaming...\n\n## Streaming with Chat Models\n...",
-  "section": null,
   "cached": false,
   "cachedAt": null,
   "stale": false
 }
 ```
 
-**Section filter**:
-
-Request arguments:
-```json
-{
-  "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "section": "streaming-with-chat-models"
-}
-```
-
-Result:
-```json
-{
-  "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "headings": [
-    { "title": "Streaming", "level": 1, "anchor": "streaming" },
-    { "title": "Overview", "level": 2, "anchor": "overview" },
-    { "title": "Streaming with Chat Models", "level": 2, "anchor": "streaming-with-chat-models" },
-    { "title": "Using .stream()", "level": 3, "anchor": "using-stream" },
-    { "title": "Using .astream()", "level": 3, "anchor": "using-astream" },
-    { "title": "Streaming with Chains", "level": 2, "anchor": "streaming-with-chains" }
-  ],
-  "content": "## Streaming with Chat Models\n\nTo stream tokens from a chat model...\n\n### Using .stream()\n\n...\n\n### Using .astream()\n\n...",
-  "section": "streaming-with-chat-models",
-  "cached": true,
-  "cachedAt": "2026-02-23T10:00:00Z",
-  "stale": false
-}
-```
-
-Note: `headings` is always the full page heading list, regardless of `section`. This lets the agent navigate to other sections without a separate full-page fetch.
-
 **Duplicate heading anchors** (same title appears three times):
 
 ```json
 {
   "headings": [
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode" },
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-2" },
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-3" }
+    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode", "line": 10 },
+    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-2", "line": 45 },
+    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-3", "line": 78 }
   ]
 }
 ```
@@ -667,21 +618,7 @@ Note: `headings` is always the full page heading list, regardless of `section`. 
 | HTTP 404 for the URL | `PAGE_NOT_FOUND` | `false` |
 | Network error or non-200/404 response | `PAGE_FETCH_FAILED` | `true` |
 | Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED` | `false` |
-| `section` heading not found | `SECTION_NOT_FOUND` | `false` |
 | URL over 2048 characters | `INVALID_INPUT` | `false` |
-
-**`SECTION_NOT_FOUND` example** — includes available anchors to guide the agent:
-
-```json
-{
-  "error": {
-    "code": "SECTION_NOT_FOUND",
-    "message": "Section 'streaming-models' not found on this page.",
-    "suggestion": "Available sections: overview, streaming-with-chat-models, using-stream, using-astream, streaming-with-chains",
-    "recoverable": false
-  }
-}
-```
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -849,13 +786,12 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 | `LLMS_TXT_FETCH_FAILED` | `get-library-docs` | Network error, timeout, or non-200 HTTP response when fetching the llms.txt URL | `true` |
 | `PAGE_NOT_FOUND` | `read-page` | HTTP 404 for the requested URL | `false` |
 | `PAGE_FETCH_FAILED` | `read-page` | Network error, timeout, non-200/404 HTTP response, or too many redirects | `true` |
-| `SECTION_NOT_FOUND` | `read-page` | `section` parameter did not match any heading anchor or title on the page. Available anchors are listed in `suggestion` | `false` |
 | `URL_NOT_ALLOWED` | `read-page` | URL domain is not in the SSRF allowlist, or is a private IP range | `false` |
 | `INVALID_INPUT` | Any tool | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false` |
 
 **On `recoverable: true`**: The same request may succeed if retried after a brief delay. Network errors and upstream failures are the typical cause. The agent should inform the user rather than retry indefinitely.
 
-**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve-library` to find a valid `libraryId`, or use available anchors from `SECTION_NOT_FOUND`).
+**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve-library` to find a valid `libraryId`, or check the URL is from a known documentation domain).
 
 ---
 
@@ -916,7 +852,7 @@ server:
 ```bash
 uvx pro-context --config pro-context.yaml
 # or via env var:
-PRO_CONTEXT_TRANSPORT=http uvx pro-context
+PRO_CONTEXT__SERVER__TRANSPORT=http uvx pro-context
 ```
 
 **Request headers**:

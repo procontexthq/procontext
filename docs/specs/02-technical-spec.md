@@ -32,7 +32,6 @@
   - [6.2 Stale-While-Revalidate](#62-stale-while-revalidate)
 - [7. Heading Parser](#7-heading-parser)
   - [7.1 Algorithm](#71-algorithm)
-  - [7.2 Section Extraction](#72-section-extraction)
 - [8. Transport Layer](#8-transport-layer)
   - [8.1 stdio Transport](#81-stdio-transport)
   - [8.2 HTTP Transport](#82-http-transport)
@@ -109,8 +108,7 @@ read-page("https://docs.langchain.com/concepts/streaming.md")
   │    MISS         → continue
   ├─ Fetch: HTTP GET url (30s timeout, SSRF validated per redirect)
   ├─ Store: page_cache (TTL 24h)
-  ├─ Parse: extract headings (code-block-aware, H1–H4, deduplicated anchors)
-  ├─ If section specified: extract section content
+  ├─ Parse: extract headings (code-block-aware, H1–H4, line numbers, deduplicated anchors)
   └─ Return: { headings: [...], content: "..." }
 ```
 
@@ -241,11 +239,11 @@ class GetLibraryDocsOutput(BaseModel):
 class Heading(BaseModel):
     title: str
     level: int                # 1–4 (maps to H1–H4)
-    anchor: str               # Slugified, deduplicated
+    anchor: str               # Slugified, deduplicated (useful for constructing deep links)
+    line: int                 # 1-based line number where the heading appears in the page
 
 class ReadPageInput(BaseModel):
     url: str
-    section: str | None = None
 
     @field_validator("url")
     @classmethod
@@ -257,22 +255,10 @@ class ReadPageInput(BaseModel):
             raise ValueError("url must use http or https scheme")
         return v
 
-    @field_validator("section")
-    @classmethod
-    def validate_section(cls, v: str | None) -> str | None:
-        if v is not None:
-            v = v.strip()
-            if len(v) > 200:
-                raise ValueError("section must not exceed 200 characters")
-            if not v:
-                return None
-        return v
-
 class ReadPageOutput(BaseModel):
     url: str
     headings: list[Heading]
-    content: str              # Full page or section content
-    section: str | None       # Section anchor if filtering was applied
+    content: str              # Full page markdown
     cached: bool
     cached_at: datetime | None
     stale: bool = False
@@ -289,7 +275,6 @@ class ErrorCode(StrEnum):
     LLMS_TXT_FETCH_FAILED = "LLMS_TXT_FETCH_FAILED"
     PAGE_NOT_FOUND        = "PAGE_NOT_FOUND"
     PAGE_FETCH_FAILED     = "PAGE_FETCH_FAILED"
-    SECTION_NOT_FOUND     = "SECTION_NOT_FOUND"
     URL_NOT_ALLOWED       = "URL_NOT_ALLOWED"
     INVALID_INPUT         = "INVALID_INPUT"
 
@@ -486,7 +471,7 @@ The client is created once at startup and closed on shutdown. It is never re-cre
 
 ### 5.2 SSRF Prevention
 
-The SSRF allowlist is built at startup from the registry and never modified at runtime:
+The SSRF allowlist is built at startup from the registry and never modified at runtime. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read-page`.
 
 ```python
 from urllib.parse import urlparse
@@ -501,13 +486,20 @@ PRIVATE_NETWORKS = [
     ipaddress.ip_network("fc00::/7"),
 ]
 
+def _base_domain(hostname: str) -> str:
+    """Return the last two DNS labels: 'api.langchain.com' → 'langchain.com'."""
+    parts = hostname.rstrip(".").split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+
 def build_allowlist(entries: list[RegistryEntry]) -> frozenset[str]:
-    domains: set[str] = set()
+    base_domains: set[str] = set()
     for entry in entries:
         for url in [entry.llms_txt_url, entry.docs_url]:
             if url:
-                domains.add(urlparse(url).hostname or "")
-    return frozenset(d for d in domains if d)
+                hostname = urlparse(url).hostname or ""
+                if hostname:
+                    base_domains.add(_base_domain(hostname))
+    return frozenset(base_domains)
 
 def is_url_allowed(url: str, allowlist: frozenset[str]) -> bool:
     parsed = urlparse(url)
@@ -521,8 +513,10 @@ def is_url_allowed(url: str, allowlist: frozenset[str]) -> bool:
     except ValueError:
         pass  # hostname is a domain name, not an IP — proceed to allowlist check
 
-    return hostname in allowlist
+    return _base_domain(hostname) in allowlist
 ```
+
+**Known limitation**: Two-label base domain extraction is a simplification of proper eTLD+1 calculation. For shared hosting platforms like `github.io` or `readthedocs.io`, the base domain would be `github.io` or `readthedocs.io` — permitting all projects hosted there, not just the registered library. This is an acceptable trade-off for v1; a future version could adopt the `tldextract` library for accurate Public Suffix List-based matching.
 
 ### 5.3 Redirect Handling
 
@@ -620,24 +614,60 @@ async def get_toc(self, library_id: str) -> TocCacheEntry | None:
     return entry
 
 async def _refresh_toc(self, library_id: str) -> None:
+    log = structlog.get_logger().bind(tool="get_library_docs", library_id=library_id)
     try:
         content = await self.fetcher.fetch_text(llms_txt_url, self.allowlist)
         await self.db.upsert_toc(library_id, content, ttl_hours=24)
-    except ProContextError:
-        pass  # Stale content continues to be served; retry on next request
+        log.info("stale_refresh_complete", key=f"toc:{library_id}")
+    except Exception:
+        # Non-fatal: stale content continues to be served; retry on next request.
+        # exc_info=True captures the full traceback — required for suppressed exceptions.
+        log.warning("stale_refresh_failed", key=f"toc:{library_id}", exc_info=True)
 ```
 
 The same pattern applies to `page_cache`. The agent always gets a response immediately — a background `asyncio.create_task` handles the refresh without blocking.
+
+**Why `except Exception` and not `except ProContextError`**: Background refresh failures include both expected errors (`ProContextError` — e.g., fetch failed, URL not allowed) and unexpected ones (network timeouts not yet wrapped, `aiosqlite` write failures). Catching only `ProContextError` would let infrastructure exceptions escape and crash the background task silently. `except Exception` with `exc_info=True` ensures all failures are logged and the server continues serving stale content regardless of the failure type.
+
+### 6.3 Cache Error Handling
+
+`aiosqlite` exceptions must never escape the `Cache` class boundary. Tool handlers must not need to import or handle `sqlite3`/`aiosqlite` errors directly — this would leak infrastructure details through the abstraction.
+
+**Read failures** (`get_toc`, `get_page`): If the SQLite read raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return `None`. The caller treats `None` as a cache miss and falls back to a network fetch. The agent receives a valid response with `cached: false`.
+
+**Write failures** (`set_toc`, `set_page`): If the SQLite write raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return normally. The content was already fetched successfully — failure to persist it is non-fatal. The agent receives the fetched content; the next request will simply be a cache miss again.
+
+**Cleanup failures** (`cleanup_expired`): Catch `aiosqlite.Error`, log a warning, and continue. Cleanup is a background maintenance task — failure to delete expired rows is non-critical.
+
+```python
+# Example: read failure degrades gracefully to cache miss
+async def get_toc(self, library_id: str) -> TocCacheEntry | None:
+    try:
+        entry = await self.db.fetch_toc(library_id)
+        ...
+        return entry
+    except aiosqlite.Error:
+        log.warning("cache_read_error", key=f"toc:{library_id}", exc_info=True)
+        return None  # Caller treats as cache miss
+
+# Example: write failure is non-fatal
+async def set_toc(self, library_id: str, ...) -> None:
+    try:
+        await self.db.upsert_toc(...)
+    except aiosqlite.Error:
+        log.warning("cache_write_error", key=f"toc:{library_id}", exc_info=True)
+        # Return normally — content was fetched successfully
+```
 
 ---
 
 ## 7. Heading Parser
 
-The heading parser is used exclusively by `read-page`. It produces the `headings` list and enables section extraction. Defined in `src/pro_context/parser.py`.
+The heading parser is used exclusively by `read-page`. It produces the `headings` list, including the 1-based line number of each heading. Defined in `src/pro_context/parser.py`.
 
 ### 7.1 Algorithm
 
-Four rules applied in a single pass:
+Three rules applied in a single pass:
 
 **Rule 1 — Code block tracking**
 
@@ -676,17 +706,15 @@ def parse_headings(content: str) -> list[Heading]:
         level = len(match.group(1))
         title = match.group(2).strip()
 
-        # Rule 3: anchor generation
+        # Rule 3: anchor generation and deduplication
         anchor = _make_anchor(title)
-
-        # Rule 4: deduplication
         if anchor in anchor_counts:
             anchor_counts[anchor] += 1
             anchor = f"{anchor}-{anchor_counts[anchor]}"
         else:
             anchor_counts[anchor] = 1
 
-        headings.append(Heading(title=title, level=level, anchor=anchor))
+        headings.append(Heading(title=title, level=level, anchor=anchor, line=lineno))
 
     return headings
 
@@ -705,73 +733,6 @@ def _make_anchor(title: str) -> str:
 - `#####` and `######` headings: Too granular, negligible in real documentation
 - HTML headings (`<h2>`): Essentially absent from markdown documentation pages
 - Setext-style headings (`===` / `---` underlines): Rare in practice, ambiguous with horizontal rules
-
-### 7.2 Section Extraction
-
-When `section` is provided to `read-page`, the content under that heading is extracted:
-
-```python
-def extract_section(content: str, anchor: str) -> str | None:
-    """Extract content under the heading matching anchor.
-
-    Content runs from the matched heading line to the line before
-    the next heading of equal or lesser depth (lower # count).
-    Handles non-strictly-nested hierarchies (e.g., H3 directly under H1).
-    """
-    lines = content.splitlines(keepends=True)
-    headings = parse_headings(content)
-
-    # Find the target heading
-    target = next((h for h in headings if h.anchor == anchor), None)
-    if target is None:
-        return None
-
-    # Rebuild line-number map (parse_headings doesn't track line numbers)
-    # Second pass to find start line
-    in_code_block = False
-    fence = None
-    heading_lines: list[tuple[int, int, str]] = []  # (lineno, level, anchor)
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            current_fence = stripped[:3]
-            if not in_code_block:
-                in_code_block, fence = True, current_fence
-            elif current_fence == fence:
-                in_code_block, fence = False, None
-            continue
-        if in_code_block:
-            continue
-        m = re.match(r"^(#{1,4}) (.+)", line)
-        if m:
-            heading_lines.append((i, len(m.group(1)), ""))
-
-    # Match heading_lines to parsed headings (same order)
-    annotated = [
-        (lineno, level, h.anchor)
-        for (lineno, level, _), h in zip(heading_lines, headings)
-    ]
-
-    # Find start and end line numbers
-    start_line = end_line = None
-    for idx, (lineno, level, anch) in enumerate(annotated):
-        if anch == anchor:
-            start_line = lineno
-            # End is the next heading of same or lesser depth
-            for next_lineno, next_level, _ in annotated[idx + 1:]:
-                if next_level <= level:
-                    end_line = next_lineno
-                    break
-            break
-
-    if start_line is None:
-        return None
-
-    return "".join(lines[start_line:end_line])
-```
-
-**Matching strategy**: `read-page` accepts `section` as an anchor string (e.g., `"streaming-with-chat-models"`). If the agent passes a plain title string instead, the server attempts a case-insensitive slug match as fallback. If neither matches, a `SECTION_NOT_FOUND` error is returned listing available anchors.
 
 ---
 
@@ -811,9 +772,9 @@ async def get_library_docs(library_id: str, ctx: Context) -> dict:
     return await t_get_docs.handle(library_id, state)
 
 @mcp.tool()
-async def read_page(url: str, ctx: Context, section: str | None = None) -> dict:
+async def read_page(url: str, ctx: Context) -> dict:
     state: AppState = ctx.request_context.lifespan_context
-    return await t_read_page.handle(url, section, state)
+    return await t_read_page.handle(url, state)
 
 def main() -> None:
     mcp.run()   # defaults to stdio; HTTP mode handled via config
@@ -960,25 +921,65 @@ logging:
 Loaded via pydantic-settings:
 
 ```python
-from pydantic_settings import BaseSettings, YamlConfigSettingsSource
+from typing import Any, Literal
+from pydantic import BaseModel
+from pydantic_settings import (
+    BaseSettings,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(yaml_file="pro-context.yaml")
-
+class ServerSettings(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "0.0.0.0"
     port: int = 8080
-    cache_ttl_hours: int = 24
-    cache_db_path: str = "~/.local/share/pro-context/cache.db"
-    log_level: str = "INFO"
-    log_format: Literal["json", "text"] = "json"
+
+class RegistrySettings(BaseModel):
+    url: str = "https://pro-context.github.io/known-libraries.json"
+    metadata_url: str = "https://pro-context.github.io/registry_metadata.json"
+
+class CacheSettings(BaseModel):
+    ttl_hours: int = 24
+    db_path: str = "~/.local/share/pro-context/cache.db"
+    cleanup_interval_hours: int = 6
+
+class LoggingSettings(BaseModel):
+    level: str = "INFO"
+    format: Literal["json", "text"] = "json"
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        # Double-underscore prefix keeps env vars visually consistent:
+        # all separators are __ e.g. PRO_CONTEXT__SERVER__PORT=9090
+        env_prefix="PRO_CONTEXT__",
+        env_nested_delimiter="__",
+        yaml_file=_find_config_file(),   # Returns first existing path or None
+        yaml_file_encoding="utf-8",
+    )
+
+    server: ServerSettings = ServerSettings()
+    registry: RegistrySettings = RegistrySettings()
+    cache: CacheSettings = CacheSettings()
+    logging: LoggingSettings = LoggingSettings()
 
     @classmethod
-    def settings_customise_sources(cls, settings_cls, **kwargs):
-        return (YamlConfigSettingsSource(settings_cls),)
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        **kwargs: Any,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,                         # Constructor args (highest priority)
+            env_settings,                          # Environment variables
+            YamlConfigSettingsSource(settings_cls),
+        )
 ```
 
-Environment variables override YAML values using the prefix `PRO_CONTEXT_` (e.g., `PRO_CONTEXT_PORT=9090`).
+`_find_config_file()` searches `pro-context.yaml` in the current directory first, then `~/.config/pro-context/pro-context.yaml`, returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PRO_CONTEXT__` with `__` as the nested delimiter (e.g., `PRO_CONTEXT__SERVER__PORT=9090`, `PRO_CONTEXT__CACHE__TTL_HOURS=48`).
 
 ---
 
@@ -1023,3 +1024,5 @@ async def get_library_docs_handler(library_id: str) -> dict:
 | `stale_refresh_started` | `key` |
 | `stale_refresh_complete` | `key`, `changed` |
 | `stale_refresh_failed` | `key`, `error` |
+| `cache_read_error` | `key` |
+| `cache_write_error` | `key` |

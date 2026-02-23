@@ -28,6 +28,9 @@
   - [Phase 5: Registry Updates & Polish](#phase-5-registry-updates--polish)
 - [5. Testing Strategy](#5-testing-strategy)
 - [6. CI/CD](#6-cicd)
+  - [Commit Message Convention](#commit-message-convention)
+  - [ci.yml — Test Pipeline](#ciyml--test-pipeline)
+  - [release.yml — Release Pipeline](#releaseyml--release-pipeline)
 - [7. Local Development Setup](#7-local-development-setup)
 
 ---
@@ -39,6 +42,7 @@
 ```
 pro-context/
 ├── pyproject.toml
+├── CHANGELOG.md                      # Keep a Changelog format; updated on every release
 ├── pro-context.yaml                  # Example config (committed, used as reference)
 ├── src/
 │   └── pro_context/
@@ -63,7 +67,7 @@ pro-context/
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
 │       ├── cache.py                  # SQLite cache: toc_cache + page_cache, stale-while-revalidate
-│       ├── parser.py                 # Heading parser, anchor generation, section extraction
+│       ├── parser.py                 # Heading parser, anchor generation, line number tracking
 │       ├── transport.py              # MCPSecurityMiddleware for HTTP mode
 │       └── data/
 │           └── known-libraries.json  # Bundled registry snapshot (updated at release time)
@@ -80,7 +84,8 @@ pro-context/
 │       └── test_tools.py             # Full tool call pipeline: input → output shape
 ├── .github/
 │   └── workflows/
-│       └── ci.yml
+│       ├── ci.yml
+│       └── release.yml
 └── .gitignore
 ```
 
@@ -140,9 +145,10 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-mock>=3.12.0",
-    "respx>=0.21.0",           # httpx request mocking
+    "respx>=0.21.0",                            # httpx request mocking
     "ruff>=0.3.0",
-    "pyright>=1.1.350",        # Type checking (also run in CI)
+    "pyright>=1.1.350",                         # Type checking (also run in CI)
+    "python-semantic-release>=9.0.0,<10.0.0",  # Changelog generation + PyPI publishing
 ]
 
 [tool.pytest.ini_options]
@@ -171,6 +177,24 @@ include = ["src"]
 **`testpaths`**: Prevents pytest from discovering tests in unexpected locations (e.g., inside `src/`) when run from the project root.
 
 **Version pinning**: Minor version upper bounds (`<2.0.0`) on all dependencies. Tighten to patch bounds only if a dependency has a documented history of breaking minor releases.
+
+**Dependency footprint**: Pro-Context has 9 runtime dependencies. Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
+
+**License compatibility**: All runtime dependencies are compatible with GPL-3.0. Verified at last review (2026-02-24):
+
+| Package | License | Notes |
+|---------|---------|-------|
+| `mcp` | MIT | Official MCP Python SDK by Anthropic |
+| `httpx` | BSD-3-Clause | |
+| `aiosqlite` | MIT | |
+| `pydantic` | MIT | |
+| `pydantic-settings` | MIT | |
+| `pyyaml` | MIT | |
+| `rapidfuzz` | MIT | |
+| `structlog` | MIT OR Apache-2.0 | Dual-licensed; either is compatible with GPL-3.0 |
+| `uvicorn` | BSD-3-Clause | |
+
+Re-verify this table whenever a dependency is added or its major version is bumped. MIT and BSD-3-Clause are permissive and always compatible with GPL-3.0. Apache-2.0 is compatible with GPL-3.0 (but not GPL-2.0 — not a concern here).
 
 ---
 
@@ -438,6 +462,8 @@ echo '{}' | uv run pro-context  # Responds without crash
 - First call fetches from network, stores in cache, returns content
 - Second call returns from cache, no network request made
 - Stale entry (TTL expired) is returned immediately, background refresh triggered
+- Cache read failure (`aiosqlite.Error`): treated as cache miss, falls back to network fetch, returns content with `cached: false`
+- Cache write failure (`aiosqlite.Error`): fetched content still returned normally, error logged
 - SSRF: private IP URL raises `URL_NOT_ALLOWED`
 - SSRF: redirect to non-allowlisted domain raises `URL_NOT_ALLOWED`
 - Unknown `libraryId` raises `LIBRARY_NOT_FOUND`
@@ -446,16 +472,16 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 ### Phase 3: Page Reading & Parser
 
-**Goal**: `read-page` tool is fully functional. Heading parser handles code blocks, deduplication, and section extraction correctly.
+**Goal**: `read-page` tool is fully functional. Heading parser handles code blocks, line number tracking, and anchor deduplication correctly.
 
 **Files to create/update**:
 
 | File | What to implement |
 |------|------------------|
-| `src/pro_context/parser.py` | `parse_headings()`, `_make_anchor()`, `extract_section()` |
+| `src/pro_context/parser.py` | `parse_headings()`, `_make_anchor()` |
 | `src/pro_context/models/tools.py` | Add `Heading`, `ReadPageInput`, `ReadPageOutput` |
 | `src/pro_context/models/__init__.py` | Re-export new models |
-| `src/pro_context/tools/read_page.py` | `handle(url, section, state) -> dict` |
+| `src/pro_context/tools/read_page.py` | `handle(url, state) -> dict` |
 | `src/pro_context/server.py` | Register `read_page` tool |
 | `tests/unit/test_parser.py` | See testing section |
 | `tests/integration/test_tools.py` | End-to-end tool call tests for all three tools |
@@ -463,11 +489,9 @@ echo '{}' | uv run pro-context  # Responds without crash
 **Key behaviours to verify**:
 - `#>` inside code block is not detected as heading
 - `# comment` inside code block is not detected as heading
-- Heading at any level (H1–H4) outside code block is detected
+- Heading at any level (H1–H4) outside code block is detected with correct `line` number
 - Repeated heading titles produce deduplicated anchors (`browser-mode`, `browser-mode-2`, `browser-mode-3`)
-- `section="streaming-with-chat-models"` extracts correct content
-- `section` with no match returns `SECTION_NOT_FOUND` with list of available anchors
-- Page is cached on first fetch; `section` calls after first fetch do not re-fetch
+- Page is cached on first fetch; subsequent calls are served from cache without re-fetch
 
 ---
 
@@ -493,7 +517,7 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 ### Phase 5: Registry Updates & Polish
 
-**Goal**: Registry updates automatically in the background. Cleanup job runs. Package is installable via `uvx`.
+**Goal**: Registry updates automatically in the background. Cleanup job runs. Package is installable via `uvx`. Release pipeline is automated.
 
 **Files to create/update**:
 
@@ -502,7 +526,9 @@ echo '{}' | uv run pro-context  # Responds without crash
 | `src/pro_context/registry.py` | `check_for_registry_update()`, `save_registry_to_disk()` |
 | `src/pro_context/cache.py` | `cleanup_expired()` called on startup and every 6 hours |
 | `src/pro_context/server.py` | Spawn background tasks in lifespan |
+| `CHANGELOG.md` | Initial entry for v0.1.0; [Keep a Changelog](https://keepachangelog.com) format |
 | `.github/workflows/ci.yml` | Full CI pipeline (see Section 6) |
+| `.github/workflows/release.yml` | Release pipeline: version bump, changelog update, PyPI publish (see Section 6) |
 
 **Key behaviours to verify**:
 - Registry metadata fetch happens at startup (mocked in test)
@@ -510,6 +536,7 @@ echo '{}' | uv run pro-context  # Responds without crash
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
 - `uvx pro-context` installs and runs from PyPI (manual verification)
+- `CHANGELOG.md` is present and follows Keep a Changelog format
 
 ---
 
@@ -523,8 +550,14 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 **Directory split**:
 
-- `tests/unit/` — Tests for individual modules. No tool pipeline, no FastMCP. Run alone for fast feedback (`pytest tests/unit`).
+- `tests/unit/` — Tests for individual internal modules (resolver, parser, fetcher, cache). No tool pipeline, no FastMCP. Run alone for fast feedback (`pytest tests/unit`).
 - `tests/integration/` — Full tool pipeline tests. Uses a complete `AppState` with mocked HTTP and in-memory SQLite.
+
+**Contract tests vs. implementation tests**:
+
+`tests/integration/test_tools.py` contains the **contract tests** — they call tools through the full pipeline and assert on observable output shape, exactly as an MCP client would. A complete internal rewrite (e.g., swapping the cache backend, changing the resolver algorithm) must not break any integration test. These are the tests that matter for compatibility guarantees.
+
+`tests/unit/` contains **implementation tests** — they call internal functions directly and verify algorithmic correctness (normalisation edge cases, parser rules, SSRF logic). These tests are permitted to break during refactoring, because they test the implementation, not the contract. Their purpose is fast feedback during development, not stability guarantees. Do not treat a failing unit test as a sign the public API is broken — check the integration tests for that.
 
 **Top-level fixtures** (`tests/conftest.py`):
 
@@ -641,6 +674,8 @@ async def app_state(indexes, sample_entries):
 - Missing entry: returns `None`
 - Write then read: round-trip correctness
 - Cleanup: entries beyond TTL + 7 days are deleted
+- Read failure (`aiosqlite.Error` raised by DB): returns `None`, does not raise
+- Write failure (`aiosqlite.Error` raised by DB): returns normally, does not raise
 
 `tests/unit/test_parser.py`
 - Heading inside fenced ` ``` ` block: not detected
@@ -650,16 +685,13 @@ async def app_state(indexes, sample_entries):
 - H5+ ignored
 - Anchor generation: lowercase, slugified, special chars removed
 - Anchor deduplication: `browser-mode`, `browser-mode-2`, `browser-mode-3`
-- Section extraction: correct start/end for flat and non-strictly-nested hierarchies
-- Section not found: returns `None`
+- Line numbers: each heading records the correct 1-based line number from the source content
 
 `tests/integration/test_tools.py`
 - `resolve_library`: full call, correct output shape
 - `get_library_docs`: cache miss path (mocked HTTP), cache hit path
 - `get_library_docs`: unknown library raises `LIBRARY_NOT_FOUND`
 - `read_page`: cache miss path (mocked HTTP), cache hit path
-- `read_page`: `section` parameter extracts correct content
-- `read_page`: `section` not found returns `SECTION_NOT_FOUND` with available anchors
 - `read_page`: URL not in allowlist raises `URL_NOT_ALLOWED`
 - HTTP transport: non-localhost origin → 403
 - HTTP transport: unknown protocol version → 400
@@ -669,6 +701,24 @@ async def app_state(indexes, sample_entries):
 ---
 
 ## 6. CI/CD
+
+### Commit Message Convention
+
+All commits must follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer: BREAKING CHANGE: <description>]
+```
+
+Common types: `feat` (new feature), `fix` (bug fix), `docs`, `refactor`, `test`, `chore`. Breaking changes must include `BREAKING CHANGE:` in the footer — this is what drives major version bumps and ensures the changelog correctly marks breaking changes.
+
+### ci.yml — Test Pipeline
+
+Runs on every push and pull request to `main`.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -713,6 +763,77 @@ jobs:
 
 **Unit and integration tests as separate steps**: Fails fast — a broken unit test is caught before running the slower integration suite. Combined coverage is reported at the end.
 
+### release.yml — Release Pipeline
+
+Runs only on pushes to `main` after the test pipeline passes. Uses `python-semantic-release` to automate version bumping, changelog generation, and PyPI publishing based on Conventional Commit history.
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]        # Triggers only after the CI workflow completes
+    types: [completed]
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'  # Skip if CI failed
+    concurrency: release   # Prevents concurrent releases
+    permissions:
+      id-token: write      # Required for PyPI trusted publishing (OIDC) and SLSA attestation
+      contents: write      # Required to push tags and update CHANGELOG.md
+      attestations: write  # Required for SLSA provenance attestation
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Full history required for semantic-release
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run semantic-release publish
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/
+```
+
+`semantic-release publish` inspects commit history since the last tag, determines the next version (patch/minor/major), updates `CHANGELOG.md`, bumps `__version__` in `src/pro_context/__init__.py`, creates a Git tag, builds the wheel, and publishes to PyPI. If no releasable commits exist (e.g., only `docs:` or `chore:` commits), it exits without publishing.
+
+`actions/attest-build-provenance` generates a signed SLSA provenance attestation — a cryptographic record proving which source commit produced which artifact, via which build pipeline. This is attached to the GitHub release and is verifiable via `gh attestation verify`. Enterprise consumers increasingly require provenance before adopting a dependency.
+
+**Why `workflow_run` instead of `needs`**: `needs` only works between jobs in the same workflow file. To gate the release on a passing CI run from a separate `ci.yml`, `workflow_run` is required. The `if: conclusion == 'success'` condition ensures the release job is skipped entirely when CI fails.
+
+Add `python-semantic-release` to dev dependencies:
+
+```toml
+[project.optional-dependencies]
+dev = [
+    ...
+    "python-semantic-release>=9.0.0,<10.0.0",
+]
+```
+
+Configure in `pyproject.toml`:
+
+```toml
+[tool.semantic_release]
+version_variables = ["src/pro_context/__init__.py:__version__"]
+changelog_file = "CHANGELOG.md"
+build_command = "uv build"
+```
+
 ---
 
 ## 7. Local Development Setup
@@ -727,7 +848,7 @@ uv sync --extra dev
 uv run pro-context
 
 # 3. Run in HTTP mode
-PRO_CONTEXT_TRANSPORT=http uv run pro-context
+PRO_CONTEXT__SERVER__TRANSPORT=http uv run pro-context
 # or
 uv run pro-context --config pro-context.yaml  # with transport: http
 

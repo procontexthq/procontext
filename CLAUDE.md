@@ -25,29 +25,29 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 
 ## Implementation Phases
 
-0. **Specification/Design Phase** — Define the problem, design the system architecture, and create detailed specifications. Complete when all specs in `docs/specs/` are finalized and approved by Ankur.
-1. **Foundation** — MCP server skeleton, config, structured logging, error types, stdio transport, health check, registry loader
-2. **Core Pipeline** — llms.txt fetcher, SQLite cache, `resolve-library` + `get-library-docs` + `read-page` tools
-3. **HTTP Transport** — Streamable HTTP transport (MCP spec 2025-11-25), Origin validation, session management
-4. **Polish & Production Readiness** — CI/CD, Docker, E2E tests, performance tuning, packaging (`uvx`-installable)
+- ✅ **Phase 0**: Foundation — `pyproject.toml`, errors, models package, protocols, config, `AppState`, server skeleton, `RegistryIndexes` stub, `tools/` package
+- ⬜ **Phase 1**: Registry & Resolution — `load_registry()`, `build_indexes()`, `check_for_registry_update()`, `resolve-library` tool, fuzzy matching (rapidfuzz)
+- ⬜ **Phase 2**: Fetcher & Cache — `get-library-docs` tool, httpx fetcher with SSRF protection, SQLite cache (aiosqlite), stale-while-revalidate
+- ⬜ **Phase 3**: Page Reading & Parser — `read-page` tool, heading parser, section extraction
+- ⬜ **Phase 4**: HTTP Transport — Streamable HTTP (MCP spec 2025-11-25), `MCPSecurityMiddleware`, uvicorn
+- ⬜ **Phase 5**: Registry Updates & Polish — background update check, cache cleanup scheduler, CI/CD, Docker, `uvx` packaging
 
-**Current state**: The project is in the specification/design phase. There is no source code yet. **Do not write any code until the design phase is complete.** The design phase will be considered complete when all documents in `docs/specs/` are finalized and approved by Ankur.
+**Current state**: Phase 0 is complete. Source code lives in `src/pro_context/`. Phase 1 implementation is next.
 
 ### Active Specifications (`docs/specs/`)
 
 These are the authoritative design documents for the current open-source version.
 
 - `docs/specs/01-functional-spec.md` — Problem statement, 3 MCP tools (`resolve-library`, `get-library-docs`, `read-page`), 1 resource, transport modes, registry, SQLite cache, security model, design decisions
-- `docs/specs/02-technical-spec.md` — System architecture, technology stack, data models (Pydantic), in-memory registry indexes, 5-step resolution algorithm, fetcher (httpx + SSRF), SQLite cache schema, heading parser, stdio + Streamable HTTP transport, registry update mechanism, configuration, logging
-- `docs/specs/03-implementation-guide.md` — Project structure, pyproject.toml, coding conventions (AppState injection, ProContextError pattern), 6 implementation phases, testing strategy (respx + in-memory SQLite), CI/CD
+- `docs/specs/02-technical-spec.md` — System architecture, technology stack, data models (Pydantic), in-memory registry indexes, resolution algorithm, fetcher (httpx + SSRF), SQLite cache schema, heading parser, stdio + Streamable HTTP transport, registry update mechanism, configuration, logging
+- `docs/specs/03-implementation-guide.md` — Project structure, pyproject.toml, coding conventions (AppState injection, ProContextError pattern, logging guidance), 6 implementation phases with per-phase file tables, testing strategy (respx + in-memory SQLite), CI/CD
 - `docs/specs/04-api-reference.md` — Formal MCP API: tool definitions (JSON Schema + wire format examples), resource schema, full error code catalogue, stdio and HTTP transport reference, versioning policy
 
 You are allowed to create new documents if the discussion warrants it. Update this section to link to any new documents you create.
 
 ## Overview of tech stack, architecture, coding conventions, configurations, commands and testing strategy
 
-This section will be updated in later phases. Make sure these sections are appropriately filled out as soon as these details are finalized.
-We must only add information that Claude cannot infer on its own. Use the following as a guide:
+_Expand this section as new phases are completed. Only add what Claude cannot infer from reading the code._
 
 | Include in this section                              | Do NOT include                                     |
 | ---------------------------------------------------- | -------------------------------------------------- |
@@ -58,6 +58,52 @@ We must only add information that Claude cannot infer on its own. Use the follow
 | Architectural decisions specific to this project     | Long explanations or tutorials                     |
 | Developer environment quirks (required env vars)     | File-by-file descriptions of the codebase          |
 | Common gotchas or non-obvious behaviors              | Self-evident practices like "write clean code"     |
+
+### Commands
+
+```bash
+# Install dependencies and create virtualenv
+uv sync --dev
+
+# Run the server (stdio transport)
+uv run pro-context
+
+# Lint
+uv run ruff check src/
+
+# Format
+uv run ruff format src/
+
+# Type check
+uv run pyright src/
+
+# Run tests
+uv run pytest
+```
+
+### Critical: stdout vs stderr
+
+In stdio MCP mode, **stdout is owned by the MCP JSON-RPC stream**. Any writes to stdout will corrupt the protocol. Logs must always go to stderr. `structlog.PrintLoggerFactory(file=sys.stderr)` is already configured in `server.py`. Never use `print()` without `file=sys.stderr` in server code.
+
+### AppState injection pattern
+
+`AppState` is created once in the FastMCP lifespan and injected into tool handlers via `ctx.request_context.lifespan_context`. Tools receive `AppState` explicitly — no global variables, no module-level singletons.
+
+### Forward references and TYPE_CHECKING
+
+All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks. This allows circular-free imports and lets Phase 0 reference types from Phase 1+ modules that don't fully exist yet.
+
+### Type checker
+
+This project uses **pyright** (not mypy). Run `uv run pyright src/` to check. Standard mode is enforced.
+
+## Coding Guidelines
+
+This project follows a set of non-obvious coding guidelines specifically for public library development. These must be applied when writing or reviewing any code in this repo.
+
+See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
+
+Key areas covered: API design, error handling, versioning and breaking changes, testing strategy, supply chain security, and library adoptability.
 
 ## Instructions for working with this repo
 
