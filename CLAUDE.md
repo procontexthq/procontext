@@ -42,6 +42,7 @@ These are the authoritative design documents for the current open-source version
 - `docs/specs/02-technical-spec.md` — System architecture, technology stack, data models (Pydantic), in-memory registry indexes, resolution algorithm, fetcher (httpx + SSRF), SQLite cache schema, heading parser, stdio + Streamable HTTP transport, registry update mechanism, configuration, logging
 - `docs/specs/03-implementation-guide.md` — Project structure, pyproject.toml, coding conventions (AppState injection, ProContextError pattern, logging guidance), 6 implementation phases with per-phase file tables, testing strategy (respx + in-memory SQLite), CI/CD
 - `docs/specs/04-api-reference.md` — Formal MCP API: tool definitions (JSON Schema + wire format examples), resource schema, full error code catalogue, stdio and HTTP transport reference, versioning policy
+- `docs/specs/05-security-spec.md` — Threat model (6 threats with severity and mitigation status), trust boundaries, security controls summary, known limitations, data handling, dependency vulnerability management, phase-gated security testing
 
 You are allowed to create new documents if the discussion warrants it. Update this section to link to any new documents you create.
 
@@ -63,7 +64,7 @@ _Expand this section as new phases are completed. Only add what Claude cannot in
 
 ```bash
 # Install dependencies and create virtualenv
-uv sync --dev
+uv sync --extra dev
 
 # Run the server (stdio transport)
 uv run pro-context

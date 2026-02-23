@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pro_context"]
+
+[project]
+name = "pro-context"
+version = "0.1.0"
+description = "MCP server for accurate, up-to-date library documentation"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0" }
+
+dependencies = [
+    "mcp>=1.26.0,<2.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "aiosqlite>=0.19.0,<1.0.0",
+    "pydantic>=2.5.0,<3.0.0",
+    "pydantic-settings>=2.2.0,<3.0.0",
+    "pyyaml>=6.0.1,<7.0.0",
+    "rapidfuzz>=3.6.0,<4.0.0",
+    "structlog>=24.1.0,<26.0.0",
+    "uvicorn>=0.34.0,<1.0.0",
+]
+
+[project.scripts]
+pro-context = "pro_context.server:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
+    "pytest-mock>=3.12.0",
+    "respx>=0.21.0",
+    "ruff>=0.11.0",
+    "pyright>=1.1.400",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src"]
