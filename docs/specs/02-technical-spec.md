@@ -999,8 +999,10 @@ Registry update checks use a hybrid scheduler:
 - In HTTP mode, after a **transient failure** (network timeout/DNS/connection failures, upstream 5xx), schedule retry using exponential backoff with jitter:
   - `INITIAL_BACKOFF = 60s`
   - `MAX_BACKOFF = 3600s`
+  - `MAX_TRANSIENT_BACKOFF_ATTEMPTS = 8` (consecutive transient failures)
   - `next_backoff = min(current_backoff * 2, MAX_BACKOFF)`
   - jitter: random multiplier in `[0.8, 1.2]`
+- If consecutive transient failures reach `MAX_TRANSIENT_BACKOFF_ATTEMPTS`, suspend fast retries and return to `SUCCESS_INTERVAL = 24h` cadence until the next successful check
 - In HTTP mode, after a **semantic failure** (invalid metadata fields, checksum mismatch, registry schema parse failure), do not use backoff; log and return to `SUCCESS_INTERVAL = 24h`
 - After a successful check, reset backoff state and return to 24h cadence
 - In stdio mode, no post-startup retries are scheduled because the process is typically short-lived
@@ -1011,18 +1013,27 @@ Illustrative scheduler logic:
 success_interval = 24 * 60 * 60
 initial_backoff = 60
 max_backoff = 60 * 60
+max_transient_backoff_attempts = 8
 backoff = initial_backoff
+consecutive_transient_failures = 0
 
 while running_http_server:
     outcome = await run_registry_update_cycle(state)  # "success" | "transient_failure" | "semantic_failure"
     if outcome == "success":
+        consecutive_transient_failures = 0
         backoff = initial_backoff
         await sleep(success_interval)
     elif outcome == "transient_failure":
+        consecutive_transient_failures += 1
+        if consecutive_transient_failures >= max_transient_backoff_attempts:
+            backoff = initial_backoff
+            await sleep(success_interval)
+            continue
         delay = backoff * random.uniform(0.8, 1.2)
         await sleep(delay)
         backoff = min(backoff * 2, max_backoff)
     else:  # semantic_failure
+        consecutive_transient_failures = 0
         backoff = initial_backoff
         await sleep(success_interval)
 ```

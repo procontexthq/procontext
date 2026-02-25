@@ -564,6 +564,7 @@ echo '{}' | uv run procontext  # Responds without crash
 - Simulated interrupted write leaves startup in a safe state (either previous valid pair or bundled fallback)
 - HTTP mode scheduler: successful checks run every 24 hours
 - HTTP mode scheduler: transient failures use exponential backoff + jitter (1 minute to 60 minutes cap)
+- HTTP mode scheduler: fast retries are suspended after 8 consecutive transient failures and cadence returns to 24 hours until next success
 - HTTP mode scheduler: semantic failures (checksum/metadata/schema) do not fast-retry and return to 24-hour cadence
 - `uvx procontext` installs and runs from PyPI (manual verification)
 - `CHANGELOG.md` is present and follows Keep a Changelog format
