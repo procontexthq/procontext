@@ -1,11 +1,10 @@
-"""Shared test fixtures for the pro-context test suite."""
+"""Shared test fixtures for the procontext test suite."""
 
 from __future__ import annotations
 
 import pytest
-
-from pro_context.models.registry import RegistryEntry, RegistryPackages
-from pro_context.registry import RegistryIndexes, build_indexes
+from procontext.models.registry import RegistryEntry, RegistryPackages
+from procontext.registry import RegistryIndexes, build_indexes
 
 
 @pytest.fixture()

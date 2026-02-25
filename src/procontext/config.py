@@ -41,8 +41,8 @@ class ServerSettings(BaseModel):
 
 
 class RegistrySettings(BaseModel):
-    url: str = "https://pro-context.github.io/known-libraries.json"
-    metadata_url: str = "https://pro-context.github.io/registry_metadata.json"
+    url: str = "https://procontext.github.io/known-libraries.json"
+    metadata_url: str = "https://procontext.github.io/registry_metadata.json"
 
 
 class CacheSettings(BaseModel):

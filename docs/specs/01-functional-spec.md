@@ -229,7 +229,7 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
   "mcpServers": {
     "procontext": {
       "command": "uvx",
-      "args": ["pro-context"]
+      "args": ["procontext"]
     }
   }
 }
@@ -394,8 +394,8 @@ Teams with internal libraries or private documentation can point ProContext at a
 
 ```yaml
 registry:
-  url: "https://docs.internal.example.com/pro-context/known-libraries.json"
-  metadata_url: "https://docs.internal.example.com/pro-context/registry_metadata.json"
+  url: "https://docs.internal.example.com/procontext/known-libraries.json"
+  metadata_url: "https://docs.internal.example.com/procontext/registry_metadata.json"
 ```
 
 The custom registry must serve:

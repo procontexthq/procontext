@@ -1,13 +1,13 @@
-"""Unit tests for pro_context.resolver."""
+"""Unit tests for procontext.resolver."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pro_context.resolver import normalise_query, resolve_library
+from procontext.resolver import normalise_query, resolve_library
 
 if TYPE_CHECKING:
-    from pro_context.registry import RegistryIndexes
+    from procontext.registry import RegistryIndexes
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator
 
-from pro_context.models.registry import LibraryMatch
+from procontext.models.registry import LibraryMatch
 
 
 class ResolveLibraryInput(BaseModel):

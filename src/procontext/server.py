@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING
 import structlog
 from mcp.server.fastmcp import Context, FastMCP
 
-import pro_context.tools.resolve_library as t_resolve
-from pro_context import __version__
-from pro_context.config import Settings
-from pro_context.registry import build_indexes, load_registry
-from pro_context.state import AppState
+import procontext.tools.resolve_library as t_resolve
+from procontext import __version__
+from procontext.config import Settings
+from procontext.registry import build_indexes, load_registry
+from procontext.state import AppState
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

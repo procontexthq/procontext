@@ -92,7 +92,7 @@ Every MCP session begins with an `initialize` â†’ `initialized` exchange. Client
       "resources": {}
     },
     "serverInfo": {
-      "name": "pro-context",
+      "name": "procontext",
       "version": "0.1.0"
     }
   }
@@ -809,7 +809,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
   "mcpServers": {
     "procontext": {
       "command": "uvx",
-      "args": ["pro-context"]
+      "args": ["procontext"]
     }
   }
 }
@@ -822,7 +822,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
   "mcpServers": {
     "procontext": {
       "command": "uvx",
-      "args": ["pro-context", "--config", "/path/to/procontext.yaml"]
+      "args": ["procontext", "--config", "/path/to/procontext.yaml"]
     }
   }
 }
@@ -851,9 +851,9 @@ server:
 ```
 
 ```bash
-uvx pro-context --config procontext.yaml
+uvx procontext --config procontext.yaml
 # or via env var:
-PROCONTEXT__SERVER__TRANSPORT=http uvx pro-context
+PROCONTEXT__SERVER__TRANSPORT=http uvx procontext
 ```
 
 **Request headers**:

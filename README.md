@@ -8,7 +8,7 @@
 
 ProContext is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that will deliver accurate, fresh documentation to AI coding agents like Claude Code, Cursor, and Windsurf. It prevents hallucinated APIs by serving real documentation from Python libraries, MCP servers, GitHub projects, and any source that publishes [llms.txt](https://llmstxt.org) files.
 
-> ⚠️ **Project Status**: **Phase 0 complete** (foundation implemented). Phase 1 (registry & resolution) is next. Not yet usable — see [Development Status](#development-status) below.
+> ⚠️ **Project Status**: **Phase 1 complete** (registry & resolution implemented). Phase 2 (fetcher & cache) is next. Not yet usable — see [Development Status](#development-status) below.
 
 ---
 
@@ -32,7 +32,7 @@ Existing documentation tools fall into two categories, each with limitations:
 | ---------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------- |
 | **Server-Side Search** | Context7, Deepcon      | 65-75%   | Server must interpret vague user intent; requires expensive query understanding model |
 | **Agent-Side RAG**     | Custom implementations | 90%+     | High accuracy but brittle — agent must discover and validate sources itself           |
-| **ProContext**        | _This project_         | **90%+** | Agent navigates pre-validated, always-fresh sources; no discovery overhead            |
+| **ProContext**         | _This project_         | **90%+** | Agent navigates pre-validated, always-fresh sources; no discovery overhead            |
 
 **Key differentiators:**
 
@@ -136,9 +136,9 @@ ProContext uses a **registry-first, lazy-fetch** architecture:
 
 ## Development Status
 
-**Current Phase**: Phase 1 — Registry & Resolution
+**Current Phase**: Phase 2 — Fetcher & Cache
 
-Phase 0 (foundation) is complete. The server skeleton, configuration, data models, and all supporting infrastructure are implemented in `src/pro_context/`. Phase 1 will implement the first MCP tool (`resolve-library`) and the registry loader.
+Phases 0 and 1 are complete. The server skeleton, configuration, data models, registry loader, fuzzy resolver, and `resolve-library` tool are all implemented in `src/procontext/`. Phase 2 will implement the `get-library-docs` tool, the httpx fetcher with SSRF protection, and the SQLite cache.
 
 ### Specification Documents (`docs/specs/`)
 
@@ -153,7 +153,7 @@ All design decisions are captured here before implementation begins.
 ### Implementation Roadmap
 
 - ✅ **Phase 0**: Foundation — server skeleton, config, logging, errors, models, protocols, `AppState`
-- ⬜ **Phase 1**: Registry & Resolution — `load_registry()`, `resolve-library` tool, fuzzy matching
+- ✅ **Phase 1**: Registry & Resolution — `load_registry()`, `resolve-library` tool, fuzzy matching
 - ⬜ **Phase 2**: Fetcher & Cache — `get-library-docs` tool, httpx fetcher, SQLite cache
 - ⬜ **Phase 3**: Page Reading & Parser — `read-page` tool, heading parser, section extraction
 - ⬜ **Phase 4**: HTTP Transport — Streamable HTTP, `MCPSecurityMiddleware`, uvicorn
@@ -163,7 +163,7 @@ All design decisions are captured here before implementation begins.
 
 ## Installation
 
-> 🚧 **Coming Soon** — Installation instructions will be added once the first usable tool (`resolve-library`, Phase 1) is complete.
+> 🚧 **Coming Soon** — Installation instructions will be added once Phase 2 (`get-library-docs`) is complete and the server can deliver end-to-end documentation responses.
 
 The server will support both **stdio** (local) and **HTTP** (remote) modes, installable via `uvx` or pip, and configurable for Claude Code, Cursor, Windsurf, and other MCP clients.
 

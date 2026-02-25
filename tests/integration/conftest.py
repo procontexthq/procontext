@@ -8,10 +8,9 @@ Phase 2 — for now only registry-related fields are populated.
 from __future__ import annotations
 
 import pytest
-
-from pro_context.config import Settings
-from pro_context.registry import RegistryIndexes
-from pro_context.state import AppState
+from procontext.config import Settings
+from procontext.registry import RegistryIndexes
+from procontext.state import AppState
 
 
 @pytest.fixture()

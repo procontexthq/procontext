@@ -163,7 +163,7 @@ This project follows additional guidelines for public library development coveri
 ## Project Structure
 
 ```
-src/pro_context/
+src/procontext/
 ├── server.py          # FastMCP instance, lifespan, tool registration, entrypoint
 ├── state.py           # AppState dataclass
 ├── config.py          # Settings via pydantic-settings + YAML

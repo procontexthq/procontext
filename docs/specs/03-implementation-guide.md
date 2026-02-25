@@ -40,12 +40,12 @@
 ### 1.1 Source Layout
 
 ```
-pro-context/
+procontext/
 ├── pyproject.toml
 ├── CHANGELOG.md                      # Keep a Changelog format; updated on every release
 ├── procontext.example.yaml          # Example config (committed); copy to procontext.yaml for local use
 ├── src/
-│   └── pro_context/
+│   └── procontext/
 │       ├── __init__.py               # __version__ only
 │       ├── py.typed                  # PEP 561 marker — declares this package is typed
 │       ├── server.py                 # FastMCP instance, lifespan, tool registration, entrypoint
@@ -115,10 +115,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pro_context"]
+packages = ["src/procontext"]
 
 [project]
-name = "pro-context"
+name = "procontext"
 version = "0.1.0"
 description = "MCP server for accurate, up-to-date library documentation"
 readme = "README.md"
@@ -138,7 +138,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pro-context = "pro_context.server:main"
+procontext = "procontext.server:main"
 
 [project.optional-dependencies]
 dev = [
@@ -172,7 +172,7 @@ include = ["src"]
 
 **`[build-system]`**: Required to build a wheel with `pip wheel .` or `uvx`. Without it, the package cannot be packaged or distributed. `hatchling` is the default backend for projects created with `uv init`.
 
-**`py.typed`**: An empty file at `src/pro_context/py.typed`. Its presence tells pyright and mypy that this package ships type annotations and they should be honoured. Without it, type checkers silently ignore the package's types when it is imported.
+**`py.typed`**: An empty file at `src/procontext/py.typed`. Its presence tells pyright and mypy that this package ships type annotations and they should be honoured. Without it, type checkers silently ignore the package's types when it is imported.
 
 **`pyright` in dev extras**: Keeps the type checker version pinned and consistent between local dev and CI.
 
@@ -228,7 +228,7 @@ from importlib.resources import files
 import json
 
 def load_bundled_registry() -> list[dict]:
-    text = files("pro_context.data").joinpath("known-libraries.json").read_text(encoding="utf-8")
+    text = files("procontext.data").joinpath("known-libraries.json").read_text(encoding="utf-8")
     return json.loads(text)
 
 # Incorrect
@@ -246,7 +246,7 @@ Swappable components (`Cache`, `Fetcher`) are typed against `typing.Protocol` in
 ```python
 # protocols.py
 from typing import Protocol
-from pro_context.models import TocCacheEntry, PageCacheEntry
+from procontext.models import TocCacheEntry, PageCacheEntry
 
 class CacheProtocol(Protocol):
     async def get_toc(self, library_id: str) -> TocCacheEntry | None: ...
@@ -268,9 +268,9 @@ All shared state lives in `AppState` (`state.py`), instantiated once at startup 
 ```python
 # state.py
 from dataclasses import dataclass
-from pro_context.config import Settings
-from pro_context.registry import RegistryIndexes
-from pro_context.protocols import CacheProtocol, FetcherProtocol
+from procontext.config import Settings
+from procontext.registry import RegistryIndexes
+from procontext.protocols import CacheProtocol, FetcherProtocol
 import httpx
 
 @dataclass
@@ -393,25 +393,25 @@ Each phase produces working, tested code. Later phases build on earlier ones wit
 
 **Files to create**:
 
-| File                                 | What to implement                                                                         |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `pyproject.toml`                     | Full dependency list, `[build-system]`, scripts entry point                               |
-| `src/pro_context/__init__.py`        | `__version__ = "0.1.0"`                                                                   |
-| `src/pro_context/py.typed`           | Empty file (PEP 561 marker)                                                               |
-| `src/pro_context/errors.py`          | `ErrorCode` (StrEnum), `ProContextError`                                                  |
-| `src/pro_context/models/__init__.py` | Empty re-export stub (populated later)                                                    |
-| `src/pro_context/models/registry.py` | `RegistryEntry`, `RegistryPackages`                                                       |
-| `src/pro_context/config.py`          | `Settings` with all fields and YAML loading                                               |
-| `src/pro_context/state.py`           | `AppState` dataclass (fields populated across phases)                                     |
-| `src/pro_context/protocols.py`       | `CacheProtocol`, `FetcherProtocol` stubs                                                  |
-| `src/pro_context/server.py`          | `FastMCP("procontext")`, lifespan stub, `main()` entrypoint                              |
+| File                                | What to implement                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `pyproject.toml`                    | Full dependency list, `[build-system]`, scripts entry point                              |
+| `src/procontext/__init__.py`        | `__version__ = "0.1.0"`                                                                  |
+| `src/procontext/py.typed`           | Empty file (PEP 561 marker)                                                              |
+| `src/procontext/errors.py`          | `ErrorCode` (StrEnum), `ProContextError`                                                 |
+| `src/procontext/models/__init__.py` | Empty re-export stub (populated later)                                                   |
+| `src/procontext/models/registry.py` | `RegistryEntry`, `RegistryPackages`                                                      |
+| `src/procontext/config.py`          | `Settings` with all fields and YAML loading                                              |
+| `src/procontext/state.py`           | `AppState` dataclass (fields populated across phases)                                    |
+| `src/procontext/protocols.py`       | `CacheProtocol`, `FetcherProtocol` stubs                                                 |
+| `src/procontext/server.py`          | `FastMCP("procontext")`, lifespan stub, `main()` entrypoint                              |
 | `procontext.example.yaml`           | Example config with all fields and comments (committed; `procontext.yaml` is gitignored) |
 
 **Verification**:
 
 ```bash
-uv run pro-context          # Starts, no crash, awaits stdio input
-echo '{}' | uv run pro-context  # Responds without crash
+uv run procontext          # Starts, no crash, awaits stdio input
+echo '{}' | uv run procontext  # Responds without crash
 ```
 
 ---
@@ -422,19 +422,19 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 **Files to create/update**:
 
-| File                                        | What to implement                                                |
-| ------------------------------------------- | ---------------------------------------------------------------- |
-| `src/pro_context/registry.py`               | `load_registry()`, `build_indexes()`, `RegistryIndexes`          |
-| `src/pro_context/resolver.py`               | `normalise_query()`, `resolve_library()` (all 5 steps)           |
-| `src/pro_context/models/registry.py`        | Add `LibraryMatch`                                               |
-| `src/pro_context/models/tools.py`           | `ResolveLibraryInput`, `ResolveLibraryOutput`                    |
-| `src/pro_context/models/__init__.py`        | Re-export `LibraryMatch`, `ResolveLibrary*`                      |
-| `src/pro_context/tools/__init__.py`         | Empty                                                            |
-| `src/pro_context/tools/resolve_library.py`  | `handle(query, state) -> dict`                                   |
-| `src/pro_context/state.py`                  | Add `indexes`, `registry_version` fields                         |
-| `src/pro_context/server.py`                 | Register `resolve_library` tool, initialise registry in lifespan |
-| `src/pro_context/data/known-libraries.json` | Bundled registry snapshot (download latest from GitHub Pages)    |
-| `tests/unit/test_resolver.py`               | See testing section                                              |
+| File                                       | What to implement                                                |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `src/procontext/registry.py`               | `load_registry()`, `build_indexes()`, `RegistryIndexes`          |
+| `src/procontext/resolver.py`               | `normalise_query()`, `resolve_library()` (all 5 steps)           |
+| `src/procontext/models/registry.py`        | Add `LibraryMatch`                                               |
+| `src/procontext/models/tools.py`           | `ResolveLibraryInput`, `ResolveLibraryOutput`                    |
+| `src/procontext/models/__init__.py`        | Re-export `LibraryMatch`, `ResolveLibrary*`                      |
+| `src/procontext/tools/__init__.py`         | Empty                                                            |
+| `src/procontext/tools/resolve_library.py`  | `handle(query, state) -> dict`                                   |
+| `src/procontext/state.py`                  | Add `indexes`, `registry_version` fields                         |
+| `src/procontext/server.py`                 | Register `resolve_library` tool, initialise registry in lifespan |
+| `src/procontext/data/known-libraries.json` | Bundled registry snapshot (download latest from GitHub Pages)    |
+| `tests/unit/test_resolver.py`              | See testing section                                              |
 
 **Key behaviours to verify**:
 
@@ -452,19 +452,19 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 **Files to create/update**:
 
-| File                                        | What to implement                                                                                          |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `src/pro_context/fetcher.py`                | `Fetcher` class: `build_http_client()`, `build_allowlist()`, `is_url_allowed()`, `fetch()`, `fetch_text()` |
-| `src/pro_context/cache.py`                  | `Cache` class: `init_db()`, `get_toc()`, `set_toc()`, `get_page()`, `set_page()`, `cleanup_expired()`      |
-| `src/pro_context/protocols.py`              | Fill out `CacheProtocol` and `FetcherProtocol` with full method signatures                                 |
-| `src/pro_context/models/cache.py`           | `TocCacheEntry`, `PageCacheEntry`                                                                          |
-| `src/pro_context/models/tools.py`           | Add `GetLibraryDocsInput`, `GetLibraryDocsOutput`                                                          |
-| `src/pro_context/models/__init__.py`        | Re-export new models                                                                                       |
-| `src/pro_context/tools/get_library_docs.py` | `handle(library_id, state) -> dict`                                                                        |
-| `src/pro_context/state.py`                  | Add `http_client`, `cache`, `fetcher`, `allowlist` fields                                                  |
-| `src/pro_context/server.py`                 | Register `get_library_docs` tool, initialise `Cache` and `Fetcher` in lifespan                             |
-| `tests/unit/test_fetcher.py`                | See testing section                                                                                        |
-| `tests/unit/test_cache.py`                  | See testing section                                                                                        |
+| File                                       | What to implement                                                                                          |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `src/procontext/fetcher.py`                | `Fetcher` class: `build_http_client()`, `build_allowlist()`, `is_url_allowed()`, `fetch()`, `fetch_text()` |
+| `src/procontext/cache.py`                  | `Cache` class: `init_db()`, `get_toc()`, `set_toc()`, `get_page()`, `set_page()`, `cleanup_expired()`      |
+| `src/procontext/protocols.py`              | Fill out `CacheProtocol` and `FetcherProtocol` with full method signatures                                 |
+| `src/procontext/models/cache.py`           | `TocCacheEntry`, `PageCacheEntry`                                                                          |
+| `src/procontext/models/tools.py`           | Add `GetLibraryDocsInput`, `GetLibraryDocsOutput`                                                          |
+| `src/procontext/models/__init__.py`        | Re-export new models                                                                                       |
+| `src/procontext/tools/get_library_docs.py` | `handle(library_id, state) -> dict`                                                                        |
+| `src/procontext/state.py`                  | Add `http_client`, `cache`, `fetcher`, `allowlist` fields                                                  |
+| `src/procontext/server.py`                 | Register `get_library_docs` tool, initialise `Cache` and `Fetcher` in lifespan                             |
+| `tests/unit/test_fetcher.py`               | See testing section                                                                                        |
+| `tests/unit/test_cache.py`                 | See testing section                                                                                        |
 
 **Key behaviours to verify**:
 
@@ -485,15 +485,15 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 **Files to create/update**:
 
-| File                                 | What to implement                                |
-| ------------------------------------ | ------------------------------------------------ |
-| `src/pro_context/parser.py`          | `parse_headings()`, `_make_anchor()`             |
-| `src/pro_context/models/tools.py`    | Add `Heading`, `ReadPageInput`, `ReadPageOutput` |
-| `src/pro_context/models/__init__.py` | Re-export new models                             |
-| `src/pro_context/tools/read_page.py` | `handle(url, state) -> dict`                     |
-| `src/pro_context/server.py`          | Register `read_page` tool                        |
-| `tests/unit/test_parser.py`          | See testing section                              |
-| `tests/integration/test_tools.py`    | End-to-end tool call tests for all three tools   |
+| File                                | What to implement                                |
+| ----------------------------------- | ------------------------------------------------ |
+| `src/procontext/parser.py`          | `parse_headings()`, `_make_anchor()`             |
+| `src/procontext/models/tools.py`    | Add `Heading`, `ReadPageInput`, `ReadPageOutput` |
+| `src/procontext/models/__init__.py` | Re-export new models                             |
+| `src/procontext/tools/read_page.py` | `handle(url, state) -> dict`                     |
+| `src/procontext/server.py`          | Register `read_page` tool                        |
+| `tests/unit/test_parser.py`         | See testing section                              |
+| `tests/integration/test_tools.py`   | End-to-end tool call tests for all three tools   |
 
 **Key behaviours to verify**:
 
@@ -513,9 +513,9 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 | File                              | What to implement                                                                                             |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `src/pro_context/transport.py`    | `MCPSecurityMiddleware` (bearer key auth, Origin validation, protocol version check)                          |
-| `src/pro_context/config.py`       | Add `auth_key` field to `ServerSettings`                                                                      |
-| `src/pro_context/server.py`       | `run_http_server()`: auto-generate key if not configured, log key to stderr, attach middleware, start uvicorn |
+| `src/procontext/transport.py`     | `MCPSecurityMiddleware` (bearer key auth, Origin validation, protocol version check)                          |
+| `src/procontext/config.py`        | Add `auth_key` field to `ServerSettings`                                                                      |
+| `src/procontext/server.py`        | `run_http_server()`: auto-generate key if not configured, log key to stderr, attach middleware, start uvicorn |
 | `tests/integration/test_tools.py` | Add HTTP mode transport tests                                                                                 |
 
 **Key behaviours to verify**:
@@ -539,9 +539,9 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 | File                            | What to implement                                                               |
 | ------------------------------- | ------------------------------------------------------------------------------- |
-| `src/pro_context/registry.py`   | `check_for_registry_update()`, `save_registry_to_disk()`                        |
-| `src/pro_context/cache.py`      | `cleanup_expired()` called on startup and every 6 hours                         |
-| `src/pro_context/server.py`     | Spawn background tasks in lifespan                                              |
+| `src/procontext/registry.py`    | `check_for_registry_update()`, `save_registry_to_disk()`                        |
+| `src/procontext/cache.py`       | `cleanup_expired()` called on startup and every 6 hours                         |
+| `src/procontext/server.py`      | Spawn background tasks in lifespan                                              |
 | `CHANGELOG.md`                  | Initial entry for v0.1.0; [Keep a Changelog](https://keepachangelog.com) format |
 | `.github/workflows/ci.yml`      | Full CI pipeline (see Section 6)                                                |
 | `.github/workflows/release.yml` | Release pipeline: version bump, changelog update, PyPI publish (see Section 6)  |
@@ -553,7 +553,7 @@ echo '{}' | uv run pro-context  # Responds without crash
 - If remote version matches local: no download
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
-- `uvx pro-context` installs and runs from PyPI (manual verification)
+- `uvx procontext` installs and runs from PyPI (manual verification)
 - `CHANGELOG.md` is present and follows Keep a Changelog format
 
 ---
@@ -581,8 +581,8 @@ echo '{}' | uv run pro-context  # Responds without crash
 
 ```python
 import pytest
-from pro_context.models.registry import RegistryEntry, RegistryPackages
-from pro_context.registry import build_indexes
+from procontext.models.registry import RegistryEntry, RegistryPackages
+from procontext.registry import build_indexes
 
 @pytest.fixture
 def sample_entries() -> list[RegistryEntry]:
@@ -615,8 +615,8 @@ def indexes(sample_entries):
 ```python
 import pytest
 import aiosqlite
-from pro_context.cache import Cache
-from pro_context.config import Settings
+from procontext.cache import Cache
+from procontext.config import Settings
 
 @pytest.fixture
 def settings() -> Settings:
@@ -637,10 +637,10 @@ import pytest
 import respx
 import httpx
 import aiosqlite
-from pro_context.state import AppState
-from pro_context.cache import Cache
-from pro_context.fetcher import Fetcher, build_allowlist
-from pro_context.config import Settings
+from procontext.state import AppState
+from procontext.cache import Cache
+from procontext.fetcher import Fetcher, build_allowlist
+from procontext.config import Settings
 
 @pytest.fixture
 async def app_state(indexes, sample_entries):
@@ -779,13 +779,13 @@ jobs:
         run: uv run pyright src/
 
       - name: Unit tests
-        run: uv run pytest tests/unit/ --cov=src/pro_context --cov-report=term-missing
+        run: uv run pytest tests/unit/ --cov=src/procontext --cov-report=term-missing
 
       - name: Integration tests
-        run: uv run pytest tests/integration/ --cov=src/pro_context --cov-append --cov-report=term-missing
+        run: uv run pytest tests/integration/ --cov=src/procontext --cov-append --cov-report=term-missing
 
       - name: Coverage gate
-        run: uv run pytest tests/ --cov=src/pro_context --cov-fail-under=90
+        run: uv run pytest tests/ --cov=src/procontext --cov-fail-under=90
 ```
 
 **Unit and integration tests as separate steps**: Fails fast — a broken unit test is caught before running the slower integration suite. Combined coverage is reported at the end.
@@ -836,7 +836,7 @@ jobs:
           subject-path: dist/
 ```
 
-`semantic-release publish` inspects commit history since the last tag, determines the next version (patch/minor/major), updates `CHANGELOG.md`, bumps `__version__` in `src/pro_context/__init__.py`, creates a Git tag, builds the wheel, and publishes to PyPI. If no releasable commits exist (e.g., only `docs:` or `chore:` commits), it exits without publishing.
+`semantic-release publish` inspects commit history since the last tag, determines the next version (patch/minor/major), updates `CHANGELOG.md`, bumps `__version__` in `src/procontext/__init__.py`, creates a Git tag, builds the wheel, and publishes to PyPI. If no releasable commits exist (e.g., only `docs:` or `chore:` commits), it exits without publishing.
 
 `actions/attest-build-provenance` generates a signed SLSA provenance attestation — a cryptographic record proving which source commit produced which artifact, via which build pipeline. This is attached to the GitHub release and is verifiable via `gh attestation verify`. Enterprise consumers increasingly require provenance before adopting a dependency.
 
@@ -854,7 +854,7 @@ dev = [
 ]
 
 [tool.semantic_release]
-version_variables = ["src/pro_context/__init__.py:__version__"]
+version_variables = ["src/procontext/__init__.py:__version__"]
 changelog_file = "CHANGELOG.md"
 build_command = "uv build"
 ```
@@ -870,10 +870,10 @@ cd procontext
 uv sync --extra dev
 
 # 2. Run in stdio mode (default)
-uv run pro-context
+uv run procontext
 
 # 3. Run in HTTP mode
-PROCONTEXT__SERVER__TRANSPORT=http uv run pro-context
+PROCONTEXT__SERVER__TRANSPORT=http uv run procontext
 # or: copy procontext.example.yaml → procontext.yaml, set transport: http
 
 # 4. Run all tests
@@ -883,7 +883,7 @@ uv run pytest
 uv run pytest tests/unit
 
 # 6. Run with coverage
-uv run pytest --cov=src/pro_context --cov-report=html
+uv run pytest --cov=src/procontext --cov-report=html
 open htmlcov/index.html
 
 # 7. Lint and format

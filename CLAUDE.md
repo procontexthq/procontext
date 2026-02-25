@@ -32,7 +32,7 @@ Ankur has recently been working with Generative AI-based applications. Since thi
 - ⬜ **Phase 4**: HTTP Transport — Streamable HTTP (MCP spec 2025-11-25), `MCPSecurityMiddleware`, uvicorn
 - ⬜ **Phase 5**: Registry Updates & Polish — background update check, cache cleanup scheduler, CI/CD, Docker, `uvx` packaging
 
-**Current state**: Phase 1 is complete. Source code lives in `src/pro_context/`. Phase 2 implementation is next.
+**Current state**: Phase 1 is complete. Source code lives in `src/procontext/`. Phase 2 implementation is next.
 
 ### Active Specifications (`docs/specs/`)
 
@@ -67,7 +67,7 @@ _Expand this section as new phases are completed. Only add what Claude cannot in
 uv sync --dev
 
 # Run the server (stdio transport)
-uv run pro-context
+uv run procontext
 
 # Lint
 uv run ruff check src/

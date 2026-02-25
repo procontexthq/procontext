@@ -10,13 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
-
-from pro_context.errors import ErrorCode, ProContextError
-from pro_context.models.tools import ResolveLibraryInput, ResolveLibraryOutput
-from pro_context.resolver import resolve_library
+from procontext.errors import ErrorCode, ProContextError
+from procontext.models.tools import ResolveLibraryInput, ResolveLibraryOutput
+from procontext.resolver import resolve_library
 
 if TYPE_CHECKING:
-    from pro_context.state import AppState
+    from procontext.state import AppState
 
 
 async def handle(query: str, state: AppState) -> dict:

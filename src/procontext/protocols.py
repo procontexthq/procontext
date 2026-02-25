@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from pro_context.models.cache import PageCacheEntry, TocCacheEntry
+    from procontext.models.cache import PageCacheEntry, TocCacheEntry
 
 
 class CacheProtocol(Protocol):

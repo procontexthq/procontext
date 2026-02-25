@@ -17,7 +17,7 @@ import structlog
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from pro_context.models.registry import RegistryEntry
+    from procontext.models.registry import RegistryEntry
 
 log = structlog.get_logger()
 
@@ -45,13 +45,9 @@ class RegistryIndexes:
 
 def load_bundled_registry() -> list[RegistryEntry]:
     """Load the registry snapshot bundled inside the package."""
-    from pro_context.models.registry import RegistryEntry
+    from procontext.models.registry import RegistryEntry
 
-    text = (
-        files("pro_context.data")
-        .joinpath("known-libraries.json")
-        .read_text(encoding="utf-8")
-    )
+    text = files("procontext.data").joinpath("known-libraries.json").read_text(encoding="utf-8")
     raw_entries = json.loads(text)
     return [RegistryEntry(**entry) for entry in raw_entries]
 
@@ -62,7 +58,7 @@ def load_registry(local_path: Path | None = None) -> tuple[list[RegistryEntry], 
     Returns (entries, version) where version is a string identifier.
     The local path is typically ~/.local/share/procontext/registry/known-libraries.json.
     """
-    from pro_context.models.registry import RegistryEntry
+    from procontext.models.registry import RegistryEntry
 
     if local_path and local_path.is_file():
         try:

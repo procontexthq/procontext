@@ -7,10 +7,9 @@ Tests the full path through each handler: input validation → business logic
 from __future__ import annotations
 
 import pytest
-
-from pro_context.errors import ErrorCode, ProContextError
-from pro_context.state import AppState
-from pro_context.tools.resolve_library import handle
+from procontext.errors import ErrorCode, ProContextError
+from procontext.state import AppState
+from procontext.tools.resolve_library import handle
 
 
 class TestResolveLibraryHandler:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pro_context.models.cache import PageCacheEntry, TocCacheEntry
-from pro_context.models.registry import LibraryMatch, RegistryEntry, RegistryPackages
-from pro_context.models.tools import (
+from procontext.models.cache import PageCacheEntry, TocCacheEntry
+from procontext.models.registry import LibraryMatch, RegistryEntry, RegistryPackages
+from procontext.models.tools import (
     GetLibraryDocsInput,
     GetLibraryDocsOutput,
     Heading,

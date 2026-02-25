@@ -116,26 +116,26 @@ read-page("https://docs.langchain.com/concepts/streaming.md")
 
 ## 2. Technology Stack
 
-| Component | Choice | Version | Rationale |
-|-----------|--------|---------|-----------|
-| Language | Python | 3.12+ | Modern asyncio, improved error messages, per-interpreter GIL |
-| Package manager | uv | latest | Fast installs, lock files, `uvx` for tool distribution |
-| MCP framework | FastMCP (mcp package) | ≥1.26 | Official Python MCP SDK; handles protocol, tool registration, transport |
-| HTTP client | httpx | ≥0.28 | Async-native, connection pooling, manual redirect control (required for SSRF) |
-| SQLite driver | aiosqlite | ≥0.19 | Async wrapper over sqlite3; WAL mode for concurrent reads |
-| Data validation | pydantic v2 | ≥2.5 | Fast validation, settings management, serialisation |
-| Fuzzy matching | rapidfuzz | ≥3.6 | C extension, Levenshtein distance for resolve-library fuzzy step |
-| Logging | structlog | ≥24.1 | Structured JSON logs; context binding per request |
-| Config | pydantic-settings | ≥2.2 | YAML config with env var overrides, validated at startup |
-| Config parsing | pyyaml | ≥6.0 | YAML parser required by pydantic-settings `YamlConfigSettingsSource` |
-| ASGI server | uvicorn | ≥0.34 | HTTP transport for Phase 4; ASGI lifespan support |
-| Linting/formatting | ruff | ≥0.11 | Single tool for lint + format, replaces flake8/black/isort |
+| Component          | Choice                | Version | Rationale                                                                     |
+| ------------------ | --------------------- | ------- | ----------------------------------------------------------------------------- |
+| Language           | Python                | 3.12+   | Modern asyncio, improved error messages, per-interpreter GIL                  |
+| Package manager    | uv                    | latest  | Fast installs, lock files, `uvx` for tool distribution                        |
+| MCP framework      | FastMCP (mcp package) | ≥1.26   | Official Python MCP SDK; handles protocol, tool registration, transport       |
+| HTTP client        | httpx                 | ≥0.28   | Async-native, connection pooling, manual redirect control (required for SSRF) |
+| SQLite driver      | aiosqlite             | ≥0.19   | Async wrapper over sqlite3; WAL mode for concurrent reads                     |
+| Data validation    | pydantic v2           | ≥2.5    | Fast validation, settings management, serialisation                           |
+| Fuzzy matching     | rapidfuzz             | ≥3.6    | C extension, Levenshtein distance for resolve-library fuzzy step              |
+| Logging            | structlog             | ≥24.1   | Structured JSON logs; context binding per request                             |
+| Config             | pydantic-settings     | ≥2.2    | YAML config with env var overrides, validated at startup                      |
+| Config parsing     | pyyaml                | ≥6.0    | YAML parser required by pydantic-settings `YamlConfigSettingsSource`          |
+| ASGI server        | uvicorn               | ≥0.34   | HTTP transport for Phase 4; ASGI lifespan support                             |
+| Linting/formatting | ruff                  | ≥0.11   | Single tool for lint + format, replaces flake8/black/isort                    |
 
 ---
 
 ## 3. Data Models
 
-All models use pydantic v2. Models are defined in the `src/pro_context/models/` package, split by domain (`registry.py`, `cache.py`, `tools.py`). All public models are re-exported from `models/__init__.py` so callers can import from either `pro_context.models` or the specific submodule.
+All models use pydantic v2. Models are defined in the `src/procontext/models/` package, split by domain (`registry.py`, `cache.py`, `tools.py`). All public models are re-exported from `models/__init__.py` so callers can import from either `procontext.models` or the specific submodule.
 
 ### 3.1 Registry Models
 
@@ -449,7 +449,7 @@ def normalise_query(raw: str) -> str:
 
 ## 5. Documentation Fetcher
 
-All network I/O goes through a single `Fetcher` instance shared across tool calls. Defined in `src/pro_context/fetcher.py`.
+All network I/O goes through a single `Fetcher` instance shared across tool calls. Defined in `src/procontext/fetcher.py`.
 
 ### 5.1 HTTP Client
 
@@ -664,7 +664,7 @@ async def set_toc(self, library_id: str, ...) -> None:
 
 ## 7. Heading Parser
 
-The heading parser is used exclusively by `read-page`. It produces the `headings` list, including the 1-based line number of each heading. Defined in `src/pro_context/parser.py`.
+The heading parser is used exclusively by `read-page`. It produces the `headings` list, including the 1-based line number of each heading. Defined in `src/procontext/parser.py`.
 
 ### 7.1 Algorithm
 
@@ -674,7 +674,7 @@ Three rules applied in a single pass:
 
 Suppress heading detection inside fenced code blocks. A block opens on a line starting with ` ``` ` or `~~~` and closes on the next line starting with the same fence string. Heading detection is disabled between open and close.
 
-```python
+````python
 def parse_headings(content: str) -> list[Heading]:
     headings: list[Heading] = []
     anchor_counts: dict[str, int] = {}
@@ -728,9 +728,10 @@ def _make_anchor(title: str) -> str:
     anchor = re.sub(r"-+", "-", anchor)         # collapse multiple hyphens
     anchor = anchor.strip("-")
     return anchor or "section"
-```
+````
 
 **What is deliberately excluded**:
+
 - `#####` and `######` headings: Too granular, negligible in real documentation
 - HTML headings (`<h2>`): Essentially absent from markdown documentation pages
 - Setext-style headings (`===` / `---` underlines): Rare in practice, ambiguous with horizontal rules
@@ -743,16 +744,16 @@ def _make_anchor(title: str) -> str:
 
 FastMCP handles stdio transport natively. The server runs as a subprocess spawned by the MCP client.
 
-`AppState` is created in a lifespan context manager and flows into tool handlers via FastMCP's `Context` object. Tool business logic lives in `src/pro_context/tools/` — `server.py` only registers and dispatches.
+`AppState` is created in a lifespan context manager and flows into tool handlers via FastMCP's `Context` object. Tool business logic lives in `src/procontext/tools/` — `server.py` only registers and dispatches.
 
 ```python
-# src/pro_context/server.py
+# src/procontext/server.py
 from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP, Context
-from pro_context.state import AppState
-import pro_context.tools.resolve_library as t_resolve
-import pro_context.tools.get_library_docs as t_get_docs
-import pro_context.tools.read_page as t_read_page
+from procontext.state import AppState
+import procontext.tools.resolve_library as t_resolve
+import procontext.tools.get_library_docs as t_get_docs
+import procontext.tools.read_page as t_read_page
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
@@ -852,7 +853,7 @@ def run_http_server(config: ServerConfig) -> None:
 
 ```
 1. Attempt to load ~/.local/share/procontext/registry/known-libraries.json
-2. If missing or unreadable → load bundled snapshot (shipped inside the package at src/pro_context/data/known-libraries.json)
+2. If missing or unreadable → load bundled snapshot (shipped inside the package at src/procontext/data/known-libraries.json)
 3. Build in-memory indexes from loaded data
 4. Spawn background task: _check_for_registry_update()
 ```
@@ -860,7 +861,7 @@ def run_http_server(config: ServerConfig) -> None:
 ### Background Update Check
 
 ```python
-REGISTRY_METADATA_URL = "https://pro-context.github.io/registry_metadata.json"
+REGISTRY_METADATA_URL = "https://procontext.github.io/registry_metadata.json"
 
 async def _check_for_registry_update(state: AppState) -> None:
     try:
@@ -914,14 +915,14 @@ Configuration is loaded from `procontext.yaml` (searched in current directory, t
 
 ```yaml
 server:
-  transport: stdio       # stdio | http
-  host: "0.0.0.0"        # HTTP mode only
-  port: 8080             # HTTP mode only
-  auth_key: ""           # HTTP mode only — if empty, auto-generated at startup
+  transport: stdio # stdio | http
+  host: "0.0.0.0" # HTTP mode only
+  port: 8080 # HTTP mode only
+  auth_key: "" # HTTP mode only — if empty, auto-generated at startup
 
 registry:
-  url: "https://pro-context.github.io/known-libraries.json"
-  metadata_url: "https://pro-context.github.io/registry_metadata.json"
+  url: "https://procontext.github.io/known-libraries.json"
+  metadata_url: "https://procontext.github.io/registry_metadata.json"
 
 cache:
   ttl_hours: 24
@@ -929,8 +930,8 @@ cache:
   cleanup_interval_hours: 6
 
 logging:
-  level: INFO            # DEBUG | INFO | WARNING | ERROR
-  format: json           # json | text (text for local dev)
+  level: INFO # DEBUG | INFO | WARNING | ERROR
+  format: json # json | text (text for local dev)
 ```
 
 Loaded via pydantic-settings:
@@ -953,8 +954,8 @@ class ServerSettings(BaseModel):
     auth_key: str = ""  # HTTP mode only — if empty, auto-generated at startup
 
 class RegistrySettings(BaseModel):
-    url: str = "https://pro-context.github.io/known-libraries.json"
-    metadata_url: str = "https://pro-context.github.io/registry_metadata.json"
+    url: str = "https://procontext.github.io/known-libraries.json"
+    metadata_url: str = "https://procontext.github.io/registry_metadata.json"
 
 class CacheSettings(BaseModel):
     ttl_hours: int = 24
@@ -1027,18 +1028,18 @@ async def get_library_docs_handler(library_id: str) -> dict:
 
 **Key log events and their fields**:
 
-| Event | Fields |
-|-------|--------|
-| `server_started` | `transport`, `version`, `registry_entries` |
-| `registry_loaded` | `version`, `entries`, `source` (`disk` \| `bundled`) |
-| `registry_updated` | `version`, `entries` |
-| `cache_hit` | `tool`, `library_id` or `url_hash` |
-| `cache_miss_fetching` | `tool`, `url` |
-| `fetch_complete` | `url`, `status_code`, `content_length` |
-| `fetch_failed` | `url`, `error`, `status_code` |
-| `ssrf_blocked` | `url`, `reason` |
-| `stale_refresh_started` | `key` |
-| `stale_refresh_complete` | `key`, `changed` |
-| `stale_refresh_failed` | `key`, `error` |
-| `cache_read_error` | `key` |
-| `cache_write_error` | `key` |
+| Event                    | Fields                                               |
+| ------------------------ | ---------------------------------------------------- |
+| `server_started`         | `transport`, `version`, `registry_entries`           |
+| `registry_loaded`        | `version`, `entries`, `source` (`disk` \| `bundled`) |
+| `registry_updated`       | `version`, `entries`                                 |
+| `cache_hit`              | `tool`, `library_id` or `url_hash`                   |
+| `cache_miss_fetching`    | `tool`, `url`                                        |
+| `fetch_complete`         | `url`, `status_code`, `content_length`               |
+| `fetch_failed`           | `url`, `error`, `status_code`                        |
+| `ssrf_blocked`           | `url`, `reason`                                      |
+| `stale_refresh_started`  | `key`                                                |
+| `stale_refresh_complete` | `key`, `changed`                                     |
+| `stale_refresh_failed`   | `key`, `error`                                       |
+| `cache_read_error`       | `key`                                                |
+| `cache_write_error`      | `key`                                                |

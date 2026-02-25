@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import httpx
 
-    from pro_context.config import Settings
-    from pro_context.protocols import CacheProtocol, FetcherProtocol
-    from pro_context.registry import RegistryIndexes
+    from procontext.config import Settings
+    from procontext.protocols import CacheProtocol, FetcherProtocol
+    from procontext.registry import RegistryIndexes
 
 
 @dataclass
