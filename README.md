@@ -1,4 +1,4 @@
-# Pro-Context
+# ProContext
 
 **MCP documentation server that provides AI coding agents with accurate, up-to-date documentation to prevent API hallucination.**
 
@@ -6,7 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-1.0-green.svg)](https://modelcontextprotocol.io)
 
-Pro-Context is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that will deliver accurate, fresh documentation to AI coding agents like Claude Code, Cursor, and Windsurf. It prevents hallucinated APIs by serving real documentation from Python libraries, MCP servers, GitHub projects, and any source that publishes [llms.txt](https://llmstxt.org) files.
+ProContext is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that will deliver accurate, fresh documentation to AI coding agents like Claude Code, Cursor, and Windsurf. It prevents hallucinated APIs by serving real documentation from Python libraries, MCP servers, GitHub projects, and any source that publishes [llms.txt](https://llmstxt.org) files.
 
 > ⚠️ **Project Status**: **Phase 0 complete** (foundation implemented). Phase 1 (registry & resolution) is next. Not yet usable — see [Development Status](#development-status) below.
 
@@ -20,11 +20,11 @@ AI coding agents often hallucinate outdated or incorrect API details because:
 - Documentation changes frequently
 - They lack access to current library docs
 
-**Pro-Context solves this** by giving agents on-demand access to fresh, curated documentation.
+**ProContext solves this** by giving agents on-demand access to fresh, curated documentation.
 
 ---
 
-## How Pro-Context Differs
+## How ProContext Differs
 
 Existing documentation tools fall into two categories, each with limitations:
 
@@ -32,7 +32,7 @@ Existing documentation tools fall into two categories, each with limitations:
 | ---------------------- | ---------------------- | -------- | ------------------------------------------------------------------------------------- |
 | **Server-Side Search** | Context7, Deepcon      | 65-75%   | Server must interpret vague user intent; requires expensive query understanding model |
 | **Agent-Side RAG**     | Custom implementations | 90%+     | High accuracy but brittle — agent must discover and validate sources itself           |
-| **Pro-Context**        | _This project_         | **90%+** | Agent navigates pre-validated, always-fresh sources; no discovery overhead            |
+| **ProContext**        | _This project_         | **90%+** | Agent navigates pre-validated, always-fresh sources; no discovery overhead            |
 
 **Key differentiators:**
 
@@ -86,7 +86,7 @@ Existing documentation tools fall into two categories, each with limitations:
 
 ## Supported Documentation Sources
 
-Pro-Context will support documentation from:
+ProContext will support documentation from:
 
 | Type                 | Examples                         | How It Works                                           |
 | -------------------- | -------------------------------- | ------------------------------------------------------ |
@@ -106,7 +106,7 @@ Pro-Context will support documentation from:
 
 ## Architecture
 
-Pro-Context uses a **registry-first, lazy-fetch** architecture:
+ProContext uses a **registry-first, lazy-fetch** architecture:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -195,13 +195,13 @@ Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup 
 
 This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
 
-**Why GPL-3.0?** We want Pro-Context to remain free and open-source forever. The GPL ensures that any modifications or derivatives must also be open-source, preventing proprietary forks.
+**Why GPL-3.0?** We want ProContext to remain free and open-source forever. The GPL ensures that any modifications or derivatives must also be open-source, preventing proprietary forks.
 
 ---
 
 ## Purpose & Vision
 
-Pro-Context was created to solve the accuracy problem in AI coding agents by providing them with reliable, up-to-date documentation access.
+ProContext was created to solve the accuracy problem in AI coding agents by providing them with reliable, up-to-date documentation access.
 
 ---
 
@@ -217,8 +217,8 @@ Pro-Context was created to solve the accuracy problem in AI coding agents by pro
 ## Links
 
 - **Specifications**: [`docs/specs/`](docs/specs/)
-- **Issues**: [GitHub Issues](https://github.com/tewatia/pro-context/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/tewatia/pro-context/discussions)
+- **Issues**: [GitHub Issues](https://github.com/procontexthq/procontext/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/procontexthq/procontext/discussions)
 - **MCP Documentation**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
 - **llms.txt Standard**: [llmstxt.org](https://llmstxt.org)
 

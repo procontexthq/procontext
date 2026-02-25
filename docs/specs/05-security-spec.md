@@ -1,4 +1,4 @@
-# Pro-Context: Security Specification
+# ProContext: Security Specification
 
 > **Document**: 05-security-spec.md
 > **Status**: Draft v1
@@ -28,7 +28,7 @@
 
 ## 1. Scope and Threat Actors
 
-This document covers the security model for the open-source Pro-Context MCP server (v0.1) in its two deployment modes:
+This document covers the security model for the open-source ProContext MCP server (v0.1) in its two deployment modes:
 
 - **stdio** — local process, spawned by the MCP client. No network listener.
 - **HTTP** — single `/mcp` endpoint on a trusted network. No authentication (see 01-functional-spec, Section 10, D3).
@@ -38,20 +38,20 @@ This document covers the security model for the open-source Pro-Context MCP serv
 | Actor | Description | Relevant mode |
 |-------|-------------|---------------|
 | **Compromised documentation source** | A legitimate library's docs site is compromised or a malicious `llms.txt` is published. Content served to the AI agent is attacker-controlled. | Both |
-| **Man-in-the-middle** | Attacker on the network path between Pro-Context and upstream documentation hosts. Can modify responses in transit. | Both (mitigated by HTTPS) |
+| **Man-in-the-middle** | Attacker on the network path between ProContext and upstream documentation hosts. Can modify responses in transit. | Both (mitigated by HTTPS) |
 | **Local network attacker** | Attacker on the same network as the HTTP-mode server. Can send arbitrary MCP requests. | HTTP only |
 | **Compromised registry publisher** | Attacker gains write access to the registry hosted on GitHub Pages. Can inject entries pointing to malicious domains. | Both |
 
 ### Out-of-scope threat actors
 
-- **Unauthenticated internet attackers** — HTTP mode is designed for trusted-network or localhost use, not public internet exposure (01-functional-spec, Section 10, D3). Exposing Pro-Context to the public internet without a reverse proxy and authentication is an unsupported configuration.
+- **Unauthenticated internet attackers** — HTTP mode is designed for trusted-network or localhost use, not public internet exposure (01-functional-spec, Section 10, D3). Exposing ProContext to the public internet without a reverse proxy and authentication is an unsupported configuration.
 - **Malicious MCP client** — The MCP client spawns the server process. A malicious client already has full control of the server's execution environment.
 
 ---
 
 ## 2. Trust Boundaries
 
-Pro-Context operates at the intersection of five trust boundaries. Understanding what is trusted, validated, and unvalidated at each boundary is critical for security review.
+ProContext operates at the intersection of five trust boundaries. Understanding what is trusted, validated, and unvalidated at each boundary is critical for security review.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -60,7 +60,7 @@ Pro-Context operates at the intersection of five trust boundaries. Understanding
 └────────────────────────────┬────────────────────────────────┘
                              │ stdio / HTTP
 ┌────────────────────────────▼────────────────────────────────┐
-│  Pro-Context MCP Server                                     │
+│  ProContext MCP Server                                     │
 │                                                             │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
 │  │ Registry │  │ Fetcher  │  │  Cache   │  │  Resolver  │  │
@@ -83,7 +83,7 @@ Pro-Context operates at the intersection of five trust boundaries. Understanding
 | **Server → documentation pages** | Same as llms.txt sources | Same as llms.txt sources | Content — returned as-is to the agent |
 | **PyPI → User** | HTTPS transport, package signing | SLSA provenance attestation (03-implementation-guide, Section 6) | User must verify attestation manually via `gh attestation verify` |
 
-**Key design principle**: Pro-Context validates *where* content comes from (domain allowlist, SSRF prevention, registry checksum) but does not validate *what* the content says. It is a fetch-and-serve proxy. Content-level trust is the responsibility of the MCP client consuming the output.
+**Key design principle**: ProContext validates *where* content comes from (domain allowlist, SSRF prevention, registry checksum) but does not validate *what* the content says. It is a fetch-and-serve proxy. Content-level trust is the responsibility of the MCP client consuming the output.
 
 ---
 
@@ -120,7 +120,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 - **Misleading API examples** that introduce vulnerabilities into the user's codebase (e.g., `verify=False`, hardcoded credentials)
 - **Exfiltration links** — URLs with query parameters designed to capture the agent's conversation context if followed
 
-**Severity**: Medium — Pro-Context itself is not vulnerable, but the AI agent consuming the output could be manipulated.
+**Severity**: Medium — ProContext itself is not vulnerable, but the AI agent consuming the output could be manipulated.
 
 **Mitigation status**: Accepted (partially out of scope)
 
@@ -151,7 +151,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.4 DNS Rebinding (HTTP Transport)
 
-**Description**: In HTTP mode, a malicious webpage could use DNS rebinding to make requests to the Pro-Context server running on localhost, using the server as an SSRF proxy to access the user's internal network.
+**Description**: In HTTP mode, a malicious webpage could use DNS rebinding to make requests to the ProContext server running on localhost, using the server as an SSRF proxy to access the user's internal network.
 
 **Severity**: Medium (HTTP mode only; stdio is unaffected)
 
@@ -182,7 +182,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.6 Dependency Supply Chain
 
-**Description**: Pro-Context has 9 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
+**Description**: ProContext has 9 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
 
 **Severity**: Medium
 
@@ -190,7 +190,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 **Controls**:
 - Minor-version upper bounds on all runtime dependencies (e.g., `>=0.27.0,<1.0.0`). Prevents automatic adoption of new major versions. (03-implementation-guide, Section 2)
-- SLSA provenance attestation on Pro-Context's own releases — cryptographic proof of which source commit produced which artifact. (03-implementation-guide, Section 6)
+- SLSA provenance attestation on ProContext's own releases — cryptographic proof of which source commit produced which artifact. (03-implementation-guide, Section 6)
 - License compatibility verified for all dependencies. (03-implementation-guide, Section 2)
 - `uv.lock` committed for reproducible builds — ensures the same dependency versions across all installs.
 
@@ -235,7 +235,7 @@ HTTP mode requires a bearer key, but the key is a static shared secret — there
 
 Documentation content fetched from upstream sources passes through to the AI agent unmodified. Prompt injection, misleading examples, or exfiltration links in documentation are not detected or filtered.
 
-**Rationale**: Pro-Context is a fetch-and-serve proxy. Content filtering is the MCP client's responsibility. See Section 3.2.
+**Rationale**: ProContext is a fetch-and-serve proxy. Content filtering is the MCP client's responsibility. See Section 3.2.
 
 ### 5.4 No rate limiting
 
@@ -280,7 +280,7 @@ Delete `~/.local/share/pro-context/` to remove all persistent data (cache + regi
 
 ### PII
 
-Pro-Context stores no personally identifiable information. The cache contains only publicly available library documentation content.
+ProContext stores no personally identifiable information. The cache contains only publicly available library documentation content.
 
 ---
 

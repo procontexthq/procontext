@@ -1,4 +1,4 @@
-# Pro-Context configuration
+# ProContext configuration
 # All fields are optional — the server runs with defaults if this file is absent.
 #
 # Environment variable overrides use double-underscore as the nesting separator:

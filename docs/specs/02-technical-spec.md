@@ -1,4 +1,4 @@
-# Pro-Context: Technical Specification
+# ProContext: Technical Specification
 
 > **Document**: 02-technical-spec.md
 > **Status**: Draft v1
@@ -53,7 +53,7 @@
                │ stdio            │ Streamable HTTP
                ▼                  ▼
 ┌─────────────────────────────────────────────────────┐
-│              Pro-Context MCP Server                  │
+│              ProContext MCP Server                  │
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Tools                                       │   │
@@ -280,7 +280,7 @@ class ErrorCode(StrEnum):
     INVALID_INPUT         = "INVALID_INPUT"
 
 class ProContextError(Exception):
-    """Base exception for all Pro-Context errors.
+    """Base exception for all ProContext errors.
 
     Raised by tool handlers and caught by the MCP framework layer,
     which serialises it into the MCP error response format.

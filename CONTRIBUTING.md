@@ -1,4 +1,4 @@
-# Contributing to Pro-Context
+# Contributing to ProContext
 
 Thank you for your interest in contributing. This guide covers everything you need to get started.
 
@@ -14,7 +14,7 @@ Thank you for your interest in contributing. This guide covers everything you ne
 ## Setup
 
 ```bash
-git clone https://github.com/tewatia/pro-context.git
+git clone https://github.com/procontexthq/procontext.git
 cd pro-context
 uv sync --dev
 ```
@@ -36,7 +36,7 @@ uv run pytest                  # Tests
 
 ### 1. Pick something to work on
 
-- Check [open issues](https://github.com/tewatia/pro-context/issues) for bugs or feature requests.
+- Check [open issues](https://github.com/procontexthq/procontext/issues) for bugs or feature requests.
 - Check the [Implementation Roadmap](README.md#implementation-roadmap) for the current phase.
 - Suggest libraries or MCP servers for the curated registry.
 - Review the specs in [`docs/specs/`](docs/specs/) and open issues for anything unclear or inconsistent.
@@ -51,14 +51,14 @@ git checkout -b <type>/<short-description>
 
 Branch naming convention:
 
-| Prefix | Use for |
-|--------|---------|
-| `feat/` | New features |
-| `fix/` | Bug fixes |
-| `docs/` | Documentation changes |
+| Prefix      | Use for                                     |
+| ----------- | ------------------------------------------- |
+| `feat/`     | New features                                |
+| `fix/`      | Bug fixes                                   |
+| `docs/`     | Documentation changes                       |
 | `refactor/` | Code restructuring without behaviour change |
-| `test/` | Adding or improving tests |
-| `chore/` | Build, CI, tooling changes |
+| `test/`     | Adding or improving tests                   |
+| `chore/`    | Build, CI, tooling changes                  |
 
 ### 3. Make your changes
 
@@ -186,5 +186,5 @@ See [03-implementation-guide.md, Section 1](docs/specs/03-implementation-guide.m
 
 ## Questions?
 
-- Open a [GitHub Discussion](https://github.com/tewatia/pro-context/discussions) for design questions or ideas.
-- Open a [GitHub Issue](https://github.com/tewatia/pro-context/issues) for bugs or concrete feature requests.
+- Open a [GitHub Discussion](https://github.com/procontexthq/procontext/discussions) for design questions or ideas.
+- Open a [GitHub Issue](https://github.com/procontexthq/procontext/issues) for bugs or concrete feature requests.

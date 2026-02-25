@@ -1,4 +1,4 @@
-# Pro-Context: API Reference
+# ProContext: API Reference
 
 > **Document**: 04-api-reference.md
 > **Status**: Draft v1
@@ -47,7 +47,7 @@
 
 ### 1.1 Transport & Framing
 
-Pro-Context implements the [Model Context Protocol](https://modelcontextprotocol.io) (MCP) over JSON-RPC 2.0. All messages are UTF-8 JSON.
+ProContext implements the [Model Context Protocol](https://modelcontextprotocol.io) (MCP) over JSON-RPC 2.0. All messages are UTF-8 JSON.
 
 **stdio transport**: Each message is a single JSON object terminated by a newline (`\n`). Input is read from stdin; output is written to stdout. No HTTP headers, no framing beyond newline delimiters.
 
@@ -800,7 +800,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 
 ### 7.1 stdio Transport
 
-**How it works**: The MCP client spawns Pro-Context as a subprocess. Messages are newline-delimited JSON over stdin/stdout. stderr is reserved for structured log output (does not affect the JSON-RPC stream).
+**How it works**: The MCP client spawns ProContext as a subprocess. Messages are newline-delimited JSON over stdin/stdout. stderr is reserved for structured log output (does not affect the JSON-RPC stream).
 
 **MCP client configuration** (Claude Code, Cursor, Windsurf):
 
@@ -828,7 +828,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 }
 ```
 
-**Process lifecycle**: The MCP client manages the process. Pro-Context exits when stdin is closed.
+**Process lifecycle**: The MCP client manages the process. ProContext exits when stdin is closed.
 
 **No authentication**: stdio transport is inherently local. No API keys or tokens required.
 
@@ -899,7 +899,7 @@ Used for server-initiated notifications. Connect once per session; the server se
 
 ### Server Version
 
-Pro-Context follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH`).
+ProContext follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH`).
 
 | Change type | Version bump |
 |-------------|-------------|
@@ -909,18 +909,18 @@ Pro-Context follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATC
 | Bug fix, performance improvement | PATCH |
 | Registry update (no server change) | No bump |
 
-The server version is returned in the `initialize` response (`serverInfo.version`) and in the `X-Pro-Context-Version` HTTP response header (HTTP transport).
+The server version is returned in the `initialize` response (`serverInfo.version`) and in the `X-ProContext-Version` HTTP response header (HTTP transport).
 
 ### MCP Protocol Version
 
-Pro-Context supports two MCP protocol versions simultaneously:
+ProContext supports two MCP protocol versions simultaneously:
 
 | Version | Status |
 |---------|--------|
 | `2025-11-25` | Supported (primary) |
 | `2025-03-26` | Supported (compatibility) |
 
-When a new MCP specification version is published, Pro-Context adds support in the next MINOR release. The oldest supported version is dropped when it is no longer used by any major MCP client.
+When a new MCP specification version is published, ProContext adds support in the next MINOR release. The oldest supported version is dropped when it is no longer used by any major MCP client.
 
 ### Registry Version
 

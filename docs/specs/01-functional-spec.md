@@ -1,4 +1,4 @@
-# Pro-Context: Functional Specification
+# ProContext: Functional Specification
 
 > **Document**: 01-functional-spec.md
 > **Status**: Draft v1
@@ -28,15 +28,15 @@
 
 ## 1. Introduction
 
-Pro-Context is an open-source MCP (Model Context Protocol) server that connects AI coding agents to accurate, up-to-date library documentation.
+ProContext is an open-source MCP (Model Context Protocol) server that connects AI coding agents to accurate, up-to-date library documentation.
 
-**The problem it solves**: AI coding agents hallucinate library API details because their training data is outdated. Pro-Context gives agents a reliable path to fetch current documentation on demand, reducing hallucination without requiring model retraining.
+**The problem it solves**: AI coding agents hallucinate library API details because their training data is outdated. ProContext gives agents a reliable path to fetch current documentation on demand, reducing hallucination without requiring model retraining.
 
 ---
 
 ## 2. Design Philosophy
 
-**Agent-driven navigation.** Pro-Context does not try to guess which documentation is relevant to an agent's task. It gives the agent the tools to navigate documentation themselves — see what sections exist, fetch the ones that matter.
+**Agent-driven navigation.** ProContext does not try to guess which documentation is relevant to an agent's task. It gives the agent the tools to navigate documentation themselves — see what sections exist, fetch the ones that matter.
 
 **Minimal footprint.** The server does three things: resolve library names, serve table-of-contents, and serve page content. Nothing more.
 
@@ -53,14 +53,14 @@ The following are explicitly out of scope for the open-source version:
 - **API key management**: No authentication for the HTTP transport in this version.
 - **Rate limiting**: No per-client throttling.
 - **Multi-tenant deployments**: Single-user or single-team usage only.
-- **Documentation generation**: Pro-Context does not generate or modify documentation. It only fetches and serves what already exists.
+- **Documentation generation**: ProContext does not generate or modify documentation. It only fetches and serves what already exists.
 - **Version-aware documentation**: No version pinning. Always serves the latest documentation from the registry.
 
 ---
 
 ## 4. MCP Tools
 
-Pro-Context exposes three MCP tools. All tools are async and return structured JSON responses.
+ProContext exposes three MCP tools. All tools are async and return structured JSON responses.
 
 ### 4.1 resolve-library
 
@@ -210,11 +210,11 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 ## 5. Transport Modes
 
-Pro-Context supports two transport modes. The same MCP tools are available in both modes.
+ProContext supports two transport modes. The same MCP tools are available in both modes.
 
 ### 5.1 stdio Transport
 
-The default mode for local development. The MCP client (e.g., Claude Code, Cursor) spawns Pro-Context as a subprocess and communicates over stdin/stdout using the MCP JSON-RPC protocol.
+The default mode for local development. The MCP client (e.g., Claude Code, Cursor) spawns ProContext as a subprocess and communicates over stdin/stdout using the MCP JSON-RPC protocol.
 
 **Characteristics**:
 - No network exposure — entirely local
@@ -260,7 +260,7 @@ server:
 
 ## 6. Library Registry
 
-The library registry (`known-libraries.json`) is the data backbone of Pro-Context. It is hosted on GitHub Pages and updated weekly. The MCP server consumes it — it never modifies it.
+The library registry (`known-libraries.json`) is the data backbone of ProContext. It is hosted on GitHub Pages and updated weekly. The MCP server consumes it — it never modifies it.
 
 **Registry update cadence**: Weekly automated builds. Registry updates are independent of MCP server releases.
 
@@ -284,7 +284,7 @@ These three indexes serve all `resolve-library` lookups. No database reads durin
 
 ### Fetching
 
-All documentation is fetched via plain HTTP GET. Pro-Context uses `httpx` with:
+All documentation is fetched via plain HTTP GET. ProContext uses `httpx` with:
 - Manual redirect handling (each redirect target is validated against the SSRF allowlist before following)
 - 30-second request timeout
 - Maximum 3 redirect hops
@@ -373,7 +373,7 @@ Every error response follows the same structure:
 ## 10. Design Decisions
 
 **D1: Agent-driven navigation**
-Pro-Context does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it sees the TOC, picks sections, reads pages. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.
+ProContext does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it sees the TOC, picks sections, reads pages. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.
 
 *Trade-off*: Agents need 2–3 tool calls to reach content instead of 1. Accepted — the calls are fast (mostly cache hits after the first) and the agent retains full control.
 
@@ -387,10 +387,10 @@ Stdio mode requires no authentication — the MCP client spawns the server, and 
 The registry (`known-libraries.json`) has its own release cadence (weekly) completely decoupled from the MCP server version. Users get updated library coverage without upgrading the server.
 
 **D5: llms.txt as the documentation contract**
-Pro-Context treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and parsing that format.
+ProContext treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and parsing that format.
 
 **D6: Custom registry as the escape hatch for private documentation**
-Teams with internal libraries or private documentation can point Pro-Context at a custom registry by setting `registry.url` and `registry.metadata_url` in `pro-context.yaml`:
+Teams with internal libraries or private documentation can point ProContext at a custom registry by setting `registry.url` and `registry.metadata_url` in `pro-context.yaml`:
 
 ```yaml
 registry:
