@@ -1,4 +1,4 @@
-"""Tool handler for resolve-library.
+"""Tool handler for resolve_library.
 
 Receives AppState, delegates to the resolver module, and returns
 a structured dict. No MCP or FastMCP imports — server.py handles
@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
+
 from procontext.errors import ErrorCode, ProContextError
 from procontext.models.tools import ResolveLibraryInput, ResolveLibraryOutput
 from procontext.resolver import resolve_library
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 
 async def handle(query: str, state: AppState) -> dict:
-    """Handle a resolve-library tool call."""
+    """Handle a resolve_library tool call."""
     log = structlog.get_logger().bind(tool="resolve_library", query=query)
     log.info("handler_called")
 

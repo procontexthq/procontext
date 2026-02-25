@@ -22,6 +22,7 @@ class PageCacheEntry(BaseModel):
     url: str
     url_hash: str  # SHA-256 of url (primary key)
     content: str  # Full page markdown
+    headings: str  # Plain-text heading map: "<line>: <heading>\n..."
     fetched_at: datetime
     expires_at: datetime
     stale: bool = False

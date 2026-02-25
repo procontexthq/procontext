@@ -47,15 +47,10 @@ class GetLibraryDocsOutput(BaseModel):
     stale: bool = False
 
 
-class Heading(BaseModel):
-    title: str
-    level: int  # 1–4
-    anchor: str  # Slugified, deduplicated (useful for constructing deep links)
-    line: int  # 1-based line number where the heading appears in the page
-
-
 class ReadPageInput(BaseModel):
     url: str
+    offset: int = 1
+    limit: int = 2000
 
     @field_validator("url")
     @classmethod
@@ -67,11 +62,28 @@ class ReadPageInput(BaseModel):
             raise ValueError("url must use http or https scheme")
         return v
 
+    @field_validator("offset")
+    @classmethod
+    def validate_offset(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("offset must be >= 1")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("limit must be >= 1")
+        return v
+
 
 class ReadPageOutput(BaseModel):
     url: str
-    headings: list[Heading]
-    content: str  # Full page markdown
+    headings: str  # Plain-text heading map: "<line>: <heading>\n..."
+    total_lines: int
+    offset: int
+    limit: int
+    content: str  # Page markdown for the requested window
     cached: bool
     cached_at: datetime | None
     stale: bool = False

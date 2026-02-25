@@ -5,7 +5,6 @@ from procontext.models.registry import LibraryMatch, RegistryEntry, RegistryPack
 from procontext.models.tools import (
     GetLibraryDocsInput,
     GetLibraryDocsOutput,
-    Heading,
     ReadPageInput,
     ReadPageOutput,
     ResolveLibraryInput,
@@ -25,7 +24,6 @@ __all__ = [
     "ResolveLibraryOutput",
     "GetLibraryDocsInput",
     "GetLibraryDocsOutput",
-    "Heading",
     "ReadPageInput",
     "ReadPageOutput",
 ]

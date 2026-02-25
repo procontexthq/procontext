@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from procontext.models.registry import RegistryEntry, RegistryPackages
 from procontext.registry import RegistryIndexes, build_indexes
 

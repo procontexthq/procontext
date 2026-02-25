@@ -31,7 +31,7 @@ class RegistryEntry(BaseModel):
 
 
 class LibraryMatch(BaseModel):
-    """Single result returned by resolve-library."""
+    """Single result returned by resolve_library."""
 
     library_id: str
     name: str

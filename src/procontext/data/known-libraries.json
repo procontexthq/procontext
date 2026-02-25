@@ -101,7 +101,7 @@
       "npm": ["@anthropic-ai/sdk"]
     },
     "aliases": ["claude-sdk"],
-    "llms_txt_url": "https://docs.anthropic.com/llms.txt"
+    "llms_txt_url": "https://platform.claude.com/llms.txt"
   },
   {
     "id": "openai",

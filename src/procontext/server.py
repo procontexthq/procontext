@@ -9,17 +9,25 @@ Responsibilities (and nothing more):
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import aiosqlite
 import structlog
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import CallToolResult, TextContent
 
+import procontext.tools.get_library_docs as t_get_docs
 import procontext.tools.resolve_library as t_resolve
 from procontext import __version__
+from procontext.cache import Cache
 from procontext.config import Settings
+from procontext.errors import ProContextError
+from procontext.fetcher import Fetcher, build_allowlist, build_http_client
 from procontext.registry import build_indexes, load_registry
 from procontext.state import AppState
 
@@ -81,10 +89,26 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     entries, version = load_registry()
     indexes = build_indexes(entries)
 
+    # Phase 2: HTTP client, SSRF allowlist, cache, fetcher
+    http_client = build_http_client()
+    allowlist = build_allowlist(entries)
+
+    db_path = Path(settings.cache.db_path).expanduser()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = await aiosqlite.connect(str(db_path))
+    cache = Cache(db)
+    await cache.init_db()
+
+    fetcher = Fetcher(http_client)
+
     state = AppState(
         settings=settings,
         indexes=indexes,
         registry_version=version,
+        http_client=http_client,
+        cache=cache,
+        fetcher=fetcher,
+        allowlist=allowlist,
     )
 
     log.info(
@@ -98,6 +122,8 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     try:
         yield state
     finally:
+        await http_client.aclose()
+        await db.close()
         log.info("server_stopping")
 
 
@@ -108,14 +134,48 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
 mcp = FastMCP("procontext", lifespan=lifespan)
 
 
+def _serialise_tool_error(error: ProContextError) -> CallToolResult:
+    """Convert a ProContextError to the MCP tool error result envelope."""
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(error.to_dict()))],
+        isError=True,
+    )
+
+
 @mcp.tool()
-async def resolve_library(query: str, ctx: Context) -> dict:
+async def resolve_library(query: str, ctx: Context) -> object:
     """Resolve a library name or package name to a known documentation source."""
     state: AppState = ctx.request_context.lifespan_context
-    return await t_resolve.handle(query, state)
+    try:
+        return await t_resolve.handle(query, state)
+    except ProContextError as exc:
+        log.warning(
+            "tool_error",
+            tool="resolve_library",
+            code=exc.code,
+            message=exc.message,
+            recoverable=exc.recoverable,
+        )
+        return _serialise_tool_error(exc)
 
 
-# Phase 2 — get_library_docs
+@mcp.tool()
+async def get_library_docs(library_id: str, ctx: Context) -> object:
+    """Fetch the llms.txt table of contents for a library."""
+    state: AppState = ctx.request_context.lifespan_context
+    try:
+        return await t_get_docs.handle(library_id, state)
+    except ProContextError as exc:
+        log.warning(
+            "tool_error",
+            tool="get_library_docs",
+            code=exc.code,
+            message=exc.message,
+            recoverable=exc.recoverable,
+        )
+        return _serialise_tool_error(exc)
+
+
 # Phase 3 — read_page
 
 

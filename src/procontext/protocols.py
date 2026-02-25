@@ -34,6 +34,7 @@ class CacheProtocol(Protocol):
         url: str,
         url_hash: str,
         content: str,
+        headings: str,
         ttl_hours: int,
     ) -> None: ...
 
