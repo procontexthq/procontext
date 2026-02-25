@@ -219,15 +219,15 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 **Characteristics**:
 - No network exposure — entirely local
 - Process lifecycle managed by the MCP client
-- Registry loaded from local disk (`~/.local/share/pro-context/registry/known-libraries.json`)
-- SQLite database at `~/.local/share/pro-context/cache.db`
+- Registry loaded from local disk (`~/.local/share/procontext/registry/known-libraries.json`)
+- SQLite database at `~/.local/share/procontext/cache.db`
 - No authentication required
 
 **Configuration** (in MCP client settings):
 ```json
 {
   "mcpServers": {
-    "pro-context": {
+    "procontext": {
       "command": "uvx",
       "args": ["pro-context"]
     }
@@ -249,7 +249,7 @@ For shared or remote deployments. Implements the MCP Streamable HTTP transport s
 
 **Configuration**:
 ```yaml
-# pro-context.yaml
+# procontext.yaml
 server:
   transport: http
   host: "0.0.0.0"
@@ -264,10 +264,10 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 
 **Registry update cadence**: Weekly automated builds. Registry updates are independent of MCP server releases.
 
-**Custom registry**: The registry URL is configurable. Point `registry.url` and `registry.metadata_url` in `pro-context.yaml` at any HTTP endpoint that serves the same JSON format to use a private registry. See D6 in Section 10 for details.
+**Custom registry**: The registry URL is configurable. Point `registry.url` and `registry.metadata_url` in `procontext.yaml` at any HTTP endpoint that serves the same JSON format to use a private registry. See D6 in Section 10 for details.
 
 **At server startup**:
-1. Load local registry file from `~/.local/share/pro-context/registry/`
+1. Load local registry file from `~/.local/share/procontext/registry/`
 2. If no local file exists: fall back to bundled snapshot (shipped with the package)
 3. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory (HTTP long-running mode).
 
@@ -309,7 +309,7 @@ A single SQLite database (`cache.db`) stores all fetched content.
 ### Bearer Key Authentication (HTTP mode)
 
 - In HTTP mode, all requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key receive HTTP 401.
-- The key is configured via `server.auth_key` in `pro-context.yaml` or the `PRO_CONTEXT__SERVER__AUTH_KEY` env var.
+- The key is configured via `server.auth_key` in `procontext.yaml` or the `PROCONTEXT__SERVER__AUTH_KEY` env var.
 - If no key is configured, the server auto-generates a random key at startup and logs it to stderr.
 - Stdio mode is unaffected — no authentication is required (the transport is a local pipe owned by the spawning process).
 
@@ -390,7 +390,7 @@ The registry (`known-libraries.json`) has its own release cadence (weekly) compl
 ProContext treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and parsing that format.
 
 **D6: Custom registry as the escape hatch for private documentation**
-Teams with internal libraries or private documentation can point ProContext at a custom registry by setting `registry.url` and `registry.metadata_url` in `pro-context.yaml`:
+Teams with internal libraries or private documentation can point ProContext at a custom registry by setting `registry.url` and `registry.metadata_url` in `procontext.yaml`:
 
 ```yaml
 registry:

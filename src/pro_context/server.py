@@ -105,7 +105,7 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
 # FastMCP instance and tool registration
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("pro-context", lifespan=lifespan)
+mcp = FastMCP("procontext", lifespan=lifespan)
 
 
 @mcp.tool()
@@ -132,7 +132,7 @@ def main() -> None:
         # Fail loudly so the operator knows what to do.
         print(
             "ERROR: HTTP transport is not yet implemented. "
-            "Set transport: stdio in pro-context.yaml or unset PRO_CONTEXT__SERVER__TRANSPORT.",
+            "Set transport: stdio in procontext.yaml or unset PROCONTEXT__SERVER__TRANSPORT.",
             file=sys.stderr,
         )
         sys.exit(1)

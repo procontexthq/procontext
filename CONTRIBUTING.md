@@ -15,7 +15,7 @@ Thank you for your interest in contributing. This guide covers everything you ne
 
 ```bash
 git clone https://github.com/procontexthq/procontext.git
-cd pro-context
+cd procontext
 uv sync --dev
 ```
 

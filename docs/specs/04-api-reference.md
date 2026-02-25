@@ -641,7 +641,7 @@ Result:
 ### 5.1 URI
 
 ```
-pro-context://session/libraries
+procontext://session/libraries
 ```
 
 ### 5.2 Schema
@@ -654,7 +654,7 @@ Read via `resources/read`:
   "id": 3,
   "method": "resources/read",
   "params": {
-    "uri": "pro-context://session/libraries"
+    "uri": "procontext://session/libraries"
   }
 }
 ```
@@ -668,7 +668,7 @@ Response:
   "result": {
     "contents": [
       {
-        "uri": "pro-context://session/libraries",
+        "uri": "procontext://session/libraries",
         "mimeType": "application/json",
         "text": "<JSON string>"
       }
@@ -741,7 +741,7 @@ Response:
   "result": {
     "resources": [
       {
-        "uri": "pro-context://session/libraries",
+        "uri": "procontext://session/libraries",
         "name": "Session Libraries",
         "description": "Libraries resolved in the current session.",
         "mimeType": "application/json"
@@ -807,7 +807,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 ```json
 {
   "mcpServers": {
-    "pro-context": {
+    "procontext": {
       "command": "uvx",
       "args": ["pro-context"]
     }
@@ -820,9 +820,9 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 ```json
 {
   "mcpServers": {
-    "pro-context": {
+    "procontext": {
       "command": "uvx",
-      "args": ["pro-context", "--config", "/path/to/pro-context.yaml"]
+      "args": ["pro-context", "--config", "/path/to/procontext.yaml"]
     }
   }
 }
@@ -843,7 +843,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 **Starting the server**:
 
 ```yaml
-# pro-context.yaml
+# procontext.yaml
 server:
   transport: http
   host: "0.0.0.0"
@@ -851,9 +851,9 @@ server:
 ```
 
 ```bash
-uvx pro-context --config pro-context.yaml
+uvx pro-context --config procontext.yaml
 # or via env var:
-PRO_CONTEXT__SERVER__TRANSPORT=http uvx pro-context
+PROCONTEXT__SERVER__TRANSPORT=http uvx pro-context
 ```
 
 **Request headers**:
@@ -868,7 +868,7 @@ PRO_CONTEXT__SERVER__TRANSPORT=http uvx pro-context
 
 **Security constraints**:
 
-1. **Bearer key authentication**: All HTTP requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key are rejected with HTTP 401. The key is configured via `server.auth_key` in `pro-context.yaml` or the `PRO_CONTEXT__SERVER__AUTH_KEY` environment variable. If no key is configured, the server auto-generates a random key at startup and logs it to stderr. Stdio mode is unaffected â€” no authentication is required.
+1. **Bearer key authentication**: All HTTP requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key are rejected with HTTP 401. The key is configured via `server.auth_key` in `procontext.yaml` or the `PROCONTEXT__SERVER__AUTH_KEY` environment variable. If no key is configured, the server auto-generates a random key at startup and logs it to stderr. Stdio mode is unaffected â€” no authentication is required.
 
 2. **Origin validation**: Requests with a non-localhost `Origin` header are rejected with HTTP 403. This prevents DNS rebinding attacks. Requests without an `Origin` header (standard API clients, curl) are allowed.
 

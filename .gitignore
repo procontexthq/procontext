@@ -98,7 +98,7 @@ comments.md
 infographic*
 
 # ProContext local config (user-specific settings)
-pro-context.yaml
+procontext.yaml
 
 # Private notes (not for public eyes)
 CLAUDE.local.md

@@ -60,7 +60,7 @@ def load_registry(local_path: Path | None = None) -> tuple[list[RegistryEntry], 
     """Load registry entries, preferring a local file over the bundled snapshot.
 
     Returns (entries, version) where version is a string identifier.
-    The local path is typically ~/.local/share/pro-context/registry/known-libraries.json.
+    The local path is typically ~/.local/share/procontext/registry/known-libraries.json.
     """
     from pro_context.models.registry import RegistryEntry
 

@@ -176,7 +176,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 **Controls**: None beyond operating system filesystem permissions. Cache is plaintext SQLite with WAL mode. No encryption, no integrity checking of cached content.
 
-**Rationale**: An attacker who can write to `~/.local/share/pro-context/cache.db` already has write access to the user's source code, shell configuration, and SSH keys. Encrypting the cache provides no meaningful additional protection in this threat model. This is the correct trade-off for a local-first tool.
+**Rationale**: An attacker who can write to `~/.local/share/procontext/cache.db` already has write access to the user's source code, shell configuration, and SSH keys. Encrypting the cache provides no meaningful additional protection in this threat model. This is the correct trade-off for a local-first tool.
 
 ---
 
@@ -257,9 +257,9 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 
 | Location | Content | Purpose |
 |----------|---------|---------|
-| `~/.local/share/pro-context/cache.db` | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents |
-| `~/.local/share/pro-context/cache.db` | `page_cache` table: full page markdown | Avoid re-fetching documentation pages |
-| `~/.local/share/pro-context/registry/known-libraries.json` | Library registry | Local copy of the registry for offline use |
+| `~/.local/share/procontext/cache.db` | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents |
+| `~/.local/share/procontext/cache.db` | `page_cache` table: full page markdown | Avoid re-fetching documentation pages |
+| `~/.local/share/procontext/registry/known-libraries.json` | Library registry | Local copy of the registry for offline use |
 
 ### What is NOT stored
 
@@ -270,13 +270,13 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 
 ### Retention
 
-- Cache entries expire after 24 hours (configurable via `cache.ttl_hours` in `pro-context.yaml`).
+- Cache entries expire after 24 hours (configurable via `cache.ttl_hours` in `procontext.yaml`).
 - Cleanup job runs every 6 hours, deleting entries older than 7 days past expiry.
 - See 02-technical-spec, Section 6.1 for the full cache schema.
 
 ### Deletion
 
-Delete `~/.local/share/pro-context/` to remove all persistent data (cache + registry). No other filesystem locations are written to.
+Delete `~/.local/share/procontext/` to remove all persistent data (cache + registry). No other filesystem locations are written to.
 
 ### PII
 

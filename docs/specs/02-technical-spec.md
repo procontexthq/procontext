@@ -460,7 +460,7 @@ def build_http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         follow_redirects=False,       # Manual redirect handling (SSRF requirement)
         timeout=httpx.Timeout(30.0),  # 30s total; applies to connect + read
-        headers={"User-Agent": "pro-context/1.0"},
+        headers={"User-Agent": "procontext/1.0"},
         limits=httpx.Limits(
             max_connections=10,
             max_keepalive_connections=5,
@@ -570,7 +570,7 @@ async def fetch(
 
 ### 6.1 SQLite Schema
 
-Single database at `~/.local/share/pro-context/cache.db`. WAL mode is set once at connection time and persists — it does not need to be re-applied on subsequent opens.
+Single database at `~/.local/share/procontext/cache.db`. WAL mode is set once at connection time and persists — it does not need to be re-applied on subsequent opens.
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -760,7 +760,7 @@ async def lifespan(server: FastMCP):
     yield state                    # accessible as ctx.request_context.lifespan_context
     await state.http_client.aclose()
 
-mcp = FastMCP("pro-context", lifespan=lifespan)
+mcp = FastMCP("procontext", lifespan=lifespan)
 
 @mcp.tool()
 async def resolve_library(query: str, ctx: Context) -> dict:
@@ -851,7 +851,7 @@ def run_http_server(config: ServerConfig) -> None:
 ### Startup
 
 ```
-1. Attempt to load ~/.local/share/pro-context/registry/known-libraries.json
+1. Attempt to load ~/.local/share/procontext/registry/known-libraries.json
 2. If missing or unreadable → load bundled snapshot (shipped inside the package at src/pro_context/data/known-libraries.json)
 3. Build in-memory indexes from loaded data
 4. Spawn background task: _check_for_registry_update()
@@ -910,7 +910,7 @@ async def _check_for_registry_update(state: AppState) -> None:
 
 ## 10. Configuration
 
-Configuration is loaded from `pro-context.yaml` (searched in current directory, then `~/.config/pro-context/pro-context.yaml`). All values have defaults — the config file is optional.
+Configuration is loaded from `procontext.yaml` (searched in current directory, then `~/.config/procontext/procontext.yaml`). All values have defaults — the config file is optional.
 
 ```yaml
 server:
@@ -925,7 +925,7 @@ registry:
 
 cache:
   ttl_hours: 24
-  db_path: "~/.local/share/pro-context/cache.db"
+  db_path: "~/.local/share/procontext/cache.db"
   cleanup_interval_hours: 6
 
 logging:
@@ -958,7 +958,7 @@ class RegistrySettings(BaseModel):
 
 class CacheSettings(BaseModel):
     ttl_hours: int = 24
-    db_path: str = "~/.local/share/pro-context/cache.db"
+    db_path: str = "~/.local/share/procontext/cache.db"
     cleanup_interval_hours: int = 6
 
 class LoggingSettings(BaseModel):
@@ -968,8 +968,8 @@ class LoggingSettings(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Double-underscore prefix keeps env vars visually consistent:
-        # all separators are __ e.g. PRO_CONTEXT__SERVER__PORT=9090
-        env_prefix="PRO_CONTEXT__",
+        # all separators are __ e.g. PROCONTEXT__SERVER__PORT=9090
+        env_prefix="PROCONTEXT__",
         env_nested_delimiter="__",
         yaml_file=_find_config_file(),   # Returns first existing path or None
         yaml_file_encoding="utf-8",
@@ -995,7 +995,7 @@ class Settings(BaseSettings):
         )
 ```
 
-`_find_config_file()` searches `pro-context.yaml` in the current directory first, then `~/.config/pro-context/pro-context.yaml`, returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PRO_CONTEXT__` with `__` as the nested delimiter (e.g., `PRO_CONTEXT__SERVER__PORT=9090`, `PRO_CONTEXT__CACHE__TTL_HOURS=48`).
+`_find_config_file()` searches `procontext.yaml` in the current directory first, then `~/.config/procontext/procontext.yaml`, returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PROCONTEXT__` with `__` as the nested delimiter (e.g., `PROCONTEXT__SERVER__PORT=9090`, `PROCONTEXT__CACHE__TTL_HOURS=48`).
 
 ---
 

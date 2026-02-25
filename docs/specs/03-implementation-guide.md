@@ -43,7 +43,7 @@
 pro-context/
 ├── pyproject.toml
 ├── CHANGELOG.md                      # Keep a Changelog format; updated on every release
-├── pro-context.example.yaml          # Example config (committed); copy to pro-context.yaml for local use
+├── procontext.example.yaml          # Example config (committed); copy to procontext.yaml for local use
 ├── src/
 │   └── pro_context/
 │       ├── __init__.py               # __version__ only
@@ -297,7 +297,7 @@ async def lifespan(server: FastMCP):
     yield state                    # Available as ctx.request_context.lifespan_context
     await state.http_client.aclose()
 
-mcp = FastMCP("pro-context", lifespan=lifespan)
+mcp = FastMCP("procontext", lifespan=lifespan)
 
 @mcp.tool()
 async def resolve_library(query: str, ctx: Context) -> dict:
@@ -404,8 +404,8 @@ Each phase produces working, tested code. Later phases build on earlier ones wit
 | `src/pro_context/config.py`          | `Settings` with all fields and YAML loading                                               |
 | `src/pro_context/state.py`           | `AppState` dataclass (fields populated across phases)                                     |
 | `src/pro_context/protocols.py`       | `CacheProtocol`, `FetcherProtocol` stubs                                                  |
-| `src/pro_context/server.py`          | `FastMCP("pro-context")`, lifespan stub, `main()` entrypoint                              |
-| `pro-context.example.yaml`           | Example config with all fields and comments (committed; `pro-context.yaml` is gitignored) |
+| `src/pro_context/server.py`          | `FastMCP("procontext")`, lifespan stub, `main()` entrypoint                              |
+| `procontext.example.yaml`           | Example config with all fields and comments (committed; `procontext.yaml` is gitignored) |
 
 **Verification**:
 
@@ -866,15 +866,15 @@ build_command = "uv build"
 ```bash
 # 1. Clone and install
 git clone https://github.com/procontexthq/procontext.git
-cd pro-context
+cd procontext
 uv sync --extra dev
 
 # 2. Run in stdio mode (default)
 uv run pro-context
 
 # 3. Run in HTTP mode
-PRO_CONTEXT__SERVER__TRANSPORT=http uv run pro-context
-# or: copy pro-context.example.yaml → pro-context.yaml, set transport: http
+PROCONTEXT__SERVER__TRANSPORT=http uv run pro-context
+# or: copy procontext.example.yaml → procontext.yaml, set transport: http
 
 # 4. Run all tests
 uv run pytest
@@ -891,7 +891,7 @@ uv run ruff check src/ tests/
 uv run ruff format src/ tests/
 ```
 
-**Development config** (copy `pro-context.example.yaml` to `pro-context.yaml` and adjust):
+**Development config** (copy `procontext.example.yaml` to `procontext.yaml` and adjust):
 
 ```yaml
 server:

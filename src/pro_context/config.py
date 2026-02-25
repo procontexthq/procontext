@@ -1,8 +1,8 @@
 """Configuration loading.
 
 Settings are loaded in priority order (highest first):
-  1. Environment variables  (PRO_CONTEXT__SERVER__TRANSPORT=http)
-  2. pro-context.yaml       (searched in cwd, then ~/.config/pro-context/)
+  1. Environment variables  (PROCONTEXT__SERVER__TRANSPORT=http)
+  2. procontext.yaml        (searched in cwd, then ~/.config/procontext/)
   3. Hardcoded defaults
 
 The config file is optional — all fields have sensible defaults.
@@ -23,10 +23,10 @@ from pydantic_settings import (
 
 
 def _find_config_file() -> str | None:
-    """Return the path of the first pro-context.yaml found, or None."""
+    """Return the path of the first procontext.yaml found, or None."""
     candidates = [
-        Path("pro-context.yaml"),
-        Path.home() / ".config" / "pro-context" / "pro-context.yaml",
+        Path("procontext.yaml"),
+        Path.home() / ".config" / "procontext" / "procontext.yaml",
     ]
     for path in candidates:
         if path.exists():
@@ -47,7 +47,7 @@ class RegistrySettings(BaseModel):
 
 class CacheSettings(BaseModel):
     ttl_hours: int = 24
-    db_path: str = "~/.local/share/pro-context/cache.db"
+    db_path: str = "~/.local/share/procontext/cache.db"
     cleanup_interval_hours: int = 6
 
 
@@ -58,8 +58,8 @@ class LoggingSettings(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        # Double-underscore separates nesting: PRO_CONTEXT__SERVER__PORT=9090
-        env_prefix="PRO_CONTEXT__",
+        # Double-underscore separates nesting: PROCONTEXT__SERVER__PORT=9090
+        env_prefix="PROCONTEXT__",
         env_nested_delimiter="__",
         yaml_file=_find_config_file(),
         yaml_file_encoding="utf-8",

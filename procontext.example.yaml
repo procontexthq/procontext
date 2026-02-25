@@ -2,10 +2,10 @@
 # All fields are optional — the server runs with defaults if this file is absent.
 #
 # Environment variable overrides use double-underscore as the nesting separator:
-#   PRO_CONTEXT__SERVER__TRANSPORT=http
-#   PRO_CONTEXT__SERVER__PORT=9090
-#   PRO_CONTEXT__SERVER__AUTH_KEY=my-secret-key
-#   PRO_CONTEXT__LOGGING__LEVEL=DEBUG
+#   PROCONTEXT__SERVER__TRANSPORT=http
+#   PROCONTEXT__SERVER__PORT=9090
+#   PROCONTEXT__SERVER__AUTH_KEY=my-secret-key
+#   PROCONTEXT__LOGGING__LEVEL=DEBUG
 
 server:
   transport: stdio       # stdio | http
@@ -19,7 +19,7 @@ registry:
 
 cache:
   ttl_hours: 24
-  db_path: "~/.local/share/pro-context/cache.db"
+  db_path: "~/.local/share/procontext/cache.db"
   cleanup_interval_hours: 6
 
 logging:
