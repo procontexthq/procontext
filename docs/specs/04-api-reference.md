@@ -14,17 +14,17 @@
   - [1.2 Initialization Handshake](#12-initialization-handshake)
   - [1.3 Calling a Tool](#13-calling-a-tool)
   - [1.4 Tool Errors vs Protocol Errors](#14-tool-errors-vs-protocol-errors)
-- [2. Tool: resolve-library](#2-tool-resolve-library)
+- [2. Tool: resolve_library](#2-tool-resolve_library)
   - [2.1 Input Schema](#21-input-schema)
   - [2.2 Output Schema](#22-output-schema)
   - [2.3 Examples](#23-examples)
   - [2.4 Error Cases](#24-error-cases)
-- [3. Tool: get-library-docs](#3-tool-get-library-docs)
+- [3. Tool: get_library_docs](#3-tool-get_library_docs)
   - [3.1 Input Schema](#31-input-schema)
   - [3.2 Output Schema](#32-output-schema)
   - [3.3 Examples](#33-examples)
   - [3.4 Error Cases](#34-error-cases)
-- [4. Tool: read-page](#4-tool-read-page)
+- [4. Tool: read_page](#4-tool-read_page)
   - [4.1 Input Schema](#41-input-schema)
   - [4.2 Output Schema](#42-output-schema)
   - [4.3 Examples](#43-examples)
@@ -58,6 +58,8 @@ Both transports expose the identical set of tools and resources.
 ---
 
 ### 1.2 Initialization Handshake
+
+> **Note**: The initialization handshake is part of the MCP protocol specification and is handled automatically by the MCP SDK. ProContext does not implement this manually — it is documented here for the benefit of MCP client developers who need to understand the wire protocol.
 
 Every MCP session begins with an `initialize` → `initialized` exchange. Clients must complete this before calling any tools.
 
@@ -127,7 +129,7 @@ All tools are invoked via the `tools/call` JSON-RPC method.
   "method": "tools/call",
   "params": {
     "name": "<tool-name>",
-    "arguments": { }
+    "arguments": {}
   }
 }
 ```
@@ -203,15 +205,15 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 
 ---
 
-## 2. Tool: resolve-library
+## 2. Tool: resolve_library
 
-**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain a `library_id` for use with `get-library-docs`.
+**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain a `library_id` for use with `get_library_docs`.
 
 ### 2.1 Input Schema
 
 ```json
 {
-  "name": "resolve-library",
+  "name": "resolve_library",
   "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches. Always the first step — establishes the library_id used by subsequent tools.",
   "inputSchema": {
     "type": "object",
@@ -231,6 +233,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 **Normalisation applied before matching**: pip extras (`[...]`) and version specifiers (`>=`, `==`, `~=`, `<`, `>`, `!=`, `^`) are stripped; input is lowercased and trimmed.
 
 **Matching order** (first hit wins):
+
 1. Exact match against known package names (PyPI, npm)
 2. Exact match against library IDs
 3. Exact match against known aliases
@@ -281,7 +284,14 @@ All matching is in-memory. No network calls.
             "description": "Match confidence. 1.0 for exact matches; proportional to edit distance for fuzzy matches."
           }
         },
-        "required": ["library_id", "name", "languages", "docs_url", "matched_via", "relevance"]
+        "required": [
+          "library_id",
+          "name",
+          "languages",
+          "docs_url",
+          "matched_via",
+          "relevance"
+        ]
       }
     }
   },
@@ -294,11 +304,13 @@ All matching is in-memory. No network calls.
 **Exact package name match**:
 
 Request arguments:
+
 ```json
 { "query": "langchain-openai>=0.3" }
 ```
 
 Result (`text` field, parsed):
+
 ```json
 {
   "matches": [
@@ -317,11 +329,13 @@ Result (`text` field, parsed):
 **Fuzzy match (typo)**:
 
 Request arguments:
+
 ```json
 { "query": "fastapi" }
 ```
 
 Result (typo example — `"fasapi"` → `"fastapi"`):
+
 ```json
 {
   "matches": [
@@ -340,11 +354,13 @@ Result (typo example — `"fasapi"` → `"fastapi"`):
 **No match**:
 
 Request arguments:
+
 ```json
 { "query": "xyzzy-nonexistent" }
 ```
 
 Result:
+
 ```json
 {
   "matches": []
@@ -355,11 +371,11 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ### 2.4 Error Cases
 
-`resolve-library` does not raise tool-level errors. An unrecognised library returns an empty list. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. empty string, query over 500 characters).
+`resolve_library` does not raise tool-level errors. An unrecognised library returns an empty list. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. empty string, query over 500 characters).
 
 ---
 
-## 3. Tool: get-library-docs
+## 3. Tool: get_library_docs
 
 **Purpose**: Fetch the table of contents (llms.txt) for a library. Returns the raw markdown content the agent reads to identify documentation pages and their URLs.
 
@@ -367,14 +383,14 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ```json
 {
-  "name": "get-library-docs",
-  "description": "Fetch the llms.txt table of contents for a library. Returns raw markdown listing documentation sections and page URLs. The agent reads this to decide which pages to fetch with read-page.",
+  "name": "get_library_docs",
+  "description": "Fetch the llms.txt table of contents for a library. Returns raw markdown listing documentation sections and page URLs. The agent reads this to decide which pages to fetch with read_page.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "library_id": {
         "type": "string",
-        "description": "Library identifier from resolve-library.",
+        "description": "Library identifier from resolve_library.",
         "pattern": "^[a-z0-9][a-z0-9_-]*$"
       }
     },
@@ -420,6 +436,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 ```
 
 **Cache behaviour**:
+
 - TTL: 24 hours from fetch time.
 - **Stale-while-revalidate**: An expired entry is served immediately (`stale: true`) while a background refresh runs. The agent never waits for a network fetch on a cache hit.
 - `stale: true` does not indicate an error. The content is accurate as of `cached_at`.
@@ -429,11 +446,13 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 **Cache miss (first fetch)**:
 
 Request arguments:
+
 ```json
 { "library_id": "langchain" }
 ```
 
 Result:
+
 ```json
 {
   "library_id": "langchain",
@@ -473,20 +492,21 @@ Result:
 
 ### 3.4 Error Cases
 
-| Condition | Error code | `recoverable` |
-|-----------|-----------|---------------|
-| `library_id` not found in registry | `LIBRARY_NOT_FOUND` | `false` |
-| Network error fetching llms.txt | `LLMS_TXT_FETCH_FAILED` | `true` |
-| HTTP non-200 fetching llms.txt | `LLMS_TXT_FETCH_FAILED` | `true` |
-| `library_id` fails pattern validation | `INVALID_INPUT` | `false` |
+| Condition                             | Error code              | `recoverable` |
+| ------------------------------------- | ----------------------- | ------------- |
+| `library_id` not found in registry    | `LIBRARY_NOT_FOUND`     | `false`       |
+| Network error fetching llms.txt       | `LLMS_TXT_FETCH_FAILED` | `true`        |
+| HTTP non-200 fetching llms.txt        | `LLMS_TXT_FETCH_FAILED` | `true`        |
+| `library_id` fails pattern validation | `INVALID_INPUT`         | `false`       |
 
 **`LIBRARY_NOT_FOUND` example**:
+
 ```json
 {
   "error": {
     "code": "LIBRARY_NOT_FOUND",
     "message": "Library 'langchan' not found in registry.",
-    "suggestion": "Call resolve-library with your query to find the correct library ID.",
+    "suggestion": "Call resolve_library with your query to find the correct library ID.",
     "recoverable": false
   }
 }
@@ -494,7 +514,7 @@ Result:
 
 ---
 
-## 4. Tool: read-page
+## 4. Tool: read_page
 
 **Purpose**: Fetch the full content of a documentation page. Returns heading structure with line numbers for navigation.
 
@@ -502,14 +522,14 @@ Result:
 
 ```json
 {
-  "name": "read-page",
+  "name": "read_page",
   "description": "Fetch the content of a documentation page. Returns the full page markdown and its heading structure. Each heading includes its line number for direct navigation.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the documentation page, typically extracted from get-library-docs output. Must use http or https. Must be a domain from the library registry.",
+        "description": "URL of the documentation page, typically extracted from get_library_docs output. Must use http or https. Must be a domain from the library registry.",
         "maxLength": 2048
       }
     },
@@ -575,21 +595,43 @@ Result:
 **Full page fetch**:
 
 Request arguments:
+
 ```json
 { "url": "https://docs.langchain.com/docs/concepts/streaming.md" }
 ```
 
 Result:
+
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
   "headings": [
     { "title": "Streaming", "level": 1, "anchor": "streaming", "line": 1 },
     { "title": "Overview", "level": 2, "anchor": "overview", "line": 3 },
-    { "title": "Streaming with Chat Models", "level": 2, "anchor": "streaming-with-chat-models", "line": 12 },
-    { "title": "Using .stream()", "level": 3, "anchor": "using-stream", "line": 18 },
-    { "title": "Using .astream()", "level": 3, "anchor": "using-astream", "line": 27 },
-    { "title": "Streaming with Chains", "level": 2, "anchor": "streaming-with-chains", "line": 35 }
+    {
+      "title": "Streaming with Chat Models",
+      "level": 2,
+      "anchor": "streaming-with-chat-models",
+      "line": 12
+    },
+    {
+      "title": "Using .stream()",
+      "level": 3,
+      "anchor": "using-stream",
+      "line": 18
+    },
+    {
+      "title": "Using .astream()",
+      "level": 3,
+      "anchor": "using-astream",
+      "line": 27
+    },
+    {
+      "title": "Streaming with Chains",
+      "level": 2,
+      "anchor": "streaming-with-chains",
+      "line": 35
+    }
   ],
   "content": "# Streaming\n\n## Overview\n\nLangChain supports streaming...\n\n## Streaming with Chat Models\n...",
   "cached": false,
@@ -603,23 +645,38 @@ Result:
 ```json
 {
   "headings": [
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode", "line": 10 },
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-2", "line": 45 },
-    { "title": "Browser Mode", "level": 3, "anchor": "browser-mode-3", "line": 78 }
+    {
+      "title": "Browser Mode",
+      "level": 3,
+      "anchor": "browser-mode",
+      "line": 10
+    },
+    {
+      "title": "Browser Mode",
+      "level": 3,
+      "anchor": "browser-mode-2",
+      "line": 45
+    },
+    {
+      "title": "Browser Mode",
+      "level": 3,
+      "anchor": "browser-mode-3",
+      "line": 78
+    }
   ]
 }
 ```
 
 ### 4.4 Error Cases
 
-| Condition | Error code | `recoverable` |
-|-----------|-----------|---------------|
-| URL domain not in allowlist | `URL_NOT_ALLOWED` | `false` |
-| URL scheme not http/https | `INVALID_INPUT` | `false` |
-| HTTP 404 for the URL | `PAGE_NOT_FOUND` | `false` |
-| Network error or non-200/404 response | `PAGE_FETCH_FAILED` | `true` |
-| Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED` | `false` |
-| URL over 2048 characters | `INVALID_INPUT` | `false` |
+| Condition                                | Error code          | `recoverable` |
+| ---------------------------------------- | ------------------- | ------------- |
+| URL domain not in allowlist              | `URL_NOT_ALLOWED`   | `false`       |
+| URL scheme not http/https                | `INVALID_INPUT`     | `false`       |
+| HTTP 404 for the URL                     | `PAGE_NOT_FOUND`    | `false`       |
+| Network error or non-200/404 response    | `PAGE_FETCH_FAILED` | `true`        |
+| Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED`   | `false`       |
+| URL over 2048 characters                 | `INVALID_INPUT`     | `false`       |
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -628,7 +685,7 @@ Result:
   "error": {
     "code": "URL_NOT_ALLOWED",
     "message": "URL 'https://internal.example.com/docs' is not permitted.",
-    "suggestion": "Only URLs from known documentation domains are allowed. Use get-library-docs to obtain valid documentation URLs.",
+    "suggestion": "Only URLs from known documentation domains are allowed. Use get_library_docs to obtain valid documentation URLs.",
     "recoverable": false
   }
 }
@@ -719,7 +776,7 @@ The `text` field (parsed):
 }
 ```
 
-**Purpose**: Allows the agent to recall which libraries have already been resolved in the current session, without re-calling `resolve-library`. Empty list at session start. Populated by each successful `resolve-library` call.
+**Purpose**: Allows the agent to recall which libraries have already been resolved in the current session, without re-calling `resolve_library`. Empty list at session start. Populated by each successful `resolve_library` call.
 
 **Listing available resources** (`resources/list`):
 
@@ -770,29 +827,29 @@ All tool-level errors share the same envelope:
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `code` | string | Machine-readable error code (see table below) |
-| `message` | string | What went wrong, in plain language |
-| `suggestion` | string | What the agent should do next |
+| Field         | Type    | Description                                                                    |
+| ------------- | ------- | ------------------------------------------------------------------------------ |
+| `code`        | string  | Machine-readable error code (see table below)                                  |
+| `message`     | string  | What went wrong, in plain language                                             |
+| `suggestion`  | string  | What the agent should do next                                                  |
 | `recoverable` | boolean | Whether retrying the same request might succeed (e.g. transient network error) |
 
 This envelope is returned inside the MCP `result` content with `isError: true` — not as a JSON-RPC protocol error.
 
 ### 6.2 Error Code Catalogue
 
-| Code | Raised by | Description | `recoverable` |
-|------|-----------|-------------|---------------|
-| `LIBRARY_NOT_FOUND` | `get-library-docs` | `library_id` is valid syntax but not present in the registry | `false` |
-| `LLMS_TXT_FETCH_FAILED` | `get-library-docs` | Network error, timeout, or non-200 HTTP response when fetching the llms.txt URL | `true` |
-| `PAGE_NOT_FOUND` | `read-page` | HTTP 404 for the requested URL | `false` |
-| `PAGE_FETCH_FAILED` | `read-page` | Network error, timeout, non-200/404 HTTP response, or too many redirects | `true` |
-| `URL_NOT_ALLOWED` | `read-page` | URL domain is not in the SSRF allowlist, or is a private IP range | `false` |
-| `INVALID_INPUT` | Any tool | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false` |
+| Code                    | Raised by          | Description                                                                                    | `recoverable` |
+| ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------- | ------------- |
+| `LIBRARY_NOT_FOUND`     | `get_library_docs` | `library_id` is valid syntax but not present in the registry                                   | `false`       |
+| `LLMS_TXT_FETCH_FAILED` | `get_library_docs` | Network error, timeout, or non-200 HTTP response when fetching the llms.txt URL                | `true`        |
+| `PAGE_NOT_FOUND`        | `read_page`        | HTTP 404 for the requested URL                                                                 | `false`       |
+| `PAGE_FETCH_FAILED`     | `read_page`        | Network error, timeout, non-200/404 HTTP response, or too many redirects                       | `true`        |
+| `URL_NOT_ALLOWED`       | `read_page`        | URL domain is not in the SSRF allowlist, or is a private IP range                              | `false`       |
+| `INVALID_INPUT`         | Any tool           | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false`       |
 
 **On `recoverable: true`**: The same request may succeed if retried after a brief delay. Network errors and upstream failures are the typical cause. The agent should inform the user rather than retry indefinitely.
 
-**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve-library` to find a valid `library_id`, or check the URL is from a known documentation domain).
+**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve_library` to find a valid `library_id`, or check the URL is from a known documentation domain).
 
 ---
 
@@ -848,6 +905,8 @@ server:
   transport: http
   host: "0.0.0.0"
   port: 8080
+  auth_enabled: false
+  auth_key: ""
 ```
 
 ```bash
@@ -858,17 +917,17 @@ PROCONTEXT__SERVER__TRANSPORT=http uvx procontext
 
 **Request headers**:
 
-| Header | Required | Description |
-|--------|----------|-------------|
-| `Authorization` | Yes | `Bearer <key>`. The key is either configured via `server.auth_key` or auto-generated at startup (logged to stderr). Missing or incorrect key → HTTP 401. |
-| `Content-Type` | Yes | `application/json` |
-| `MCP-Session-Id` | Yes (after init) | Session identifier returned in `initialize` response. Must be included on all subsequent requests in the session. |
-| `MCP-Protocol-Version` | Recommended | `2025-11-25` or `2025-03-26`. Validated if present; unknown version → HTTP 400. |
-| `Origin` | Browser clients only | Must match `http://localhost` or `https://localhost` (with optional port). Non-localhost origins → HTTP 403. |
+| Header                 | Required             | Description                                                                                                                   |
+| ---------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Authorization`        | Conditional          | Required when `server.auth_enabled=true`. Format: `Bearer <key>`. Missing or incorrect key (when auth is enabled) → HTTP 401. |
+| `Content-Type`         | Yes                  | `application/json`                                                                                                            |
+| `MCP-Session-Id`       | Yes (after init)     | Session identifier returned in `initialize` response. Must be included on all subsequent requests in the session.             |
+| `MCP-Protocol-Version` | Recommended          | `2025-11-25` or `2025-03-26`. Validated if present; unknown version → HTTP 400.                                               |
+| `Origin`               | Browser clients only | Must match `http://localhost` or `https://localhost` (with optional port). Non-localhost origins → HTTP 403.                  |
 
 **Security constraints**:
 
-1. **Bearer key authentication**: All HTTP requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key are rejected with HTTP 401. The key is configured via `server.auth_key` in `procontext.yaml` or the `PROCONTEXT__SERVER__AUTH_KEY` environment variable. If no key is configured, the server auto-generates a random key at startup and logs it to stderr. Stdio mode is unaffected — no authentication is required.
+1. **Optional bearer key authentication**: Authentication is controlled by `server.auth_enabled` (default `false`). If `auth_enabled=true`, HTTP requests must include `Authorization: Bearer <key>`. Missing or incorrect keys are rejected with HTTP 401. If `auth_enabled=true` and `server.auth_key` is empty, a key is auto-generated at startup and logged to stderr. If `auth_enabled=false`, authentication is disabled and a startup warning is logged. Configure via `server.auth_enabled` / `server.auth_key` in `procontext.yaml` or `PROCONTEXT__SERVER__AUTH_ENABLED` / `PROCONTEXT__SERVER__AUTH_KEY`. Stdio mode is unaffected — no authentication is required.
 
 2. **Origin validation**: Requests with a non-localhost `Origin` header are rejected with HTTP 403. This prevents DNS rebinding attacks. Requests without an `Origin` header (standard API clients, curl) are allowed.
 
@@ -878,6 +937,8 @@ PROCONTEXT__SERVER__TRANSPORT=http uvx procontext
 
 **Example POST request**:
 
+Example below assumes `server.auth_enabled=true` and a key is configured or auto-generated:
+
 ```
 POST /mcp HTTP/1.1
 Host: localhost:8080
@@ -886,7 +947,7 @@ Content-Type: application/json
 MCP-Session-Id: sess_abc123
 MCP-Protocol-Version: 2025-11-25
 
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"resolve-library","arguments":{"query":"langchain"}}}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"resolve_library","arguments":{"query":"langchain"}}}
 ```
 
 **SSE stream** (GET `/mcp`):
@@ -901,13 +962,13 @@ Used for server-initiated notifications. Connect once per session; the server se
 
 ProContext follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH`).
 
-| Change type | Version bump |
-|-------------|-------------|
-| New tool or resource | MINOR |
-| New optional field in response | MINOR |
-| Breaking change to input/output schema | MAJOR |
-| Bug fix, performance improvement | PATCH |
-| Registry update (no server change) | No bump |
+| Change type                            | Version bump |
+| -------------------------------------- | ------------ |
+| New tool or resource                   | MINOR        |
+| New optional field in response         | MINOR        |
+| Breaking change to input/output schema | MAJOR        |
+| Bug fix, performance improvement       | PATCH        |
+| Registry update (no server change)     | No bump      |
 
 The server version is returned in the `initialize` response (`serverInfo.version`) and in the `X-ProContext-Version` HTTP response header (HTTP transport).
 
@@ -915,9 +976,9 @@ The server version is returned in the `initialize` response (`serverInfo.version
 
 ProContext supports two MCP protocol versions simultaneously:
 
-| Version | Status |
-|---------|--------|
-| `2025-11-25` | Supported (primary) |
+| Version      | Status                    |
+| ------------ | ------------------------- |
+| `2025-11-25` | Supported (primary)       |
 | `2025-03-26` | Supported (compatibility) |
 
 When a new MCP specification version is published, ProContext adds support in the next MINOR release. The oldest supported version is dropped when it is no longer used by any major MCP client.

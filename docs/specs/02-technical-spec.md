@@ -57,7 +57,7 @@
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Tools                                       │   │
-│  │  resolve-library │ get-library-docs │ read-page│  │
+│  │  resolve_library │ get_library_docs │ read_page│  │
 │  └────────────────────────┬─────────────────────┘   │
 │                           │                         │
 │  ┌────────────────────────▼─────────────────────┐   │
@@ -82,13 +82,13 @@
 ### 1.2 Request Flow
 
 ```
-resolve-library("langchain-openai>=0.3")
+resolve_library("langchain-openai>=0.3")
   │
   ├─ Normalise: strip version/extras → "langchain-openai" → lowercase
   ├─ Index 1 (package → ID): "langchain-openai" → "langchain"  ✓
   └─ Return [{ library_id: "langchain", matched_via: "package_name", relevance: 1.0 }]
 
-get-library-docs("langchain")
+get_library_docs("langchain")
   │
   ├─ Registry lookup: "langchain" → llms_txt_url
   ├─ Cache check: toc:langchain
@@ -99,7 +99,7 @@ get-library-docs("langchain")
   ├─ Store: toc_cache (TTL 24h)
   └─ Return: { content: "<raw llms.txt markdown>" }
 
-read-page("https://docs.langchain.com/concepts/streaming.md")
+read_page("https://docs.langchain.com/concepts/streaming.md")
   │
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: page:{sha256(url)}
@@ -124,7 +124,7 @@ read-page("https://docs.langchain.com/concepts/streaming.md")
 | HTTP client        | httpx                 | ≥0.28   | Async-native, connection pooling, manual redirect control (required for SSRF) |
 | SQLite driver      | aiosqlite             | ≥0.19   | Async wrapper over sqlite3; WAL mode for concurrent reads                     |
 | Data validation    | pydantic v2           | ≥2.5    | Fast validation, settings management, serialisation                           |
-| Fuzzy matching     | rapidfuzz             | ≥3.6    | C extension, Levenshtein distance for resolve-library fuzzy step              |
+| Fuzzy matching     | rapidfuzz             | ≥3.6    | C extension, Levenshtein distance for resolve_library fuzzy step              |
 | Logging            | structlog             | ≥24.1   | Structured JSON logs; context binding per request                             |
 | Config             | pydantic-settings     | ≥2.2    | YAML config with env var overrides, validated at startup                      |
 | Config parsing     | pyyaml                | ≥6.0    | YAML parser required by pydantic-settings `YamlConfigSettingsSource`          |
@@ -166,7 +166,7 @@ class RegistryEntry(BaseModel):
         return v
 
 class LibraryMatch(BaseModel):
-    """Single result from resolve-library"""
+    """Single result from resolve_library"""
     library_id: str
     name: str
     languages: list[str]
@@ -472,7 +472,7 @@ The client is created once at startup and closed on shutdown. It is never re-cre
 
 ### 5.2 SSRF Prevention
 
-The SSRF allowlist is built at startup from the registry and never modified at runtime. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read-page`.
+The SSRF allowlist is built at startup from the registry and never modified at runtime. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read_page`.
 
 ```python
 from urllib.parse import urlparse
@@ -581,8 +581,7 @@ CREATE TABLE IF NOT EXISTS toc_cache (
     llms_txt_url TEXT NOT NULL,
     content      TEXT NOT NULL,
     fetched_at   TEXT NOT NULL,   -- ISO 8601
-    expires_at   TEXT NOT NULL,   -- ISO 8601
-    stale        INTEGER NOT NULL DEFAULT 0  -- 0 = fresh, 1 = stale
+    expires_at   TEXT NOT NULL    -- ISO 8601
 );
 
 CREATE TABLE IF NOT EXISTS page_cache (
@@ -590,8 +589,7 @@ CREATE TABLE IF NOT EXISTS page_cache (
     url         TEXT NOT NULL UNIQUE,
     content     TEXT NOT NULL,
     fetched_at  TEXT NOT NULL,
-    expires_at  TEXT NOT NULL,
-    stale       INTEGER NOT NULL DEFAULT 0
+    expires_at  TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_toc_expires   ON toc_cache(expires_at);
@@ -664,7 +662,7 @@ async def set_toc(self, library_id: str, ...) -> None:
 
 ## 7. Heading Parser
 
-The heading parser is used exclusively by `read-page`. It produces the `headings` list, including the 1-based line number of each heading. Defined in `src/procontext/parser.py`.
+The heading parser is used exclusively by `read_page`. It produces the `headings` list, including the 1-based line number of each heading. Defined in `src/procontext/parser.py`.
 
 ### 7.1 Algorithm
 
@@ -794,20 +792,23 @@ from starlette.requests import Request
 from starlette.responses import Response
 import re
 import secrets
+import structlog
 
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-11-25", "2025-03-26"})
 _LOCALHOST_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
 
 class MCPSecurityMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, *, auth_key: str):
+    def __init__(self, app, *, auth_enabled: bool, auth_key: str | None = None):
         super().__init__(app)
+        self.auth_enabled = auth_enabled
         self.auth_key = auth_key
 
     async def dispatch(self, request: Request, call_next):
-        # 1. Bearer key authentication
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.startswith("Bearer ") or auth_header[7:] != self.auth_key:
-            return Response("Unauthorized", status_code=401)
+        # 1. Optional bearer key authentication
+        if self.auth_enabled:
+            auth_header = request.headers.get("authorization", "")
+            if not auth_header.startswith("Bearer ") or auth_header[7:] != self.auth_key:
+                return Response("Unauthorized", status_code=401)
 
         # 2. Origin validation — prevents DNS rebinding attacks
         origin = request.headers.get("origin", "")
@@ -825,7 +826,11 @@ class MCPSecurityMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 ```
 
-**Key generation**: If `server.auth_key` is not set in the config, the server generates a 32-byte URL-safe random key at startup via `secrets.token_urlsafe(32)` and logs it to stderr. The key is passed to the middleware constructor.
+**Authentication mode**:
+
+- If `server.auth_enabled` is `true`, bearer-key authentication is enforced.
+- If `server.auth_enabled` is `true` and `server.auth_key` is empty, the server generates a key at startup (`secrets.token_urlsafe(32)`) and logs it to stderr.
+- If `server.auth_enabled` is `false` (default), authentication is disabled and the server logs a startup warning (regardless of host/bind address).
 
 **Server startup** for HTTP mode:
 
@@ -834,8 +839,22 @@ import uvicorn
 from starlette.middleware import Middleware
 
 def run_http_server(config: ServerConfig) -> None:
+    log = structlog.get_logger().bind(transport="http")
+    auth_key = config.auth_key or None
+
+    if config.auth_enabled and not auth_key:
+        auth_key = secrets.token_urlsafe(32)
+        log.warning("http_auth_key_auto_generated", auth_key=auth_key)
+
+    if not config.auth_enabled:
+        log.warning("http_auth_disabled")
+
     app = mcp.get_asgi_app()
-    app.add_middleware(MCPSecurityMiddleware)
+    app.add_middleware(
+        MCPSecurityMiddleware,
+        auth_enabled=config.auth_enabled,
+        auth_key=auth_key,
+    )
 
     uvicorn.run(
         app,
@@ -918,7 +937,8 @@ server:
   transport: stdio # stdio | http
   host: "0.0.0.0" # HTTP mode only
   port: 8080 # HTTP mode only
-  auth_key: "" # HTTP mode only — if empty, auto-generated at startup
+  auth_enabled: false # HTTP mode only — default false
+  auth_key: "" # HTTP mode only — used only when auth_enabled=true; if empty, auto-generated at startup
 
 registry:
   url: "https://procontext.github.io/known-libraries.json"
@@ -951,7 +971,8 @@ class ServerSettings(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "0.0.0.0"
     port: int = 8080
-    auth_key: str = ""  # HTTP mode only — if empty, auto-generated at startup
+    auth_enabled: bool = False  # HTTP mode only — default false
+    auth_key: str = ""  # HTTP mode only — used when auth_enabled=true; if empty, auto-generated
 
 class RegistrySettings(BaseModel):
     url: str = "https://procontext.github.io/known-libraries.json"
@@ -996,7 +1017,7 @@ class Settings(BaseSettings):
         )
 ```
 
-`_find_config_file()` searches `procontext.yaml` in the current directory first, then `~/.config/procontext/procontext.yaml`, returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PROCONTEXT__` with `__` as the nested delimiter (e.g., `PROCONTEXT__SERVER__PORT=9090`, `PROCONTEXT__CACHE__TTL_HOURS=48`).
+`_find_config_file()` searches `procontext.yaml` in the current directory first, then `~/.config/procontext/procontext.yaml`, returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PROCONTEXT__` with `__` as the nested delimiter (e.g., `PROCONTEXT__SERVER__PORT=9090`, `PROCONTEXT__SERVER__AUTH_ENABLED=true`, `PROCONTEXT__CACHE__TTL_HOURS=48`).
 
 ---
 

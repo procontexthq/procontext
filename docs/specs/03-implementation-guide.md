@@ -60,9 +60,9 @@ procontext/
 │       │   └── tools.py              # Heading, all tool I/O models
 │       ├── tools/
 │       │   ├── __init__.py
-│       │   ├── resolve_library.py    # Business logic for resolve-library
-│       │   ├── get_library_docs.py   # Business logic for get-library-docs
-│       │   └── read_page.py          # Business logic for read-page
+│       │   ├── resolve_library.py    # Business logic for resolve_library
+│       │   ├── get_library_docs.py   # Business logic for get_library_docs
+│       │   └── read_page.py          # Business logic for read_page
 │       ├── registry.py               # Registry loading, index building, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
@@ -75,7 +75,7 @@ procontext/
 │   ├── conftest.py                   # Top-level fixtures shared across all tests
 │   ├── unit/
 │   │   ├── conftest.py               # Unit-specific fixtures (no I/O)
-│   │   ├── test_resolver.py          # resolve-library: normalisation, all 5 steps, edge cases
+│   │   ├── test_resolver.py          # resolve_library: normalisation, all 5 steps, edge cases
 │   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
 │   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale-while-revalidate
 │   │   └── test_parser.py            # Heading detection, code block suppression, section extraction
@@ -323,7 +323,7 @@ if not entry:
     raise ProContextError(
         code=ErrorCode.LIBRARY_NOT_FOUND,
         message=f"Library '{library_id}' not found in registry.",
-        suggestion="Call resolve-library to find the correct library ID.",
+        suggestion="Call resolve_library to find the correct library ID.",
         recoverable=False,
     )
 
@@ -418,7 +418,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 1: Registry & Resolution
 
-**Goal**: `resolve-library` tool is fully functional. Registry loads from bundled snapshot. Fuzzy matching works.
+**Goal**: `resolve_library` tool is fully functional. Registry loads from bundled snapshot. Fuzzy matching works.
 
 **Files to create/update**:
 
@@ -448,7 +448,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 2: Fetcher & Cache
 
-**Goal**: `get-library-docs` tool is fully functional. SQLite cache works with stale-while-revalidate.
+**Goal**: `get_library_docs` tool is fully functional. SQLite cache works with stale-while-revalidate.
 
 **Files to create/update**:
 
@@ -481,7 +481,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 3: Page Reading & Parser
 
-**Goal**: `read-page` tool is fully functional. Heading parser handles code blocks, line number tracking, and anchor deduplication correctly.
+**Goal**: `read_page` tool is fully functional. Heading parser handles code blocks, line number tracking, and anchor deduplication correctly.
 
 **Files to create/update**:
 
@@ -507,27 +507,29 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 4: HTTP Transport
 
-**Goal**: Server runs in HTTP mode with bearer key authentication, Origin validation, and protocol version checking.
+**Goal**: Server runs in HTTP mode with optional bearer key authentication (off by default), Origin validation, and protocol version checking.
 
 **Files to create/update**:
 
-| File                              | What to implement                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `src/procontext/transport.py`     | `MCPSecurityMiddleware` (bearer key auth, Origin validation, protocol version check)                          |
-| `src/procontext/config.py`        | Add `auth_key` field to `ServerSettings`                                                                      |
-| `src/procontext/server.py`        | `run_http_server()`: auto-generate key if not configured, log key to stderr, attach middleware, start uvicorn |
-| `tests/integration/test_tools.py` | Add HTTP mode transport tests                                                                                 |
+| File                              | What to implement                                                                                                             |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `src/procontext/transport.py`     | `MCPSecurityMiddleware` (bearer key auth, Origin validation, protocol version check)                                          |
+| `src/procontext/config.py`        | Add `auth_enabled` and `auth_key` fields to `ServerSettings`                                                                  |
+| `src/procontext/server.py`        | `run_http_server()`: enforce auth when enabled, auto-generate key when enabled and missing, warn when disabled, start uvicorn |
+| `tests/integration/test_tools.py` | Add HTTP mode transport tests                                                                                                 |
 
 **Key behaviours to verify**:
 
-- POST to `/mcp` with valid bearer key → 200
-- POST to `/mcp` with missing `Authorization` header → 401
-- POST to `/mcp` with incorrect bearer key → 401
+- `auth_enabled=true` + explicit `auth_key` + valid bearer key → 200
+- `auth_enabled=true` + explicit `auth_key` + missing `Authorization` header → 401
+- `auth_enabled=true` + explicit `auth_key` + incorrect bearer key → 401
+- `auth_enabled=true` + empty `auth_key` → key auto-generated at startup and logged
+- `auth_enabled=false` → auth disabled; requests without `Authorization` can proceed
+- `auth_enabled=false` → startup warning is logged
 - POST to `/mcp` with valid origin → 200
 - POST to `/mcp` with non-localhost origin → 403
 - POST to `/mcp` with unknown `MCP-Protocol-Version` header → 400
 - `transport = "http"` in config starts uvicorn, `transport = "stdio"` starts stdio mode
-- No `auth_key` in config → key auto-generated at startup, logged to stderr
 
 ---
 
@@ -716,12 +718,14 @@ async def app_state(indexes, sample_entries):
 - `get_library_docs`: unknown library raises `LIBRARY_NOT_FOUND`
 - `read_page`: cache miss path (mocked HTTP), cache hit path
 - `read_page`: URL not in allowlist raises `URL_NOT_ALLOWED`
-- HTTP transport: missing bearer key → 401
-- HTTP transport: incorrect bearer key → 401
-- HTTP transport: valid bearer key → 200
+- HTTP transport: `auth_enabled=true`, explicit key, missing bearer key → 401
+- HTTP transport: `auth_enabled=true`, explicit key, incorrect bearer key → 401
+- HTTP transport: `auth_enabled=true`, explicit key, valid bearer key → 200
+- HTTP transport: `auth_enabled=true`, empty key → key auto-generated and logged
+- HTTP transport: `auth_enabled=false`, request without bearer key is allowed
+- HTTP transport: `auth_enabled=false`, startup warning logged
 - HTTP transport: non-localhost origin → 403
 - HTTP transport: unknown protocol version → 400
-- HTTP transport: no `auth_key` in config → key auto-generated, logged to stderr
 
 **Coverage target**: 90% line coverage. Branches covering network errors and cache misses are explicitly tested via mocking — not left to chance.
 

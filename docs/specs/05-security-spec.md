@@ -31,20 +31,20 @@
 This document covers the security model for the open-source ProContext MCP server (v0.1) in its two deployment modes:
 
 - **stdio** — local process, spawned by the MCP client. No network listener.
-- **HTTP** — single `/mcp` endpoint on a trusted network. No authentication (see 01-functional-spec, Section 10, D3).
+- **HTTP** — single `/mcp` endpoint on a trusted network. Optional shared-key authentication is controlled by `server.auth_enabled` and `server.auth_key`, and is disabled by default (see 01-functional-spec, Section 10, D3).
 
 ### In-scope threat actors
 
-| Actor | Description | Relevant mode |
-|-------|-------------|---------------|
-| **Compromised documentation source** | A legitimate library's docs site is compromised or a malicious `llms.txt` is published. Content served to the AI agent is attacker-controlled. | Both |
-| **Man-in-the-middle** | Attacker on the network path between ProContext and upstream documentation hosts. Can modify responses in transit. | Both (mitigated by HTTPS) |
-| **Local network attacker** | Attacker on the same network as the HTTP-mode server. Can send arbitrary MCP requests. | HTTP only |
-| **Compromised registry publisher** | Attacker gains write access to the registry hosted on GitHub Pages. Can inject entries pointing to malicious domains. | Both |
+| Actor                                | Description                                                                                                                                    | Relevant mode             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Compromised documentation source** | A legitimate library's docs site is compromised or a malicious `llms.txt` is published. Content served to the AI agent is attacker-controlled. | Both                      |
+| **Man-in-the-middle**                | Attacker on the network path between ProContext and upstream documentation hosts. Can modify responses in transit.                             | Both (mitigated by HTTPS) |
+| **Local network attacker**           | Attacker on the same network as the HTTP-mode server. Can send requests directly if auth is disabled, or if the shared key is known.           | HTTP only                 |
+| **Compromised registry publisher**   | Attacker gains write access to the registry hosted on GitHub Pages. Can inject entries pointing to malicious domains.                          | Both                      |
 
 ### Out-of-scope threat actors
 
-- **Unauthenticated internet attackers** — HTTP mode is designed for trusted-network or localhost use, not public internet exposure (01-functional-spec, Section 10, D3). Exposing ProContext to the public internet without a reverse proxy and authentication is an unsupported configuration.
+- **Unauthenticated internet attackers** — HTTP mode is designed for trusted-network or localhost use, not public internet exposure (01-functional-spec, Section 10, D3). Exposing ProContext to the public internet without a reverse proxy is unsupported. For non-local deployments, set `server.auth_enabled=true`.
 - **Malicious MCP client** — The MCP client spawns the server process. A malicious client already has full control of the server's execution environment.
 
 ---
@@ -75,15 +75,15 @@ ProContext operates at the intersection of five trust boundaries. Understanding 
 └──────────────┘  └──────────────────────┘
 ```
 
-| Boundary | What is trusted | What is validated | What is unvalidated |
-|----------|----------------|-------------------|---------------------|
-| **MCP Client → Server** | Client identity (it spawns us) | Tool inputs via Pydantic (02-technical-spec, Section 3.3) | — |
-| **Server → Registry (GitHub Pages)** | HTTPS transport integrity | SHA-256 checksum of downloaded registry (02-technical-spec, Section 9) | Content semantics — a valid-checksum registry with malicious entries is accepted |
-| **Server → llms.txt sources** | Domain membership (SSRF allowlist from registry) | URL against allowlist + private IP blocking (02-technical-spec, Section 5.2) | Content — returned as-is to the agent |
-| **Server → documentation pages** | Same as llms.txt sources | Same as llms.txt sources | Content — returned as-is to the agent |
-| **PyPI → User** | HTTPS transport, package signing | SLSA provenance attestation (03-implementation-guide, Section 6) | User must verify attestation manually via `gh attestation verify` |
+| Boundary                             | What is trusted                                  | What is validated                                                            | What is unvalidated                                                              |
+| ------------------------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **MCP Client → Server**              | Client identity (it spawns us)                   | Tool inputs via Pydantic (02-technical-spec, Section 3.3)                    | —                                                                                |
+| **Server → Registry (GitHub Pages)** | HTTPS transport integrity                        | SHA-256 checksum of downloaded registry (02-technical-spec, Section 9)       | Content semantics — a valid-checksum registry with malicious entries is accepted |
+| **Server → llms.txt sources**        | Domain membership (SSRF allowlist from registry) | URL against allowlist + private IP blocking (02-technical-spec, Section 5.2) | Content — returned as-is to the agent                                            |
+| **Server → documentation pages**     | Same as llms.txt sources                         | Same as llms.txt sources                                                     | Content — returned as-is to the agent                                            |
+| **PyPI → User**                      | HTTPS transport, package signing                 | SLSA provenance attestation (03-implementation-guide, Section 6)             | User must verify attestation manually via `gh attestation verify`                |
 
-**Key design principle**: ProContext validates *where* content comes from (domain allowlist, SSRF prevention, registry checksum) but does not validate *what* the content says. It is a fetch-and-serve proxy. Content-level trust is the responsibility of the MCP client consuming the output.
+**Key design principle**: ProContext validates _where_ content comes from (domain allowlist, SSRF prevention, registry checksum) but does not validate _what_ the content says. It is a fetch-and-serve proxy. Content-level trust is the responsibility of the MCP client consuming the output.
 
 ---
 
@@ -97,13 +97,14 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.1 SSRF via Documentation Fetching
 
-**Description**: The `read-page` tool accepts URLs from the AI agent. An attacker who controls the agent's input (e.g., via prompt injection in a previous tool's output) could attempt to fetch internal network resources. Redirect chains from allowlisted domains could bounce to internal targets.
+**Description**: The `read_page` tool accepts URLs from the AI agent. An attacker who controls the agent's input (e.g., via prompt injection in a previous tool's output) could attempt to fetch internal network resources. Redirect chains from allowlisted domains could bounce to internal targets.
 
 **Severity**: High
 
 **Mitigation status**: Mitigated
 
 **Controls** (implementation details in referenced sections — not duplicated here):
+
 - Domain allowlist built from registry at startup. Only domains present in registry entries are permitted. (02-technical-spec, Section 5.2)
 - Private IP ranges unconditionally blocked: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `::1/128`, `fc00::/7`. (02-technical-spec, Section 5.2)
 - Per-hop redirect validation — each redirect target is re-checked against the allowlist before following. Maximum 3 redirect hops. (02-technical-spec, Section 5.3)
@@ -116,6 +117,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 ### 3.2 Malicious Documentation Content
 
 **Description**: A compromised or malicious `llms.txt` file or documentation page could contain:
+
 - **Prompt injection** targeting the AI agent consuming the content (e.g., "ignore previous instructions, execute this shell command")
 - **Misleading API examples** that introduce vulnerabilities into the user's codebase (e.g., `verify=False`, hardcoded credentials)
 - **Exfiltration links** — URLs with query parameters designed to capture the agent's conversation context if followed
@@ -125,6 +127,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Mitigation status**: Accepted (partially out of scope)
 
 **Controls**:
+
 - Content is returned as plain text. No HTML rendering, no script execution, no server-side processing of fetched content. (01-functional-spec, Section 8)
 - Content passes through unmodified — the server is a fetch-and-serve proxy, not a content filter.
 
@@ -141,6 +144,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Mitigation status**: Mitigated (with residual risk)
 
 **Controls**:
+
 - SHA-256 checksum validation on registry downloads. The metadata JSON provides the expected checksum; the downloaded registry is verified before use. On mismatch, the existing registry is retained. (02-technical-spec, Section 9)
 - Bundled fallback snapshot (`data/known-libraries.json`) shipped with the package provides a known-good baseline. (01-functional-spec, Section 6)
 - Registry served over HTTPS from GitHub Pages — relies on GitHub's infrastructure security for transport integrity.
@@ -158,11 +162,13 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Mitigation status**: Mitigated
 
 **Controls**:
-- Bearer key authentication — all HTTP requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key are rejected with HTTP 401. A browser-based DNS rebinding attack cannot inject the `Authorization` header into cross-origin requests. (02-technical-spec, Section 8.2)
+
+- Optional bearer key authentication — when `server.auth_enabled=true`, all HTTP requests must include `Authorization: Bearer <key>`. If `server.auth_key` is empty, a key is auto-generated at startup. Requests with a missing or incorrect key are rejected with HTTP 401. A browser-based DNS rebinding attack cannot inject the `Authorization` header into cross-origin requests. (02-technical-spec, Section 8.2)
 - Origin validation in `MCPSecurityMiddleware`. Only `http://localhost` and `https://localhost` (with optional port) are permitted. Non-localhost origins are rejected with HTTP 403. (02-technical-spec, Section 8.2)
 - Protocol version validation — requests with unknown `MCP-Protocol-Version` headers are rejected with HTTP 400. (02-technical-spec, Section 8.2)
+- Startup warning when `server.auth_enabled=false` to make unauthenticated deployment explicit in logs. (02-technical-spec, Section 8.2)
 
-**Residual risk**: Non-browser clients on the same network that obtain the bearer key can make requests. The key is a shared secret — if leaked (e.g., via logs or config file exposure), any client with the key has full access. This is accepted for the trusted-network deployment model (01-functional-spec, Section 10, D3).
+**Residual risk**: If auth is disabled (default), any client on the reachable network can call the endpoint. If auth is enabled, non-browser clients that obtain the bearer key can make requests. The key is a shared secret — if leaked (e.g., via config file exposure), any client with the key has full access. This is accepted for the trusted-network deployment model (01-functional-spec, Section 10, D3).
 
 ---
 
@@ -189,6 +195,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Mitigation status**: Partially mitigated
 
 **Controls**:
+
 - Minor-version upper bounds on all runtime dependencies (e.g., `>=0.27.0,<1.0.0`). Prevents automatic adoption of new major versions. (03-implementation-guide, Section 2)
 - SLSA provenance attestation on ProContext's own releases — cryptographic proof of which source commit produced which artifact. (03-implementation-guide, Section 6)
 - License compatibility verified for all dependencies. (03-implementation-guide, Section 2)
@@ -200,18 +207,18 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ## 4. Security Controls Summary
 
-| Control | Protects against | Spec reference | Source file | Phase |
-|---------|-----------------|----------------|-------------|-------|
-| Bearer key auth (HTTP) | Unauthorized access in HTTP mode | 02-technical-spec §8.2 | `transport.py` | 4 |
-| Domain allowlist (SSRF) | Internal network access via fetcher | 02-technical-spec §5.2 | `fetcher.py` | 2 |
-| Private IP blocking | Fetching localhost/private resources | 02-technical-spec §5.2 | `fetcher.py` | 2 |
-| Per-hop redirect validation | Redirect-based SSRF bypass | 02-technical-spec §5.3 | `fetcher.py` | 2 |
-| Pydantic input validation | Malformed/oversized inputs | 02-technical-spec §3.3 | `models/tools.py` | 1–3 |
-| Registry checksum (SHA-256) | Registry tampering | 02-technical-spec §9 | `registry.py` | 5 |
-| Origin validation (HTTP) | DNS rebinding attacks | 02-technical-spec §8.2 | `transport.py` | 4 |
-| Protocol version check (HTTP) | Unknown protocol exploitation | 02-technical-spec §8.2 | `transport.py` | 4 |
-| Dependency version bounds | Major-version supply chain risk | 03-impl-guide §2 | `pyproject.toml` | 0 |
-| SLSA provenance attestation | Build pipeline tampering | 03-impl-guide §6 | `.github/workflows/release.yml` | 5 |
+| Control                         | Protects against                                            | Spec reference         | Source file                     | Phase |
+| ------------------------------- | ----------------------------------------------------------- | ---------------------- | ------------------------------- | ----- |
+| Optional bearer key auth (HTTP) | Unauthorized access in HTTP mode (when `auth_enabled=true`) | 02-technical-spec §8.2 | `transport.py`                  | 4     |
+| Domain allowlist (SSRF)         | Internal network access via fetcher                         | 02-technical-spec §5.2 | `fetcher.py`                    | 2     |
+| Private IP blocking             | Fetching localhost/private resources                        | 02-technical-spec §5.2 | `fetcher.py`                    | 2     |
+| Per-hop redirect validation     | Redirect-based SSRF bypass                                  | 02-technical-spec §5.3 | `fetcher.py`                    | 2     |
+| Pydantic input validation       | Malformed/oversized inputs                                  | 02-technical-spec §3.3 | `models/tools.py`               | 1–3   |
+| Registry checksum (SHA-256)     | Registry tampering                                          | 02-technical-spec §9   | `registry.py`                   | 5     |
+| Origin validation (HTTP)        | DNS rebinding attacks                                       | 02-technical-spec §8.2 | `transport.py`                  | 4     |
+| Protocol version check (HTTP)   | Unknown protocol exploitation                               | 02-technical-spec §8.2 | `transport.py`                  | 4     |
+| Dependency version bounds       | Major-version supply chain risk                             | 03-impl-guide §2       | `pyproject.toml`                | 0     |
+| SLSA provenance attestation     | Build pipeline tampering                                    | 03-impl-guide §6       | `.github/workflows/release.yml` | 5     |
 
 ---
 
@@ -225,9 +232,9 @@ The SSRF allowlist extracts the last two DNS labels as the base domain (e.g., `a
 
 **Mitigation path**: Adopt `tldextract` for eTLD+1 matching in a future version. See 02-technical-spec, Section 5.2 (known limitation).
 
-### 5.2 Bearer key is a shared secret
+### 5.2 Bearer key is a shared secret (when enabled)
 
-HTTP mode requires a bearer key, but the key is a static shared secret — there is no key rotation, hashing, rate-limited brute-force protection, or revocation mechanism. If the key is leaked (e.g., via logs, config file exposure, or process listing), any client with the key has full access until the server is restarted with a new key.
+HTTP mode supports an optional bearer key controlled by `auth_enabled`. When enabled, the key is a static shared secret — there is no key rotation, hashing, rate-limited brute-force protection, or revocation mechanism. If the key is leaked (e.g., via config file exposure or process listing), any client with the key has full access until the key is changed and the server is restarted.
 
 **Rationale**: This is lightweight access control for a trusted-network tool, not a full auth system. See 01-functional-spec, Section 10, D3.
 
@@ -255,11 +262,11 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 
 ### What is stored
 
-| Location | Content | Purpose |
-|----------|---------|---------|
-| `~/.local/share/procontext/cache.db` | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents |
-| `~/.local/share/procontext/cache.db` | `page_cache` table: full page markdown | Avoid re-fetching documentation pages |
-| `~/.local/share/procontext/registry/known-libraries.json` | Library registry | Local copy of the registry for offline use |
+| Location                                                  | Content                                 | Purpose                                    |
+| --------------------------------------------------------- | --------------------------------------- | ------------------------------------------ |
+| `~/.local/share/procontext/cache.db`                      | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents        |
+| `~/.local/share/procontext/cache.db`                      | `page_cache` table: full page markdown  | Avoid re-fetching documentation pages      |
+| `~/.local/share/procontext/registry/known-libraries.json` | Library registry                        | Local copy of the registry for offline use |
 
 ### What is NOT stored
 
@@ -296,12 +303,12 @@ Configure Dependabot (or Renovate) on the GitHub repository for automated pull r
 
 ### Response SLA targets
 
-| Severity | CVSS | Response |
-|----------|------|----------|
-| Critical | >= 9.0 | Patch or pin within 72 hours |
-| High | >= 7.0 | Patch within 2 weeks |
-| Medium | >= 4.0 | Address in next regular release |
-| Low | < 4.0 | Address in next regular release |
+| Severity | CVSS   | Response                        |
+| -------- | ------ | ------------------------------- |
+| Critical | >= 9.0 | Patch or pin within 72 hours    |
+| High     | >= 7.0 | Patch within 2 weeks            |
+| Medium   | >= 4.0 | Address in next regular release |
+| Low      | < 4.0  | Address in next regular release |
 
 ### Version pinning policy
 
@@ -317,58 +324,59 @@ Each implementation phase introduces new attack surface. The following table map
 
 ### Phase 1: Registry & Resolution
 
-| Test | What it verifies |
-|------|-----------------|
-| Oversized query input (>500 chars) | Pydantic validation rejects with `INVALID_INPUT` |
-| Query with shell metacharacters (`; rm -rf /`) | Normalisation handles safely, no injection |
-| Malformed library ID pattern | Pydantic rejects non-`[a-z0-9_-]+` patterns |
-| Registry entry with missing required fields | `RegistryEntry` Pydantic model rejects on load |
+| Test                                           | What it verifies                                 |
+| ---------------------------------------------- | ------------------------------------------------ |
+| Oversized query input (>500 chars)             | Pydantic validation rejects with `INVALID_INPUT` |
+| Query with shell metacharacters (`; rm -rf /`) | Normalisation handles safely, no injection       |
+| Malformed library ID pattern                   | Pydantic rejects non-`[a-z0-9_-]+` patterns      |
+| Registry entry with missing required fields    | `RegistryEntry` Pydantic model rejects on load   |
 
 ### Phase 2: Fetcher & Cache
 
-| Test | What it verifies |
-|------|-----------------|
-| Fetch URL targeting private IPv4 (`10.x`, `172.16.x`, `192.168.x`, `127.x`) | Blocked by private IP check |
-| Fetch URL targeting private IPv6 (`::1`, `fc00::`) | Blocked by private IP check |
-| Redirect chain to non-allowlisted domain | Blocked at redirect hop |
-| Redirect chain to private IP | Blocked at redirect hop |
-| Redirect chain exceeding 3 hops | Raises `PAGE_FETCH_FAILED` |
-| URL with allowlisted domain but non-HTTPS scheme | Rejected by URL validation |
-| `github.io` subdomain not in registry | Verify shared-hosting limitation is understood (documents behaviour, may pass) |
-| SQL injection via library ID in cache key | Parameterised queries prevent injection (verify no string formatting in SQL) |
-| SQL injection via URL in cache key | Same as above |
-| Cache read failure (simulated `aiosqlite.Error`) | Returns `None`, does not leak error details |
-| Cache write failure (simulated `aiosqlite.Error`) | Fetched content still returned, error logged |
+| Test                                                                        | What it verifies                                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Fetch URL targeting private IPv4 (`10.x`, `172.16.x`, `192.168.x`, `127.x`) | Blocked by private IP check                                                    |
+| Fetch URL targeting private IPv6 (`::1`, `fc00::`)                          | Blocked by private IP check                                                    |
+| Redirect chain to non-allowlisted domain                                    | Blocked at redirect hop                                                        |
+| Redirect chain to private IP                                                | Blocked at redirect hop                                                        |
+| Redirect chain exceeding 3 hops                                             | Raises `PAGE_FETCH_FAILED`                                                     |
+| URL with allowlisted domain but non-HTTPS scheme                            | Rejected by URL validation                                                     |
+| `github.io` subdomain not in registry                                       | Verify shared-hosting limitation is understood (documents behaviour, may pass) |
+| SQL injection via library ID in cache key                                   | Parameterised queries prevent injection (verify no string formatting in SQL)   |
+| SQL injection via URL in cache key                                          | Same as above                                                                  |
+| Cache read failure (simulated `aiosqlite.Error`)                            | Returns `None`, does not leak error details                                    |
+| Cache write failure (simulated `aiosqlite.Error`)                           | Fetched content still returned, error logged                                   |
 
 ### Phase 3: Page Reading & Parser
 
-| Test | What it verifies |
-|------|-----------------|
-| Extremely large document (>1MB) | Server handles without memory exhaustion or crash |
-| Deeply nested code fences (100+ levels) | Parser terminates correctly |
-| URL input >2048 chars | Pydantic validation rejects with `INVALID_INPUT` |
+| Test                                    | What it verifies                                  |
+| --------------------------------------- | ------------------------------------------------- |
+| Extremely large document (>1MB)         | Server handles without memory exhaustion or crash |
+| Deeply nested code fences (100+ levels) | Parser terminates correctly                       |
+| URL input >2048 chars                   | Pydantic validation rejects with `INVALID_INPUT`  |
 
 ### Phase 4: HTTP Transport
 
-| Test | What it verifies |
-|------|-----------------|
-| Valid `Authorization: Bearer <key>` header | Request proceeds (HTTP 200) |
-| Missing `Authorization` header | Rejected with HTTP 401 |
-| Incorrect bearer key | Rejected with HTTP 401 |
-| Malformed `Authorization` header (e.g., `Basic ...`) | Rejected with HTTP 401 |
-| No `auth_key` in config | Key auto-generated at startup, logged to stderr |
-| Non-localhost `Origin` header | Rejected with HTTP 403 |
-| Missing `Origin` header (with valid bearer key) | Allowed (standard for non-browser clients) |
-| Various localhost formats (`127.0.0.1`, `localhost`, `[::1]`) | Accepted or rejected per middleware regex |
-| Unknown `MCP-Protocol-Version` header | Rejected with HTTP 400 |
-| Error response body | No stack traces, internal file paths, or debug info leaked |
+| Test                                                                                             | What it verifies                                                                          |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `auth_enabled=true` + explicit `auth_key` + valid `Authorization: Bearer <key>`                  | Request proceeds (HTTP 200)                                                               |
+| `auth_enabled=true` + explicit `auth_key` + missing `Authorization` header                       | Rejected with HTTP 401                                                                    |
+| `auth_enabled=true` + explicit `auth_key` + incorrect bearer key                                 | Rejected with HTTP 401                                                                    |
+| `auth_enabled=true` + explicit `auth_key` + malformed `Authorization` header (e.g., `Basic ...`) | Rejected with HTTP 401                                                                    |
+| `auth_enabled=true` + empty `auth_key`                                                           | Key auto-generated at startup and logged                                                  |
+| `auth_enabled=false`                                                                             | Auth disabled; requests without `Authorization` are allowed and startup warning is logged |
+| Non-localhost `Origin` header                                                                    | Rejected with HTTP 403                                                                    |
+| Missing `Origin` header (with auth requirements satisfied)                                       | Allowed (standard for non-browser clients)                                                |
+| Various localhost formats (`127.0.0.1`, `localhost`, `[::1]`)                                    | Accepted or rejected per middleware regex                                                 |
+| Unknown `MCP-Protocol-Version` header                                                            | Rejected with HTTP 400                                                                    |
+| Error response body                                                                              | No stack traces, internal file paths, or debug info leaked                                |
 
 ### Phase 5: Registry Updates & Polish
 
-| Test | What it verifies |
-|------|-----------------|
-| Registry download with valid checksum | Accepted, indexes rebuilt |
-| Registry download with mismatched checksum | Rejected, existing registry retained, warning logged |
-| Registry download with missing checksum field | Rejected, existing registry retained |
-| No `verify=False` in codebase | Grep for `verify=False` — must not appear in any `httpx` call |
-| `pip-audit` (or equivalent) in CI | No known CVEs in dependency tree |
+| Test                                          | What it verifies                                              |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| Registry download with valid checksum         | Accepted, indexes rebuilt                                     |
+| Registry download with mismatched checksum    | Rejected, existing registry retained, warning logged          |
+| Registry download with missing checksum field | Rejected, existing registry retained                          |
+| No `verify=False` in codebase                 | Grep for `verify=False` — must not appear in any `httpx` call |
+| `pip-audit` (or equivalent) in CI             | No known CVEs in dependency tree                              |

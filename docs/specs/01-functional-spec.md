@@ -12,9 +12,9 @@
 - [2. Design Philosophy](#2-design-philosophy)
 - [3. Non-Goals](#3-non-goals)
 - [4. MCP Tools](#4-mcp-tools)
-  - [4.1 resolve-library](#41-resolve-library)
-  - [4.2 get-library-docs](#42-get-library-docs)
-  - [4.3 read-page](#43-read-page)
+  - [4.1 resolve_library](#41-resolve_library)
+  - [4.2 get_library_docs](#42-get_library_docs)
+  - [4.3 read_page](#43-read_page)
 - [5. Transport Modes](#5-transport-modes)
   - [5.1 stdio Transport](#51-stdio-transport)
   - [5.2 HTTP Transport](#52-http-transport)
@@ -50,7 +50,7 @@ The following are explicitly out of scope for the open-source version:
 
 - **Full-text search across documentation**: No BM25, no FTS index. Agents navigate by structure.
 - **Content chunking and ranking**: No server-side relevance extraction. Content is returned as-is from source.
-- **API key management**: No authentication for the HTTP transport in this version.
+- **Advanced API key management**: No RBAC, key rotation, key revocation, or multi-key support. Only an optional shared bearer key in HTTP mode (`auth_enabled` + `auth_key`).
 - **Rate limiting**: No per-client throttling.
 - **Multi-tenant deployments**: Single-user or single-team usage only.
 - **Documentation generation**: ProContext does not generate or modify documentation. It only fetches and serves what already exists.
@@ -62,17 +62,18 @@ The following are explicitly out of scope for the open-source version:
 
 ProContext exposes three MCP tools. All tools are async and return structured JSON responses.
 
-### 4.1 resolve-library
+### 4.1 resolve_library
 
 **Purpose**: Resolve a library name or package name to a known documentation source. Always the first step — establishes the `library_id` used by subsequent tools.
 
 **Input**:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | Yes | Library name, package name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"langchain[openai]>=0.3"`, `"LangChain"` |
+| Parameter | Type   | Required | Description                                                                                                                    |
+| --------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `query`   | string | Yes      | Library name, package name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"langchain[openai]>=0.3"`, `"LangChain"` |
 
 **Processing**:
+
 1. Normalize input: strip pip extras, version specifiers; lowercase; trim whitespace
 2. Exact match against known package names (e.g., `"langchain-openai"` → `"langchain"`)
 3. Exact match against library IDs
@@ -99,33 +100,35 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `library_id` | Stable identifier used in all subsequent tool calls |
-| `name` | Human-readable display name |
-| `languages` | Languages this library supports |
-| `docs_url` | Primary documentation site URL |
-| `matched_via` | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"` |
-| `relevance` | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance |
+| Field         | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `library_id`  | Stable identifier used in all subsequent tool calls                             |
+| `name`        | Human-readable display name                                                     |
+| `languages`   | Languages this library supports                                                 |
+| `docs_url`    | Primary documentation site URL                                                  |
+| `matched_via` | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`  |
+| `relevance`   | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance |
 
 **Notes**:
+
 - `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
 
 ---
 
-### 4.2 get-library-docs
+### 4.2 get_library_docs
 
 **Purpose**: Fetch the table of contents for a library's documentation. Returns the raw llms.txt content so the agent can read it directly and decide what to fetch next.
 
 **Input**:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `library_id` | string | Yes | Library identifier from `resolve-library` |
+| Parameter    | Type   | Required | Description                               |
+| ------------ | ------ | -------- | ----------------------------------------- |
+| `library_id` | string | Yes      | Library identifier from `resolve_library` |
 
 **Processing**:
+
 1. Look up `library_id` in registry → get `llms_txt_url`
 2. Check SQLite cache for `toc:{library_id}` — if fresh, return cached entry
 3. On cache miss: HTTP GET `llms_txt_url`, store raw content in SQLite cache (TTL: 24 hours)
@@ -144,30 +147,32 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `content` | Raw llms.txt content as markdown. The agent reads this directly to understand available documentation and extract URLs to pass to `read-page` |
-| `cached` | Whether this response was served from cache |
-| `cached_at` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached |
-| `stale` | `true` if the content is past its TTL and a background refresh has been triggered. The content is still valid but may be slightly outdated. Always present; defaults to `false` |
+| Field       | Description                                                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `content`   | Raw llms.txt content as markdown. The agent reads this directly to understand available documentation and extract URLs to pass to `read_page`                                   |
+| `cached`    | Whether this response was served from cache                                                                                                                                     |
+| `cached_at` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                                                       |
+| `stale`     | `true` if the content is past its TTL and a background refresh has been triggered. The content is still valid but may be slightly outdated. Always present; defaults to `false` |
 
 **Notes**:
+
 - The llms.txt format is a markdown file with section headings and links — exactly what LLMs read well. No server-side parsing needed.
-- The agent extracts page URLs from the content and passes them to `read-page`.
+- The agent extracts page URLs from the content and passes them to `read_page`.
 
 ---
 
-### 4.3 read-page
+### 4.3 read_page
 
 **Purpose**: Fetch the full content of a specific documentation page and its heading structure.
 
 **Input**:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | string | Yes | URL of the documentation page, typically from `get-library-docs` sections |
+| Parameter | Type   | Required | Description                                                               |
+| --------- | ------ | -------- | ------------------------------------------------------------------------- |
+| `url`     | string | Yes      | URL of the documentation page, typically from `get_library_docs` sections |
 
 **Processing**:
+
 1. Validate URL against SSRF allowlist
 2. Check SQLite cache for `page:{sha256(url)}` — if fresh, return from cache
 3. On cache miss: HTTP GET the URL, store full content in SQLite cache (TTL: 24 hours)
@@ -182,9 +187,24 @@ All matching is against in-memory indexes loaded from the registry at startup. N
   "headings": [
     { "level": 1, "title": "Streaming", "anchor": "streaming", "line": 1 },
     { "level": 2, "title": "Overview", "anchor": "overview", "line": 3 },
-    { "level": 2, "title": "Streaming with Chat Models", "anchor": "streaming-with-chat-models", "line": 12 },
-    { "level": 3, "title": "Using .stream()", "anchor": "using-stream", "line": 18 },
-    { "level": 2, "title": "Streaming with Chains", "anchor": "streaming-with-chains", "line": 35 }
+    {
+      "level": 2,
+      "title": "Streaming with Chat Models",
+      "anchor": "streaming-with-chat-models",
+      "line": 12
+    },
+    {
+      "level": 3,
+      "title": "Using .stream()",
+      "anchor": "using-stream",
+      "line": 18
+    },
+    {
+      "level": 2,
+      "title": "Streaming with Chains",
+      "anchor": "streaming-with-chains",
+      "line": 35
+    }
   ],
   "content": "# Streaming\n\n## Overview\n...",
   "cached": true,
@@ -192,17 +212,18 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `headings` | All headings on the page in document order (top to bottom). Each entry includes `level` (1–4), `title`, `anchor`, and `line` |
+| Field               | Description                                                                                                                                                                                                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `headings`          | All headings on the page in document order (top to bottom). Each entry includes `level` (1–4), `title`, `anchor`, and `line`                                                                                                                                                                          |
 | `headings[].anchor` | Slugified heading title for constructing deep links (e.g., `"streaming-with-chat-models"`). Format: lowercase, punctuation removed, spaces and underscores replaced with hyphens, consecutive hyphens collapsed. Duplicate anchors within a page are suffixed: `-2`, `-3`, etc. This format is stable |
-| `headings[].line` | 1-based line number where the heading appears in the page content |
-| `content` | Full page markdown |
-| `cached` | Whether this response was served from cache |
-| `cached_at` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached |
-| `stale` | `true` if the content is past its TTL and a background refresh has been triggered. Always present; defaults to `false` |
+| `headings[].line`   | 1-based line number where the heading appears in the page content                                                                                                                                                                                                                                     |
+| `content`           | Full page markdown                                                                                                                                                                                                                                                                                    |
+| `cached`            | Whether this response was served from cache                                                                                                                                                                                                                                                           |
+| `cached_at`         | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                                                                                                                                                                             |
+| `stale`             | `true` if the content is past its TTL and a background refresh has been triggered. Always present; defaults to `false`                                                                                                                                                                                |
 
 **Notes**:
+
 - The full page is cached on first fetch. Subsequent calls are served from cache — no re-fetch.
 - URLs must be from the allowlist. See Section 8.
 
@@ -217,6 +238,7 @@ ProContext supports two transport modes. The same MCP tools are available in bot
 The default mode for local development. The MCP client (e.g., Claude Code, Cursor) spawns ProContext as a subprocess and communicates over stdin/stdout using the MCP JSON-RPC protocol.
 
 **Characteristics**:
+
 - No network exposure — entirely local
 - Process lifecycle managed by the MCP client
 - Registry loaded from local disk (`~/.local/share/procontext/registry/known-libraries.json`)
@@ -224,6 +246,7 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 - No authentication required
 
 **Configuration** (in MCP client settings):
+
 ```json
 {
   "mcpServers": {
@@ -240,20 +263,24 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 For shared or remote deployments. Implements the MCP Streamable HTTP transport spec (2025-11-25) — a single `/mcp` endpoint accepting both POST (requests) and GET (SSE streams).
 
 **Characteristics**:
+
 - Exposes a single `/mcp` endpoint
 - Session management via `MCP-Session-Id` header
-- Bearer key authentication (see Section 8 and Section 10, D3)
+- Optional bearer key authentication (disabled by default; see Section 8 and Section 10, D3)
 - Origin validation enforced (see Section 8)
 - Protocol version validation via `MCP-Protocol-Version` header
 - Supports `SUPPORTED_PROTOCOL_VERSIONS = {"2025-11-25", "2025-03-26"}`
 
 **Configuration**:
+
 ```yaml
 # procontext.yaml
 server:
   transport: http
   host: "0.0.0.0"
   port: 8080
+  auth_enabled: false
+  auth_key: ""
 ```
 
 ---
@@ -267,16 +294,18 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 **Custom registry**: The registry URL is configurable. Point `registry.url` and `registry.metadata_url` in `procontext.yaml` at any HTTP endpoint that serves the same JSON format to use a private registry. See D6 in Section 10 for details.
 
 **At server startup**:
+
 1. Load local registry file from `~/.local/share/procontext/registry/`
 2. If no local file exists: fall back to bundled snapshot (shipped with the package)
 3. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory (HTTP long-running mode).
 
 **In-memory indexes** (rebuilt from registry on each load, <100ms for 1,000 entries):
+
 - Package name → library ID (many-to-one): `"langchain-openai"` → `"langchain"`
 - Library ID → full registry entry (one-to-one)
 - Alias + ID corpus for fuzzy matching
 
-These three indexes serve all `resolve-library` lookups. No database reads during resolution.
+These three indexes serve all `resolve_library` lookups. No database reads during resolution.
 
 ---
 
@@ -285,6 +314,7 @@ These three indexes serve all `resolve-library` lookups. No database reads durin
 ### Fetching
 
 All documentation is fetched via plain HTTP GET. ProContext uses `httpx` with:
+
 - Manual redirect handling (each redirect target is validated against the SSRF allowlist before following)
 - 30-second request timeout
 - Maximum 3 redirect hops
@@ -293,10 +323,10 @@ All documentation is fetched via plain HTTP GET. ProContext uses `httpx` with:
 
 A single SQLite database (`cache.db`) stores all fetched content.
 
-| Table | Key | Content | TTL |
-|-------|-----|---------|-----|
-| `toc_cache` | `toc:{library_id}` | Raw llms.txt content | 24 hours |
-| `page_cache` | `page:{sha256(url)}` | Full page markdown | 24 hours |
+| Table        | Key                  | Content              | TTL      |
+| ------------ | -------------------- | -------------------- | -------- |
+| `toc_cache`  | `toc:{library_id}`   | Raw llms.txt content | 24 hours |
+| `page_cache` | `page:{sha256(url)}` | Full page markdown   | 24 hours |
 
 **Stale-while-revalidate**: When a cached entry is past its TTL, it is served immediately with `cached: true` and `stale: true`, and a background task re-fetches the content. This ensures the agent never waits for a network fetch on a cache hit, even if the content is slightly outdated.
 
@@ -306,16 +336,19 @@ A single SQLite database (`cache.db`) stores all fetched content.
 
 ## 8. Security Model
 
-### Bearer Key Authentication (HTTP mode)
+### Optional Bearer Key Authentication (HTTP mode)
 
-- In HTTP mode, all requests must include `Authorization: Bearer <key>`. Requests with a missing or incorrect key receive HTTP 401.
+- HTTP mode supports optional bearer key authentication.
+- Default behavior: authentication is disabled when `server.auth_enabled` is `false` (the default).
+- If `server.auth_enabled` is `true`, all HTTP requests must include `Authorization: Bearer <key>`. Missing or incorrect keys receive HTTP 401.
 - The key is configured via `server.auth_key` in `procontext.yaml` or the `PROCONTEXT__SERVER__AUTH_KEY` env var.
-- If no key is configured, the server auto-generates a random key at startup and logs it to stderr.
+- If `server.auth_enabled` is `true` and `server.auth_key` is empty, the server auto-generates a random key at startup and logs it to stderr.
+- If `server.auth_enabled` is `false`, the server logs a startup warning that HTTP authentication is disabled (regardless of host/bind address).
 - Stdio mode is unaffected — no authentication is required (the transport is a local pipe owned by the spawning process).
 
 ### SSRF Prevention
 
-`read-page` accepts arbitrary URLs from the agent. To prevent Server-Side Request Forgery:
+`read_page` accepts arbitrary URLs from the agent. To prevent Server-Side Request Forgery:
 
 - All URLs are validated against an allowlist of permitted domains before fetching
 - The allowlist is populated at startup from the registry (all `docs_url` and `llms_txt_url` domains)
@@ -344,29 +377,29 @@ Every error response follows the same structure:
   "error": {
     "code": "LIBRARY_NOT_FOUND",
     "message": "No library found matching 'langchan'.",
-    "suggestion": "Did you mean 'langchain'? Call resolve-library to find the correct ID.",
+    "suggestion": "Did you mean 'langchain'? Call resolve_library to find the correct ID.",
     "recoverable": false
   }
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `code` | Machine-readable error code (see table below) |
-| `message` | Human-readable description of what went wrong |
-| `suggestion` | Actionable next step for the agent |
+| Field         | Description                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `code`        | Machine-readable error code (see table below)                                                                                                          |
+| `message`     | Human-readable description of what went wrong                                                                                                          |
+| `suggestion`  | Actionable next step for the agent                                                                                                                     |
 | `recoverable` | `true` if retrying the identical request may succeed (transient failure). `false` if the request must change before it can succeed (permanent failure) |
 
 **Error codes**:
 
-| Code | Tool | `recoverable` | Description |
-|------|------|--------------|-------------|
-| `LIBRARY_NOT_FOUND` | `get-library-docs` | `false` | `library_id` not in registry; retrying won't help |
-| `LLMS_TXT_FETCH_FAILED` | `get-library-docs` | `true` | Transient network error or non-200 fetching llms.txt; retry may succeed |
-| `PAGE_NOT_FOUND` | `read-page` | `false` | HTTP 404 — the page does not exist at that URL |
-| `PAGE_FETCH_FAILED` | `read-page` | `true` | Transient network error fetching page; retry may succeed |
-| `URL_NOT_ALLOWED` | `read-page` | `false` | URL domain not in SSRF allowlist; only a different URL will succeed |
-| `INVALID_INPUT` | Any | `false` | Input validation failed; the request must be corrected before retrying |
+| Code                    | Tool               | `recoverable` | Description                                                             |
+| ----------------------- | ------------------ | ------------- | ----------------------------------------------------------------------- |
+| `LIBRARY_NOT_FOUND`     | `get_library_docs` | `false`       | `library_id` not in registry; retrying won't help                       |
+| `LLMS_TXT_FETCH_FAILED` | `get_library_docs` | `true`        | Transient network error or non-200 fetching llms.txt; retry may succeed |
+| `PAGE_NOT_FOUND`        | `read_page`        | `false`       | HTTP 404 — the page does not exist at that URL                          |
+| `PAGE_FETCH_FAILED`     | `read_page`        | `true`        | Transient network error fetching page; retry may succeed                |
+| `URL_NOT_ALLOWED`       | `read_page`        | `false`       | URL domain not in SSRF allowlist; only a different URL will succeed     |
+| `INVALID_INPUT`         | Any                | `false`       | Input validation failed; the request must be corrected before retrying  |
 
 ---
 
@@ -375,13 +408,13 @@ Every error response follows the same structure:
 **D1: Agent-driven navigation**
 ProContext does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it sees the TOC, picks sections, reads pages. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.
 
-*Trade-off*: Agents need 2–3 tool calls to reach content instead of 1. Accepted — the calls are fast (mostly cache hits after the first) and the agent retains full control.
+_Trade-off_: Agents need 2–3 tool calls to reach content instead of 1. Accepted — the calls are fast (mostly cache hits after the first) and the agent retains full control.
 
 **D2: Single SQLite cache tier**
 A two-tier cache (memory + SQLite) adds meaningful complexity for marginal latency gain in single-user deployments. SQLite with WAL mode delivers <5ms reads, which is acceptable when the bottleneck is network fetch (100ms–3s). A memory tier can be added in the enterprise version where multi-user throughput justifies it.
 
 **D3: Optional bearer key for HTTP mode**
-Stdio mode requires no authentication — the MCP client spawns the server, and the transport is a local pipe. HTTP mode includes optional bearer key authentication: if `server.auth_key` is set in the config, all requests must include a matching `Authorization: Bearer <key>` header or receive HTTP 401. If no key is configured, the server auto-generates one at startup and logs it to stderr. This is lightweight access control for shared-network deployments, not a full auth system — there is no key rotation, hashing, or revocation.
+Stdio mode requires no authentication — the MCP client spawns the server, and the transport is a local pipe. HTTP mode includes optional bearer key authentication controlled by `server.auth_enabled`. If `auth_enabled=true`, all requests must include a matching `Authorization: Bearer <key>` header or receive HTTP 401. If `auth_enabled=true` and `auth_key` is empty, a key is auto-generated and logged at startup. If `auth_enabled=false`, authentication is disabled by default and a warning is logged on startup. This is lightweight access control for shared-network deployments, not a full auth system — there is no key rotation, hashing, or revocation.
 
 **D4: Registry independence from server version**
 The registry (`known-libraries.json`) has its own release cadence (weekly) completely decoupled from the MCP server version. Users get updated library coverage without upgrading the server.
@@ -399,9 +432,10 @@ registry:
 ```
 
 The custom registry must serve:
+
 - **`known-libraries.json`**: An array of library entries in the same schema as the public registry. Each entry must include a valid `llms_txt_url`.
 - **`registry_metadata.json`**: A JSON object with `version` (string), `download_url` (string), and `checksum` (`"sha256:<hex>"`) fields so the server's background update check works correctly.
 
-**Important**: The SSRF allowlist is built from domains in the loaded registry. Documentation domains in a custom registry entry are automatically permitted by `read-page` — no additional SSRF configuration is needed.
+**Important**: The SSRF allowlist is built from domains in the loaded registry. Documentation domains in a custom registry entry are automatically permitted by `read_page` — no additional SSRF configuration is needed.
 
-*Trade-off*: The custom registry completely replaces the public registry — there is no merging. Teams that want both public and private libraries must include the public entries in their custom registry. This is intentional: a merge strategy introduces ordering and conflict-resolution complexity that is not warranted for the open-source version.
+_Trade-off_: The custom registry completely replaces the public registry — there is no merging. Teams that want both public and private libraries must include the public entries in their custom registry. This is intentional: a merge strategy introduces ordering and conflict-resolution complexity that is not warranted for the open-source version.
