@@ -472,7 +472,7 @@ The client is created once at startup and closed on shutdown. It is never re-cre
 
 ### 5.2 SSRF Prevention
 
-The SSRF allowlist is built at startup from the registry and never modified at runtime. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read_page`.
+The SSRF allowlist is built at startup from the loaded registry. In HTTP mode, if a background registry update succeeds, a new allowlist is rebuilt from the updated registry and swapped in-memory together with the new indexes. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read_page`.
 
 ```python
 from urllib.parse import urlparse
@@ -872,10 +872,64 @@ def run_http_server(config: ServerConfig) -> None:
 
 ```
 1. Attempt to load ~/.local/share/procontext/registry/known-libraries.json
-2. If missing or unreadable → load bundled snapshot (shipped inside the package at src/procontext/data/known-libraries.json)
-3. Build in-memory indexes from loaded data
-4. Spawn background task: _check_for_registry_update()
+2. Attempt to load ~/.local/share/procontext/registry/registry-state.json
+3. Validate local pair: both files parse and sha256(known-libraries.json) equals registry-state.json.checksum
+4. If either file is missing or validation fails → ignore local pair, load bundled snapshot (src/procontext/data/known-libraries.json), set local version to "unknown"
+5. Build in-memory indexes and SSRF allowlist from loaded data
+6. Spawn background task: _check_for_registry_update()
 ```
+
+### Local Registry State File
+
+`registry-state.json` is stored alongside `known-libraries.json` at `~/.local/share/procontext/registry/`:
+
+```json
+{
+  "version": "2026-02-24",
+  "checksum": "sha256:abc123...",
+  "updated_at": "2026-02-24T07:10:00Z"
+}
+```
+
+Rules:
+
+- `version` is the canonical local registry version used for remote comparison (`remote_version == local_version`)
+- Local disk files are treated as a consistency unit: if either file is missing/invalid or checksum validation fails, both are ignored and startup falls back to bundled snapshot (`local_version = "unknown"`)
+- On successful update, both `known-libraries.json` and `registry-state.json` are persisted atomically for next startup
+
+### Atomic Persistence of Local Registry Pair
+
+`save_registry_to_disk()` writes both files with crash-safe semantics:
+
+```python
+def save_registry_to_disk(registry_bytes: bytes, version: str, checksum: str, dir_path: Path) -> None:
+    state_bytes = json.dumps(
+        {
+            "version": version,
+            "checksum": checksum,
+            "updated_at": utc_now_iso8601(),
+        }
+    ).encode("utf-8")
+
+    registry_tmp = dir_path / "known-libraries.json.tmp"
+    state_tmp = dir_path / "registry-state.json.tmp"
+    registry_dst = dir_path / "known-libraries.json"
+    state_dst = dir_path / "registry-state.json"
+
+    write_bytes_and_fsync(registry_tmp, registry_bytes)
+    write_bytes_and_fsync(state_tmp, state_bytes)
+
+    # Atomic replace on same filesystem
+    os.replace(registry_tmp, registry_dst)
+    os.replace(state_tmp, state_dst)
+    fsync_directory(dir_path)
+```
+
+Operational guarantees:
+
+- A partially written destination file is never observed
+- If persistence fails before replace, previous valid pair remains intact
+- If persistence fails after replacing one file, startup checksum validation detects mismatch and falls back to bundled snapshot
 
 ### Background Update Check
 
@@ -906,16 +960,24 @@ async def _check_for_registry_update(state: AppState) -> None:
             log.warning("registry_checksum_mismatch", expected=expected_checksum, actual=actual_checksum)
             return
 
-        # Parse and rebuild indexes
+        # Parse and rebuild indexes + allowlist
         new_entries = [RegistryEntry(**e) for e in registry_response.json()]
         new_indexes = build_indexes(new_entries)
+        new_allowlist = build_allowlist(new_entries)
 
-        # Atomic swap (safe in CPython: assignment is GIL-protected)
-        state.indexes = new_indexes
-        state.registry_version = remote_version
+        # Atomic in-memory swap as one assignment to avoid mixed old/new state
+        state.indexes, state.allowlist, state.registry_version = (
+            new_indexes,
+            new_allowlist,
+            remote_version,
+        )
 
-        # Persist to local disk for next startup
-        _save_registry_to_disk(registry_response.content)
+        # Persist to local disk for next startup (registry + sidecar metadata)
+        _save_registry_to_disk(
+            registry_bytes=registry_response.content,
+            version=remote_version,
+            checksum=expected_checksum,
+        )
 
         log.info("registry_updated", version=remote_version, entries=len(new_entries))
 
@@ -924,7 +986,42 @@ async def _check_for_registry_update(state: AppState) -> None:
         # Non-fatal: server continues with current registry
 ```
 
-**stdio vs HTTP mode**: In stdio mode, the background task runs once at startup and exits (the process is short-lived). In HTTP mode, the task is re-scheduled every 24 hours.
+### Scheduling Policy (Hybrid)
+
+Registry update checks use a hybrid scheduler:
+
+- Always run one check at startup (both stdio and HTTP)
+- In HTTP mode, after a successful check, schedule the next check at `SUCCESS_INTERVAL = 24h`
+- In HTTP mode, after a **transient failure** (network timeout/DNS/connection failures, upstream 5xx), schedule retry using exponential backoff with jitter:
+  - `INITIAL_BACKOFF = 60s`
+  - `MAX_BACKOFF = 3600s`
+  - `next_backoff = min(current_backoff * 2, MAX_BACKOFF)`
+  - jitter: random multiplier in `[0.8, 1.2]`
+- In HTTP mode, after a **semantic failure** (invalid metadata fields, checksum mismatch, registry schema parse failure), do not use backoff; log and return to `SUCCESS_INTERVAL = 24h`
+- After a successful check, reset backoff state and return to 24h cadence
+- In stdio mode, no post-startup retries are scheduled because the process is typically short-lived
+
+Illustrative scheduler logic:
+
+```python
+success_interval = 24 * 60 * 60
+initial_backoff = 60
+max_backoff = 60 * 60
+backoff = initial_backoff
+
+while running_http_server:
+    outcome = await run_registry_update_cycle(state)  # "success" | "transient_failure" | "semantic_failure"
+    if outcome == "success":
+        backoff = initial_backoff
+        await sleep(success_interval)
+    elif outcome == "transient_failure":
+        delay = backoff * random.uniform(0.8, 1.2)
+        await sleep(delay)
+        backoff = min(backoff * 2, max_backoff)
+    else:  # semantic_failure
+        backoff = initial_backoff
+        await sleep(success_interval)
+```
 
 ---
 
@@ -1051,9 +1148,11 @@ async def get_library_docs_handler(library_id: str) -> dict:
 
 | Event                    | Fields                                               |
 | ------------------------ | ---------------------------------------------------- |
-| `server_started`         | `transport`, `version`, `registry_entries`           |
-| `registry_loaded`        | `version`, `entries`, `source` (`disk` \| `bundled`) |
+| `server_started`         | `transport`, `version`, `registry_entries`, `registry_version` |
+| `registry_loaded`        | `version`, `entries`, `source` (`disk` \| `bundled`) — for `disk`, `version` comes from `registry-state.json`; for `bundled`, `version` is `"unknown"` |
 | `registry_updated`       | `version`, `entries`                                 |
+| `registry_local_pair_invalid` | `reason`, `path_registry`, `path_state`       |
+| `registry_persist_failed` | `version`, `error`                                   |
 | `cache_hit`              | `tool`, `library_id` or `url_hash`                   |
 | `cache_miss_fetching`    | `tool`, `url`                                        |
 | `fetch_complete`         | `url`, `status_code`, `content_length`               |

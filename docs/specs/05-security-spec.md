@@ -105,7 +105,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 **Controls** (implementation details in referenced sections — not duplicated here):
 
-- Domain allowlist built from registry at startup. Only domains present in registry entries are permitted. (02-technical-spec, Section 5.2)
+- Domain allowlist built from registry at startup; in HTTP long-running mode it is refreshed when a background registry update is accepted. Only domains present in the active registry entries are permitted. (02-technical-spec, Section 5.2)
 - Private IP ranges unconditionally blocked: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `::1/128`, `fc00::/7`. (02-technical-spec, Section 5.2)
 - Per-hop redirect validation — each redirect target is re-checked against the allowlist before following. Maximum 3 redirect hops. (02-technical-spec, Section 5.3)
 - URL input validation via Pydantic: max 2048 chars, must start with `http://` or `https://`. (02-technical-spec, Section 3.3)
@@ -146,6 +146,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Controls**:
 
 - SHA-256 checksum validation on registry downloads. The metadata JSON provides the expected checksum; the downloaded registry is verified before use. On mismatch, the existing registry is retained. (02-technical-spec, Section 9)
+- Startup checksum validation of the local registry pair (`known-libraries.json` + `registry-state.json`) detects torn/partial writes and forces bundled fallback instead of trusting inconsistent local state. (02-technical-spec, Section 9)
 - Bundled fallback snapshot (`data/known-libraries.json`) shipped with the package provides a known-good baseline. (01-functional-spec, Section 6)
 - Registry served over HTTPS from GitHub Pages — relies on GitHub's infrastructure security for transport integrity.
 
@@ -267,6 +268,7 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 | `~/.local/share/procontext/cache.db`                      | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents        |
 | `~/.local/share/procontext/cache.db`                      | `page_cache` table: full page markdown  | Avoid re-fetching documentation pages      |
 | `~/.local/share/procontext/registry/known-libraries.json` | Library registry                        | Local copy of the registry for offline use |
+| `~/.local/share/procontext/registry/registry-state.json`  | Registry metadata (`version`, `checksum`, `updated_at`) | Local version/checksum source for update checks |
 
 ### What is NOT stored
 

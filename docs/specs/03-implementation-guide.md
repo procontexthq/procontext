@@ -418,7 +418,9 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 1: Registry & Resolution
 
-**Goal**: `resolve_library` tool is fully functional. Registry loads from bundled snapshot. Fuzzy matching works.
+**Goal**: `resolve_library` tool is fully functional. Registry loads from the bundled snapshot in this phase. Fuzzy matching works.
+
+**Phase boundary note**: End-state registry behavior is local-first (`~/.local/share/procontext/registry/known-libraries.json`) with background update checks. That behavior is implemented in **Phase 5** (`check_for_registry_update()`, `save_registry_to_disk()`, background tasks), not Phase 1.
 
 **Files to create/update**:
 
@@ -541,7 +543,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 | File                            | What to implement                                                               |
 | ------------------------------- | ------------------------------------------------------------------------------- |
-| `src/procontext/registry.py`    | `check_for_registry_update()`, `save_registry_to_disk()`                        |
+| `src/procontext/registry.py`    | `check_for_registry_update()`, `save_registry_to_disk()` (persist `known-libraries.json` + `registry-state.json`) |
 | `src/procontext/cache.py`       | `cleanup_expired()` called on startup and every 6 hours                         |
 | `src/procontext/server.py`      | Spawn background tasks in lifespan                                              |
 | `CHANGELOG.md`                  | Initial entry for v0.1.0; [Keep a Changelog](https://keepachangelog.com) format |
@@ -555,6 +557,13 @@ echo '{}' | uv run procontext  # Responds without crash
 - If remote version matches local: no download
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
+- Successful update persists both `known-libraries.json` and `registry-state.json`
+- Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid/incomplete pair falls back to bundled snapshot with `local_version="unknown"` without blocking startup
+- `save_registry_to_disk()` uses temp files + fsync + atomic replace (no partially written destination files)
+- Simulated interrupted write leaves startup in a safe state (either previous valid pair or bundled fallback)
+- HTTP mode scheduler: successful checks run every 24 hours
+- HTTP mode scheduler: transient failures use exponential backoff + jitter (1 minute to 60 minutes cap)
+- HTTP mode scheduler: semantic failures (checksum/metadata/schema) do not fast-retry and return to 24-hour cadence
 - `uvx procontext` installs and runs from PyPI (manual verification)
 - `CHANGELOG.md` is present and follows Keep a Changelog format
 

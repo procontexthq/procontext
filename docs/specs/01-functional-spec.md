@@ -241,7 +241,7 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 
 - No network exposure — entirely local
 - Process lifecycle managed by the MCP client
-- Registry loaded from local disk (`~/.local/share/procontext/registry/known-libraries.json`)
+- Registry loaded from local disk when a valid local registry pair exists (`~/.local/share/procontext/registry/known-libraries.json` + `registry-state.json`), otherwise bundled snapshot fallback
 - SQLite database at `~/.local/share/procontext/cache.db`
 - No authentication required
 
@@ -295,9 +295,25 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 
 **At server startup**:
 
-1. Load local registry file from `~/.local/share/procontext/registry/`
-2. If no local file exists: fall back to bundled snapshot (shipped with the package)
-3. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory (HTTP long-running mode).
+1. Attempt to load local registry pair from `~/.local/share/procontext/registry/known-libraries.json` and `~/.local/share/procontext/registry/registry-state.json`
+2. Validate the pair (`known-libraries.json` parses, `registry-state.json` parses, checksum matches)
+3. If either file is missing or the pair is invalid: ignore local pair and fall back to bundled snapshot (shipped with the package)
+4. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory in HTTP long-running mode (registry indexes + SSRF allowlist updated together).
+
+**Local state sidecar** (`registry-state.json`):
+
+- Stores metadata for the currently active local registry copy: `version`, `checksum`, `updated_at`
+- Is written whenever a background registry update is accepted
+- Is persisted atomically with `known-libraries.json` as a consistency unit (temp file + fsync + atomic rename)
+- Is used as the source of truth for `registry_version` on startup when loading from disk
+
+**Update scheduling policy**:
+
+- Both transports perform one registry update check at startup
+- In HTTP long-running mode, successful checks follow a steady 24-hour cadence
+- In HTTP long-running mode, **transient** failures (network timeout/DNS/connection issues, upstream 5xx) retry with exponential backoff (starting at 1 minute, capped at 60 minutes, with jitter)
+- In HTTP long-running mode, **semantic** failures (invalid metadata shape, checksum mismatch, registry schema parse errors) do not fast-retry; they log and return to the normal 24-hour cadence
+- In stdio mode, no post-startup retries are scheduled because the process is short-lived
 
 **In-memory indexes** (rebuilt from registry on each load, <100ms for 1,000 entries):
 
@@ -352,6 +368,7 @@ A single SQLite database (`cache.db`) stores all fetched content.
 
 - All URLs are validated against an allowlist of permitted domains before fetching
 - The allowlist is populated at startup from the registry (all `docs_url` and `llms_txt_url` domains)
+- In HTTP long-running mode, when a background registry update is accepted, the allowlist is rebuilt from the new registry and atomically swapped with the new indexes
 - Redirects are followed manually — each redirect target is re-validated before following
 - Private IP ranges (`10.x`, `172.16.x`, `192.168.x`, `127.x`, `::1`) are always blocked, regardless of allowlist
 

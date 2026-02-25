@@ -516,14 +516,14 @@ Result:
 
 ## 4. Tool: read_page
 
-**Purpose**: Fetch the full content of a documentation page. Returns heading structure with line numbers for navigation.
+**Purpose**: Fetch the content of a documentation page with line-number navigation. Returns a heading map of the full page and a windowed slice of the content controlled by `offset` and `limit`.
 
 ### 4.1 Input Schema
 
 ```json
 {
   "name": "read_page",
-  "description": "Fetch the content of a documentation page. Returns the full page markdown and its heading structure. Each heading includes its line number for direct navigation.",
+  "description": "Fetch the content of a documentation page. Returns a plain-text heading map (line numbers + heading text) for the full page, and a content window controlled by offset and limit. Use headings to find sections, then call again with offset to jump directly to them.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -531,12 +531,26 @@ Result:
         "type": "string",
         "description": "URL of the documentation page, typically extracted from get_library_docs output. Must use http or https. Must be a domain from the library registry.",
         "maxLength": 2048
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 1,
+        "description": "1-based line number to start reading from. Defaults to 1 (beginning of page). Use a heading's line number to jump directly to that section."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 2000,
+        "description": "Maximum number of lines to return from the offset. Defaults to 2000."
       }
     },
     "required": ["url"]
   }
 }
 ```
+
+**Navigation workflow**: Call `read_page` with just the URL to get the heading map and the first 2000 lines. Inspect headings to find the section you need. Call again with `offset` set to that heading's line number to jump there.
 
 ### 4.2 Output Schema
 
@@ -551,48 +565,38 @@ Result:
       "description": "The URL that was fetched (after redirect resolution)."
     },
     "headings": {
-      "type": "array",
-      "description": "All headings on the page (H1–H4), in document order.",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "Heading text as it appears in the document."
-          },
-          "level": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 4,
-            "description": "Heading depth: 1 = H1 (#), 2 = H2 (##), 3 = H3 (###), 4 = H4 (####)."
-          },
-          "anchor": {
-            "type": "string",
-            "description": "URL-safe slug. Deduplicated: if the same title appears multiple times, subsequent occurrences get a numeric suffix (-2, -3, ...)."
-          },
-          "line": {
-            "type": "integer",
-            "description": "1-based line number where the heading appears in the page content. Use this to navigate directly to a section."
-          }
-        },
-        "required": ["title", "level", "anchor", "line"]
-      }
+      "type": "string",
+      "description": "Plain-text heading map of the full page (always complete, regardless of offset/limit). Each line is formatted as '<line_number>: <heading line>' where line_number is 1-based. Only lines containing markdown headings (H1–H4) are included."
+    },
+    "total_lines": {
+      "type": "integer",
+      "description": "Total number of lines in the full page. Useful for determining if more content exists beyond the current window."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "The 1-based line number the returned content starts from."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "The maximum number of lines requested."
     },
     "content": {
       "type": "string",
-      "description": "Full page markdown."
+      "description": "Page markdown for the requested window (from offset, up to limit lines). May be shorter than limit if the page ends before the window fills."
     },
     "cached": { "type": "boolean" },
     "cached_at": { "type": ["string", "null"], "format": "date-time" },
     "stale": { "type": "boolean" }
   },
-  "required": ["url", "headings", "content", "cached", "cached_at", "stale"]
+  "required": ["url", "headings", "total_lines", "offset", "limit", "content", "cached", "cached_at", "stale"]
 }
 ```
 
+**Headings**: Always reflect the full page, regardless of the `offset`/`limit` window. This allows the agent to navigate the complete page structure from any position. Headings and full content are cached together so subsequent calls with different offsets don't re-fetch or re-parse.
+
 ### 4.3 Examples
 
-**Full page fetch**:
+**First fetch (defaults)**:
 
 Request arguments:
 
@@ -605,34 +609,10 @@ Result:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "headings": [
-    { "title": "Streaming", "level": 1, "anchor": "streaming", "line": 1 },
-    { "title": "Overview", "level": 2, "anchor": "overview", "line": 3 },
-    {
-      "title": "Streaming with Chat Models",
-      "level": 2,
-      "anchor": "streaming-with-chat-models",
-      "line": 12
-    },
-    {
-      "title": "Using .stream()",
-      "level": 3,
-      "anchor": "using-stream",
-      "line": 18
-    },
-    {
-      "title": "Using .astream()",
-      "level": 3,
-      "anchor": "using-astream",
-      "line": 27
-    },
-    {
-      "title": "Streaming with Chains",
-      "level": 2,
-      "anchor": "streaming-with-chains",
-      "line": 35
-    }
-  ],
+  "headings": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
+  "total_lines": 42,
+  "offset": 1,
+  "limit": 2000,
   "content": "# Streaming\n\n## Overview\n\nLangChain supports streaming...\n\n## Streaming with Chat Models\n...",
   "cached": false,
   "cached_at": null,
@@ -640,32 +620,31 @@ Result:
 }
 ```
 
-**Duplicate heading anchors** (same title appears three times):
+**Jump to a section using offset**:
+
+Request arguments:
+
+```json
+{ "url": "https://docs.langchain.com/docs/concepts/streaming.md", "offset": 18, "limit": 10 }
+```
+
+Result:
 
 ```json
 {
-  "headings": [
-    {
-      "title": "Browser Mode",
-      "level": 3,
-      "anchor": "browser-mode",
-      "line": 10
-    },
-    {
-      "title": "Browser Mode",
-      "level": 3,
-      "anchor": "browser-mode-2",
-      "line": 45
-    },
-    {
-      "title": "Browser Mode",
-      "level": 3,
-      "anchor": "browser-mode-3",
-      "line": 78
-    }
-  ]
+  "url": "https://docs.langchain.com/docs/concepts/streaming.md",
+  "headings": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
+  "total_lines": 42,
+  "offset": 18,
+  "limit": 10,
+  "content": "### Using .stream()\n\nThe `.stream()` method returns an iterator...\n...",
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z",
+  "stale": false
 }
 ```
+
+Note: `headings` is identical in both responses — it always covers the full page.
 
 ### 4.4 Error Cases
 
@@ -677,6 +656,7 @@ Result:
 | Network error or non-200/404 response    | `PAGE_FETCH_FAILED` | `true`        |
 | Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED`   | `false`       |
 | URL over 2048 characters                 | `INVALID_INPUT`     | `false`       |
+| `offset` < 1 or `limit` < 1             | `INVALID_INPUT`     | `false`       |
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -987,4 +967,4 @@ When a new MCP specification version is published, ProContext adds support in th
 
 The library registry (`known-libraries.json`) has its own version, independent of the server version. The registry is updated weekly on GitHub Pages. The server downloads the latest registry in the background at startup. Registry version changes never require a server update — the server is always forward-compatible with newer registry files.
 
-The current registry version loaded by a running server instance is visible in the `server_started` log event (`registry_version` field).
+The current registry version loaded by a running server instance is visible in the `server_started` log event (`registry_version` field). This value is sourced from `~/.local/share/procontext/registry/registry-state.json` when a valid local registry pair is present. If the local pair is missing or invalid (for example, first run after upgrading), startup falls back to the bundled snapshot and `registry_version` is `"unknown"` until a successful background update persists a valid pair.
