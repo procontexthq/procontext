@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import httpx
 
     from procontext.config import Settings
@@ -32,6 +34,8 @@ class AppState:
     # Phase 1: Registry & Resolution
     indexes: RegistryIndexes
     registry_version: str = ""
+    registry_path: Path | None = None
+    registry_state_path: Path | None = None
 
     # Phase 2: Fetcher & Cache
     http_client: httpx.AsyncClient | None = None

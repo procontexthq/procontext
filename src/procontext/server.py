@@ -9,10 +9,12 @@ Responsibilities (and nothing more):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +30,15 @@ from procontext.cache import Cache
 from procontext.config import Settings
 from procontext.errors import ProContextError
 from procontext.fetcher import Fetcher, build_allowlist, build_http_client
-from procontext.registry import build_indexes, load_registry
+from procontext.registry import (
+    REGISTRY_INITIAL_BACKOFF_SECONDS,
+    REGISTRY_MAX_BACKOFF_SECONDS,
+    REGISTRY_MAX_TRANSIENT_BACKOFF_ATTEMPTS,
+    REGISTRY_SUCCESS_INTERVAL_SECONDS,
+    build_indexes,
+    check_for_registry_update,
+    load_registry,
+)
 from procontext.state import AppState
 
 if TYPE_CHECKING:
@@ -73,6 +83,68 @@ def _setup_logging(settings: Settings) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _registry_paths(settings: Settings) -> tuple[Path, Path]:
+    """Return local registry pair paths for the current runtime."""
+    app_data_dir = Path(settings.cache.db_path).expanduser().parent
+    registry_dir = app_data_dir / "registry"
+    return (
+        registry_dir / "known-libraries.json",
+        registry_dir / "registry-state.json",
+    )
+
+
+def _jittered_delay(base_seconds: int) -> float:
+    return base_seconds * random.uniform(0.8, 1.2)
+
+
+async def _run_registry_update_scheduler(state: AppState) -> None:
+    """Run startup update check and (HTTP mode) periodic registry update checks."""
+    if state.settings.server.transport != "http":
+        try:
+            await check_for_registry_update(state)
+        except Exception:
+            log.warning("registry_update_scheduler_error", mode="startup_once", exc_info=True)
+        return
+
+    backoff_seconds = REGISTRY_INITIAL_BACKOFF_SECONDS
+    consecutive_transient_failures = 0
+
+    while True:
+        try:
+            outcome = await check_for_registry_update(state)
+        except Exception:
+            log.warning("registry_update_scheduler_error", mode="http_loop", exc_info=True)
+            outcome = "semantic_failure"
+
+        if outcome == "success":
+            consecutive_transient_failures = 0
+            backoff_seconds = REGISTRY_INITIAL_BACKOFF_SECONDS
+            await asyncio.sleep(REGISTRY_SUCCESS_INTERVAL_SECONDS)
+            continue
+
+        if outcome == "transient_failure":
+            consecutive_transient_failures += 1
+            if consecutive_transient_failures >= REGISTRY_MAX_TRANSIENT_BACKOFF_ATTEMPTS:
+                log.warning(
+                    "registry_update_transient_retry_suspended",
+                    consecutive_failures=consecutive_transient_failures,
+                    cooldown_seconds=REGISTRY_SUCCESS_INTERVAL_SECONDS,
+                )
+                consecutive_transient_failures = 0
+                backoff_seconds = REGISTRY_INITIAL_BACKOFF_SECONDS
+                await asyncio.sleep(REGISTRY_SUCCESS_INTERVAL_SECONDS)
+                continue
+
+            await asyncio.sleep(_jittered_delay(backoff_seconds))
+            backoff_seconds = min(backoff_seconds * 2, REGISTRY_MAX_BACKOFF_SECONDS)
+            continue
+
+        # semantic failure
+        consecutive_transient_failures = 0
+        backoff_seconds = REGISTRY_INITIAL_BACKOFF_SECONDS
+        await asyncio.sleep(REGISTRY_SUCCESS_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     """Create and tear down all shared resources for the server's lifetime."""
@@ -85,8 +157,13 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
         transport=settings.server.transport,
     )
 
+    registry_path, registry_state_path = _registry_paths(settings)
+
     # Phase 1: Load registry and build indexes
-    entries, version = load_registry()
+    entries, version = load_registry(
+        local_registry_path=registry_path,
+        local_state_path=registry_state_path,
+    )
     indexes = build_indexes(entries)
 
     # Phase 2: HTTP client, SSRF allowlist, cache, fetcher
@@ -105,11 +182,15 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
         settings=settings,
         indexes=indexes,
         registry_version=version,
+        registry_path=registry_path,
+        registry_state_path=registry_state_path,
         http_client=http_client,
         cache=cache,
         fetcher=fetcher,
         allowlist=allowlist,
     )
+
+    registry_update_task = asyncio.create_task(_run_registry_update_scheduler(state))
 
     log.info(
         "server_started",
@@ -122,6 +203,9 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     try:
         yield state
     finally:
+        registry_update_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await registry_update_task
         await http_client.aclose()
         await db.close()
         log.info("server_stopping")
