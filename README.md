@@ -182,6 +182,7 @@ Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup 
 - **MCP SDK**: `mcp` (FastMCP)
 - **HTTP Client**: httpx (async, with SSRF protection)
 - **Database**: SQLite via aiosqlite
+- **Platform Paths**: platformdirs (cross-platform config/data directories)
 - **Settings**: pydantic-settings (YAML + env vars)
 - **Fuzzy Matching**: rapidfuzz (Phase 1)
 - **Logging**: structlog (structured JSON to stderr)

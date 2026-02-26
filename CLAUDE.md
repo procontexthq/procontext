@@ -90,6 +90,20 @@ In stdio MCP mode, **stdout is owned by the MCP JSON-RPC stream**. Any writes to
 
 `AppState` is created once in the FastMCP lifespan and injected into tool handlers via `ctx.request_context.lifespan_context`. Tools receive `AppState` explicitly — no global variables, no module-level singletons.
 
+### Platform-aware paths
+
+All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/` or `~/.config/`. The defaults resolve to platform-appropriate locations automatically:
+
+| Platform | Config dir | Data dir |
+|----------|-----------|----------|
+| Linux | `~/.config/procontext` | `~/.local/share/procontext` |
+| macOS | `~/Library/Application Support/procontext` | `~/Library/Application Support/procontext` |
+| Windows | `C:\Users\<user>\AppData\Local\procontext` | `C:\Users\<user>\AppData\Local\procontext` |
+
+Config paths: `platformdirs.user_config_dir("procontext")` in `config.py`. Data paths: `platformdirs.user_data_dir("procontext")` in `config.py`. Registry paths derive from the data dir via `server.py:_registry_paths()`.
+
+`_fsync_directory()` in `registry.py` is a no-op on Windows (`sys.platform == "win32"` guard) since Windows does not support `fsync` on directory handles.
+
 ### Forward references and TYPE_CHECKING
 
 All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks. This allows circular-free imports and lets Phase 0 reference types from Phase 1+ modules that don't fully exist yet.
