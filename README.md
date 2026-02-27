@@ -8,7 +8,7 @@
 
 ProContext is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that delivers accurate, fresh documentation to AI coding agents like Claude Code, Cursor, and Windsurf. It prevents hallucinated APIs by serving real documentation from Python libraries, MCP servers, GitHub projects, and any source that publishes [llms.txt](https://llmstxt.org) files.
 
-> ⚠️ **Project Status**: **Phase 3 complete** (registry, resolution, fetcher, cache, page reading & heading parser implemented). Phase 4 (HTTP transport) is next. Not yet usable — see [Development Status](#development-status) below.
+> ⚠️ **Project Status**: **Phase 4 complete** (registry, resolution, fetcher, cache, page reading, HTTP transport implemented). Phase 5 (registry updates, CI/CD, packaging) is next. Not yet packaged for end users — see [Development Status](#development-status) below.
 
 ---
 
@@ -46,7 +46,7 @@ Existing documentation tools fall into two categories, each with limitations:
 
 ## Features
 
-### ✅ Implemented (Phases 0–3)
+### ✅ Implemented (Phases 0–4)
 
 ### 🎯 **Curated Registry**
 
@@ -86,13 +86,15 @@ Existing documentation tools fall into two categories, each with limitations:
 
 ---
 
-### 🚧 Coming Soon (Phases 4–5)
-
 ### 🔧 **HTTP Transport**
 
-- Streamable HTTP transport (MCP spec 2025-11-25) for remote deployment
-- `MCPSecurityMiddleware` with authentication and rate limiting
-- Docker image and `uvx procontext` one-liner install
+- Streamable HTTP transport (MCP spec 2025-11-25) for remote/shared deployments
+- `MCPSecurityMiddleware` — origin validation (DNS rebinding protection), optional bearer key auth, protocol version enforcement
+- Configurable via `procontext.yaml` or `PROCONTEXT__SERVER__*` environment variables
+
+---
+
+### 🚧 Coming Soon (Phase 5)
 
 ### 🔁 **Automatic Registry Updates**
 
@@ -154,9 +156,9 @@ ProContext uses a **registry-first, lazy-fetch** architecture:
 
 ## Development Status
 
-**Current Phase**: Phase 4 — HTTP Transport
+**Current Phase**: Phase 5 — Registry Updates & Polish
 
-Phases 0 through 3 are complete. The server skeleton, configuration, data models, registry loader, fuzzy resolver, `resolve_library` tool, httpx fetcher with SSRF protection, SQLite cache with stale-while-revalidate, `get_library_docs` tool, heading parser, and `read_page` tool are all implemented in `src/procontext/`. Phase 4 will implement Streamable HTTP transport with `MCPSecurityMiddleware`.
+Phases 0 through 4 are complete. The server skeleton, configuration, data models, registry loader, fuzzy resolver, `resolve_library` tool, httpx fetcher with SSRF protection, SQLite cache with stale-while-revalidate, `get_library_docs` tool, heading parser, `read_page` tool, and Streamable HTTP transport with `MCPSecurityMiddleware` are all implemented in `src/procontext/`. Phase 5 will add background registry updates, cache cleanup scheduling, CI/CD pipelines, Docker image, and `uvx` packaging.
 
 ### Specification Documents (`docs/specs/`)
 
@@ -174,7 +176,7 @@ All design decisions are captured here before implementation begins.
 - ✅ **Phase 1**: Registry & Resolution — `load_registry()`, `resolve_library` tool, fuzzy matching
 - ✅ **Phase 2**: Fetcher & Cache — `get_library_docs` tool, httpx fetcher with SSRF protection, SQLite cache with stale-while-revalidate
 - ✅ **Phase 3**: Page Reading & Parser — `read_page` tool, heading parser, section extraction
-- ⬜ **Phase 4**: HTTP Transport — Streamable HTTP, `MCPSecurityMiddleware`, uvicorn
+- ✅ **Phase 4**: HTTP Transport — Streamable HTTP, `MCPSecurityMiddleware`, uvicorn
 - ⬜ **Phase 5**: Registry Updates & Polish — background updates, cache cleanup, CI/CD, Docker, `uvx` packaging
 
 ---
@@ -193,7 +195,7 @@ ProContext runs on **Windows, macOS, and Linux**. All filesystem paths (config, 
 
 ## Installation
 
-> 🚧 **Not yet packaged for end users** — `uvx` / pip install is coming in Phase 5. The server currently runs in **stdio mode only** (HTTP transport is Phase 4).
+> 🚧 **Not yet packaged for end users** — `uvx` / pip install is coming in Phase 5. The server supports both **stdio** and **HTTP** transports.
 
 **For development / early testing:**
 
@@ -203,8 +205,11 @@ git clone https://github.com/procontexthq/procontext.git
 cd procontext
 uv sync
 
-# Run (stdio — intended to be launched by an MCP client, not directly)
+# Run in stdio mode (launched by an MCP client)
 uv run procontext
+
+# Run in HTTP mode (remote/shared deployments)
+PROCONTEXT__SERVER__TRANSPORT=http uv run procontext
 ```
 
 **Wire it up in Claude Desktop** (`claude_desktop_config.json`):

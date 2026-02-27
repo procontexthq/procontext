@@ -42,6 +42,8 @@ class ServerSettings(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "0.0.0.0"
     port: int = 8080
+    auth_enabled: bool = False
+    auth_key: str = ""
 
 
 class RegistrySettings(BaseModel):

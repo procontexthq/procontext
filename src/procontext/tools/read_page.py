@@ -166,7 +166,9 @@ async def _background_refresh(
     log = structlog.get_logger().bind(tool="read_page", url=url)
     log.info("stale_refresh_started", key=f"page:{url_hash}")
     try:
-        assert state.fetcher is not None and state.cache is not None
+        if state.fetcher is None or state.cache is None:
+            log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
+            return
         content = await state.fetcher.fetch(url, state.allowlist)
         headings = parse_headings(content)
         await state.cache.set_page(

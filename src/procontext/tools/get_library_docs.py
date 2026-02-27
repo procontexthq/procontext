@@ -140,6 +140,7 @@ async def _background_refresh(
     log.info("stale_refresh_started", key=f"toc:{library_id}")
     try:
         if state.fetcher is None or state.cache is None:
+            log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
             return
         content = await state.fetcher.fetch(llms_txt_url, state.allowlist)
         await state.cache.set_toc(

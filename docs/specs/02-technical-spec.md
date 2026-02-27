@@ -796,82 +796,91 @@ def main() -> None:
 
 Implements MCP Streamable HTTP (spec 2025-11-25). A single `/mcp` endpoint handles both POST (JSON-RPC requests) and GET (SSE event streams). Session state is tracked via `MCP-Session-Id` header.
 
-**Security middleware** runs before the MCP handler on every request:
+**Security middleware** runs before the MCP handler on every request.
+
+Implemented as a **pure ASGI middleware** (not `BaseHTTPMiddleware`) so that SSE streaming responses from the MCP endpoint are never buffered by the middleware layer:
 
 ```python
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.datastructures import Headers
 from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 import re
 import secrets
-import structlog
 
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-11-25", "2025-03-26"})
 _LOCALHOST_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
 
-class MCPSecurityMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, *, auth_enabled: bool, auth_key: str | None = None):
-        super().__init__(app)
+class MCPSecurityMiddleware:
+    def __init__(self, app: ASGIApp, *, auth_enabled: bool, auth_key: str | None = None):
+        self.app = app
         self.auth_enabled = auth_enabled
         self.auth_key = auth_key
 
-    async def dispatch(self, request: Request, call_next):
-        # 1. Optional bearer key authentication
-        if self.auth_enabled:
-            auth_header = request.headers.get("authorization", "")
-            if not auth_header.startswith("Bearer ") or auth_header[7:] != self.auth_key:
-                return Response("Unauthorized", status_code=401)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = Headers(scope=scope)
 
-        # 2. Origin validation — prevents DNS rebinding attacks
-        origin = request.headers.get("origin", "")
-        if origin and not _LOCALHOST_ORIGIN.match(origin):
-            return Response("Forbidden", status_code=403)
+            # 1. Optional bearer key authentication
+            if self.auth_enabled:
+                auth_header = headers.get("authorization", "")
+                if not auth_header.startswith("Bearer ") or auth_header[7:] != self.auth_key:
+                    await Response("Unauthorized", status_code=401)(scope, receive, send)
+                    return
 
-        # 3. Protocol version — reject unknown versions early
-        proto_version = request.headers.get("mcp-protocol-version", "")
-        if proto_version and proto_version not in SUPPORTED_PROTOCOL_VERSIONS:
-            return Response(
-                f"Unsupported protocol version: {proto_version}",
-                status_code=400,
-            )
+            # 2. Origin validation — prevents DNS rebinding attacks
+            origin = headers.get("origin", "")
+            if origin and not _LOCALHOST_ORIGIN.match(origin):
+                await Response("Forbidden", status_code=403)(scope, receive, send)
+                return
 
-        return await call_next(request)
+            # 3. Protocol version — reject unknown versions early
+            proto_version = headers.get("mcp-protocol-version", "")
+            if proto_version and proto_version not in SUPPORTED_PROTOCOL_VERSIONS:
+                await Response(
+                    f"Unsupported protocol version: {proto_version}",
+                    status_code=400,
+                )(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
 ```
 
 **Authentication mode**:
 
 - If `server.auth_enabled` is `true`, bearer-key authentication is enforced.
-- If `server.auth_enabled` is `true` and `server.auth_key` is empty, the server generates a key at startup (`secrets.token_urlsafe(32)`) and logs it to stderr.
+- If `server.auth_enabled` is `true` and `server.auth_key` is empty, the server generates a key at startup (`secrets.token_urlsafe(32)`) and logs it to stderr. The key is **not persisted to disk** — a new key is generated on every server restart. This is intentional: persistence would require file-permission and encryption-at-rest decisions that exceed the scope of this lightweight access control. MCP clients read the key from the server's startup log output and reconnect after a restart.
 - If `server.auth_enabled` is `false` (default), authentication is disabled and the server logs a startup warning (regardless of host/bind address).
 
 **Server startup** for HTTP mode:
 
 ```python
 import uvicorn
-from starlette.middleware import Middleware
 
-def run_http_server(config: ServerConfig) -> None:
+def run_http_server(settings: Settings) -> None:
+    _setup_logging(settings)
     log = structlog.get_logger().bind(transport="http")
-    auth_key = config.auth_key or None
+    auth_key = settings.server.auth_key or None
 
-    if config.auth_enabled and not auth_key:
+    if settings.server.auth_enabled and not auth_key:
         auth_key = secrets.token_urlsafe(32)
         log.warning("http_auth_key_auto_generated", auth_key=auth_key)
 
-    if not config.auth_enabled:
+    if not settings.server.auth_enabled:
         log.warning("http_auth_disabled")
 
-    app = mcp.get_asgi_app()
-    app.add_middleware(
-        MCPSecurityMiddleware,
-        auth_enabled=config.auth_enabled,
+    # mcp.streamable_http_app() returns a Starlette ASGI app with the FastMCP
+    # lifespan already wired in.  Wrap it directly — no add_middleware() needed.
+    http_app = mcp.streamable_http_app()
+    secured_app = MCPSecurityMiddleware(
+        http_app,
+        auth_enabled=settings.server.auth_enabled,
         auth_key=auth_key,
     )
 
     uvicorn.run(
-        app,
-        host=config.host,
-        port=config.port,
+        secured_app,
+        host=settings.server.host,
+        port=settings.server.port,
         log_config=None,         # Disable uvicorn's default logging; structlog handles it
     )
 ```
@@ -988,7 +997,12 @@ async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
     # 6. Parse registry entries (semantic on schema error)
     new_entries = [RegistryEntry(**e) for e in registry_response.json()]
 
-    # 7. Rebuild indexes + allowlist and swap atomically
+    # 7. Rebuild indexes + allowlist and swap atomically.
+    # Python's GIL makes attribute assignment atomic, and frozenset/RegistryIndexes
+    # are immutable once built.  In-flight requests that already hold a reference to
+    # the previous allowlist continue using it for the duration of their request —
+    # this is correct behaviour, not a race condition.  New requests pick up the
+    # updated allowlist immediately after the assignment.
     new_indexes = build_indexes(new_entries)
     new_allowlist = build_allowlist(new_entries)
     state.indexes, state.allowlist, state.registry_version = (

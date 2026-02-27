@@ -26,10 +26,10 @@ Ankur (Author) has recently been working with Generative AI-based applications. 
 - ✅ **Phase 1**: Registry & Resolution — `load_registry()`, `build_indexes()`, `resolve_library` tool, fuzzy matching (rapidfuzz)
 - ✅ **Phase 2**: Fetcher & Cache — `get_library_docs` tool, httpx fetcher with SSRF protection, SQLite cache (aiosqlite), stale-while-revalidate
 - ✅ **Phase 3**: Page Reading & Parser — `read_page` tool, heading parser, section extraction
-- ⬜ **Phase 4**: HTTP Transport — Streamable HTTP (MCP spec 2025-11-25), `MCPSecurityMiddleware`, uvicorn
+- ✅ **Phase 4**: HTTP Transport — Streamable HTTP (MCP spec 2025-11-25), `MCPSecurityMiddleware`, uvicorn
 - ⬜ **Phase 5**: Registry Updates & Polish — background update check, cache cleanup scheduler, CI/CD, Docker, `uvx` packaging
 
-**Current state**: Phase 3 is complete. Source code lives in `src/procontext/`. Phase 4 implementation is next.
+**Current state**: Phase 4 is complete. Source code lives in `src/procontext/`. Phase 5 implementation is next.
 
 ### Active Specifications (`docs/specs/`)
 
@@ -65,6 +65,9 @@ uv sync --dev
 
 # Run the server (stdio transport)
 uv run procontext
+
+# Run the server (HTTP transport)
+PROCONTEXT__SERVER__TRANSPORT=http uv run procontext
 
 # Lint
 uv run ruff check src/
@@ -108,6 +111,14 @@ All modules use `from __future__ import annotations`. Imports only needed for ty
 ### Type checker
 
 This project uses **pyright** (not mypy). Run `uv run pyright src/` to check. Standard mode is enforced.
+
+### HTTP transport — MCPSecurityMiddleware
+
+`MCPSecurityMiddleware` in `server.py` is a **pure ASGI middleware** (not `BaseHTTPMiddleware`). This is intentional: `BaseHTTPMiddleware` buffers the full response body before passing it along, which silently breaks SSE streaming. Never switch it to `BaseHTTPMiddleware`.
+
+The middleware enforces three checks in order: bearer auth → origin validation → protocol version. The ASGI `__call__` only intercepts `scope["type"] == "http"`; `lifespan` and `websocket` scopes pass through unconditionally.
+
+Bearer key behaviour: if `auth_enabled=true` and `auth_key` is empty, a key is auto-generated with `secrets.token_urlsafe(32)` and logged to stderr at `warning` level. The key is **not persisted** — a new key is generated on every server restart. MCP clients read it from server startup output.
 
 ## Coding Guidelines
 
