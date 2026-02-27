@@ -11,8 +11,10 @@ from typing import TYPE_CHECKING
 
 from rapidfuzz import fuzz, process
 
+from procontext.models.registry import LibraryMatch
+
 if TYPE_CHECKING:
-    from procontext.models.registry import LibraryMatch, RegistryEntry
+    from procontext.models.registry import RegistryEntry
     from procontext.registry import RegistryIndexes
 
 
@@ -76,8 +78,6 @@ def _match_from_entry(
     relevance: float,
 ) -> LibraryMatch:
     """Build a LibraryMatch from a RegistryEntry."""
-    from procontext.models.registry import LibraryMatch
-
     return LibraryMatch(
         library_id=entry.id,
         name=entry.name,

@@ -226,7 +226,8 @@ class TestFetcher:
                 fetcher = Fetcher(client)
                 with pytest.raises(ProContextError) as exc_info:
                     await fetcher.fetch("https://example.com/r0", ALLOWLIST)
-                assert exc_info.value.code == ErrorCode.PAGE_FETCH_FAILED
+                assert exc_info.value.code == ErrorCode.TOO_MANY_REDIRECTS
+                assert exc_info.value.recoverable is False
 
     async def test_url_not_in_allowlist(self) -> None:
         async with httpx.AsyncClient() as client:

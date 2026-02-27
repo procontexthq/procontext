@@ -6,10 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ProContext is an open-source MCP (Model Context Protocol) documentation server that provides AI coding agents with accurate, up-to-date library documentation to prevent hallucination of API details. Licensed under GPL-3.0.
 
-## About the Author
-
-This project is authored by Ankur Tewatia, a Senior Lead Consultant with more than a decade of experience in the software industry.
-
 ## ⚠️ CRITICAL: Git Operations Policy
 
 **NEVER commit and push changes without explicit user approval.**
@@ -18,10 +14,11 @@ You must:
 
 1. Wait for the user to explicitly ask you to commit and push any changes made to the documentation or code.
 2. If you believe a commit is necessary, you can say "I think we should commit these changes. Should I commit and push them?" and wait for the user's response.
+3. NEVER ever mention a `co-authored-by` or similar aspects. In particular, never mention the tool used to create the commit message or PR.
 
 ## Project Motivation
 
-Ankur has recently been working with Generative AI-based applications. Since this is a relatively new technology, all the libraries are relatively new as well and are updated frequently, which makes it difficult for coding agents to produce accurate code leveraging these libraries. Ankur's aim with this repo is to make coding agents more reliable by providing them with correct and up-to-date information.
+Ankur (Author) has recently been working with Generative AI-based applications. Since this is a relatively new technology, all the libraries are relatively new as well and are updated frequently, which makes it difficult for coding agents to produce accurate code leveraging these libraries. Ankur's aim with this repo is to make coding agents more reliable by providing them with correct and up-to-date information.
 
 ## Implementation Phases
 
@@ -94,11 +91,11 @@ In stdio MCP mode, **stdout is owned by the MCP JSON-RPC stream**. Any writes to
 
 All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/` or `~/.config/`. The defaults resolve to platform-appropriate locations automatically:
 
-| Platform | Config dir | Data dir |
-|----------|-----------|----------|
-| Linux | `~/.config/procontext` | `~/.local/share/procontext` |
-| macOS | `~/Library/Application Support/procontext` | `~/Library/Application Support/procontext` |
-| Windows | `C:\Users\<user>\AppData\Local\procontext` | `C:\Users\<user>\AppData\Local\procontext` |
+| Platform | Config dir                                 | Data dir                                   |
+| -------- | ------------------------------------------ | ------------------------------------------ |
+| Linux    | `~/.config/procontext`                     | `~/.local/share/procontext`                |
+| macOS    | `~/Library/Application Support/procontext` | `~/Library/Application Support/procontext` |
+| Windows  | `C:\Users\<user>\AppData\Local\procontext` | `C:\Users\<user>\AppData\Local\procontext` |
 
 Config paths: `platformdirs.user_config_dir("procontext")` in `config.py`. Data paths: `platformdirs.user_data_dir("procontext")` in `config.py`. Registry paths derive from the data dir via `server.py:_registry_paths()`.
 

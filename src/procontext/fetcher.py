@@ -119,7 +119,7 @@ class Fetcher:
                 if response.is_redirect and "location" in response.headers:
                     if hop == max_redirects:
                         raise ProContextError(
-                            code=ErrorCode.PAGE_FETCH_FAILED,
+                            code=ErrorCode.TOO_MANY_REDIRECTS,
                             message=f"Too many redirects fetching {url}",
                             suggestion=(
                                 "The documentation URL has an unusually long redirect chain."
@@ -167,7 +167,7 @@ class Fetcher:
 
         # Unreachable but satisfies the type checker
         raise ProContextError(
-            code=ErrorCode.PAGE_FETCH_FAILED,
+            code=ErrorCode.TOO_MANY_REDIRECTS,
             message="Redirect loop",
             suggestion="",
             recoverable=False,

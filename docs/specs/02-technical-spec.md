@@ -291,6 +291,7 @@ class ErrorCode(StrEnum):
     LLMS_TXT_FETCH_FAILED = "LLMS_TXT_FETCH_FAILED"
     PAGE_NOT_FOUND        = "PAGE_NOT_FOUND"
     PAGE_FETCH_FAILED     = "PAGE_FETCH_FAILED"
+    TOO_MANY_REDIRECTS    = "TOO_MANY_REDIRECTS"
     URL_NOT_ALLOWED       = "URL_NOT_ALLOWED"
     INVALID_INPUT         = "INVALID_INPUT"
 
@@ -562,7 +563,7 @@ async def fetch(
         if response.is_redirect:
             if hop == max_redirects:
                 raise ProContextError(
-                    code=ErrorCode.PAGE_FETCH_FAILED,
+                    code=ErrorCode.TOO_MANY_REDIRECTS,
                     message=f"Too many redirects fetching {url}",
                     suggestion="The documentation URL has an unusually long redirect chain.",
                     recoverable=False,
@@ -576,7 +577,7 @@ async def fetch(
         return response.text
 
     raise ProContextError(  # unreachable but satisfies type checker
-        code=ErrorCode.PAGE_FETCH_FAILED,
+        code=ErrorCode.TOO_MANY_REDIRECTS,
         message="Redirect loop",
         suggestion="",
         recoverable=False,

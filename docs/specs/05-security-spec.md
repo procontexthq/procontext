@@ -343,7 +343,7 @@ Each implementation phase introduces new attack surface. The following table map
 | Fetch URL targeting private IPv6 (`::1`, `fc00::`)                          | Blocked by private IP check                                                    |
 | Redirect chain to non-allowlisted domain                                    | Blocked at redirect hop                                                        |
 | Redirect chain to private IP                                                | Blocked at redirect hop                                                        |
-| Redirect chain exceeding 3 hops                                             | Raises `PAGE_FETCH_FAILED`                                                     |
+| Redirect chain exceeding 3 hops                                             | Raises `TOO_MANY_REDIRECTS`                                                    |
 | URL with allowlisted domain but non-HTTPS scheme                            | Rejected by URL validation                                                     |
 | `github.io` subdomain not in registry                                       | Verify shared-hosting limitation is understood (documents behaviour, may pass) |
 | SQL injection via library ID in cache key                                   | Parameterised queries prevent injection (verify no string formatting in SQL)   |

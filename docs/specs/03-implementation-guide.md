@@ -701,7 +701,7 @@ async def app_state(indexes, sample_entries):
 - Successful fetch: returns content
 - 404 response: raises `PAGE_NOT_FOUND`
 - Network error: raises `PAGE_FETCH_FAILED`
-- Too many redirects: raises `PAGE_FETCH_FAILED`
+- Too many redirects: raises `TOO_MANY_REDIRECTS`
 
 `tests/unit/test_cache.py`
 

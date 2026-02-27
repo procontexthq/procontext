@@ -5,7 +5,7 @@ gracefully: read failures return ``None`` (treated as cache miss by callers),
 write failures are logged and ignored (fetched content is still returned).
 Infrastructure errors never cross the Cache class boundary.
 
-Note on coding guideline #7 ("Libraries Must Never Swallow Errors"): That
+Note on coding guideline #8 ("Never swallow errors in library code"): That
 guideline targets public API surfaces where swallowing errors steals the
 decision from the consumer. Cache is an internal infrastructure component —
 the design decision (per 02-technical-spec §6.3) is that cache failures must
@@ -16,13 +16,11 @@ with ``exc_info=True`` so they remain observable via stderr.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
 
 import aiosqlite
 import structlog
 
-if TYPE_CHECKING:
-    from procontext.models.cache import PageCacheEntry, TocCacheEntry
+from procontext.models.cache import PageCacheEntry, TocCacheEntry
 
 log = structlog.get_logger()
 
@@ -83,8 +81,6 @@ class Cache:
             if row is None:
                 return None
 
-            from procontext.models.cache import TocCacheEntry
-
             fetched_at = datetime.fromisoformat(row[3])
             expires_at = datetime.fromisoformat(row[4])
             stale = datetime.now(UTC) > expires_at
@@ -137,8 +133,6 @@ class Cache:
             row = await cursor.fetchone()
             if row is None:
                 return None
-
-            from procontext.models.cache import PageCacheEntry
 
             fetched_at = datetime.fromisoformat(row[4])
             expires_at = datetime.fromisoformat(row[5])

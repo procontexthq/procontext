@@ -176,6 +176,24 @@ class TestGetLibraryDocsHandler:
         assert exc_info.value.code == ErrorCode.LLMS_TXT_FETCH_FAILED
         assert exc_info.value.recoverable is True
 
+    @respx.mock
+    async def test_too_many_redirects_raises_redirect_error(self, app_state: AppState) -> None:
+        r0 = "https://python.langchain.com/llms.txt"
+        r1 = "https://python.langchain.com/r1"
+        r2 = "https://python.langchain.com/r2"
+        r3 = "https://python.langchain.com/r3"
+        r4 = "https://python.langchain.com/r4"
+        respx.get(r0).mock(return_value=httpx.Response(301, headers={"location": r1}))
+        respx.get(r1).mock(return_value=httpx.Response(301, headers={"location": r2}))
+        respx.get(r2).mock(return_value=httpx.Response(301, headers={"location": r3}))
+        respx.get(r3).mock(return_value=httpx.Response(301, headers={"location": r4}))
+        respx.get(r4).mock(return_value=httpx.Response(200, text="# Docs"))
+
+        with pytest.raises(ProContextError) as exc_info:
+            await get_docs_handle("langchain", app_state)
+        assert exc_info.value.code == ErrorCode.TOO_MANY_REDIRECTS
+        assert exc_info.value.recoverable is False
+
 
 # A small Markdown page used across read_page tests
 _SAMPLE_PAGE = """\
@@ -323,6 +341,23 @@ class TestReadPageHandler:
             await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
         assert exc_info.value.code == ErrorCode.PAGE_FETCH_FAILED
         assert exc_info.value.recoverable is True
+
+    @respx.mock
+    async def test_too_many_redirects_raises_redirect_error(self, app_state: AppState) -> None:
+        r1 = "https://python.langchain.com/docs/concepts/r1.md"
+        r2 = "https://python.langchain.com/docs/concepts/r2.md"
+        r3 = "https://python.langchain.com/docs/concepts/r3.md"
+        r4 = "https://python.langchain.com/docs/concepts/r4.md"
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(301, headers={"location": r1}))
+        respx.get(r1).mock(return_value=httpx.Response(301, headers={"location": r2}))
+        respx.get(r2).mock(return_value=httpx.Response(301, headers={"location": r3}))
+        respx.get(r3).mock(return_value=httpx.Response(301, headers={"location": r4}))
+        respx.get(r4).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        with pytest.raises(ProContextError) as exc_info:
+            await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        assert exc_info.value.code == ErrorCode.TOO_MANY_REDIRECTS
+        assert exc_info.value.recoverable is False
 
     async def test_invalid_url_scheme_raises(self, app_state: AppState) -> None:
         with pytest.raises(ProContextError) as exc_info:

@@ -498,6 +498,7 @@ Result:
 | HTTP 404 fetching llms.txt            | `LLMS_TXT_NOT_FOUND`    | `false`       |
 | Network error fetching llms.txt       | `LLMS_TXT_FETCH_FAILED` | `true`        |
 | HTTP 5xx / timeout fetching llms.txt  | `LLMS_TXT_FETCH_FAILED` | `true`        |
+| Redirect chain exceeding 3 hops fetching llms.txt | `TOO_MANY_REDIRECTS` | `false`       |
 | `library_id` fails pattern validation | `INVALID_INPUT`         | `false`       |
 
 **`LIBRARY_NOT_FOUND` example**:
@@ -563,7 +564,7 @@ Result:
   "properties": {
     "url": {
       "type": "string",
-      "description": "The URL that was fetched (after redirect resolution)."
+      "description": "The URL requested by the client and used as the cache key."
     },
     "headings": {
       "type": "string",
@@ -654,7 +655,8 @@ Note: `headings` is identical in both responses — it always covers the full pa
 | URL domain not in allowlist              | `URL_NOT_ALLOWED`   | `false`       |
 | URL scheme not http/https                | `INVALID_INPUT`     | `false`       |
 | HTTP 404 for the URL                     | `PAGE_NOT_FOUND`    | `false`       |
-| Network error or non-200/404 response    | `PAGE_FETCH_FAILED` | `true`        |
+| Network error or non-200/404 response (excluding redirect exhaustion) | `PAGE_FETCH_FAILED` | `true`        |
+| Redirect chain exceeding 3 hops          | `TOO_MANY_REDIRECTS` | `false`      |
 | Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED`   | `false`       |
 | URL over 2048 characters                 | `INVALID_INPUT`     | `false`       |
 | `offset` < 1 or `limit` < 1             | `INVALID_INPUT`     | `false`       |
@@ -825,7 +827,8 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 | `LLMS_TXT_NOT_FOUND`    | `get_library_docs` | HTTP 404 fetching the llms.txt URL — the URL in the registry is incorrect                      | `false`       |
 | `LLMS_TXT_FETCH_FAILED` | `get_library_docs` | Network error, timeout, or server error fetching the llms.txt URL                              | `true`        |
 | `PAGE_NOT_FOUND`        | `read_page`        | HTTP 404 for the requested URL                                                                 | `false`       |
-| `PAGE_FETCH_FAILED`     | `read_page`        | Network error, timeout, non-200/404 HTTP response, or too many redirects                       | `true`        |
+| `PAGE_FETCH_FAILED`     | `read_page`        | Network error, timeout, or non-200/404 HTTP response (excluding redirect exhaustion)           | `true`        |
+| `TOO_MANY_REDIRECTS`    | `get_library_docs`, `read_page` | Redirect chain exceeded the 3-hop safety limit                                       | `false`       |
 | `URL_NOT_ALLOWED`       | `read_page`        | URL domain is not in the SSRF allowlist, or is a private IP range                              | `false`       |
 | `INVALID_INPUT`         | Any tool           | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false`       |
 

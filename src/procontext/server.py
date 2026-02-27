@@ -296,6 +296,9 @@ async def resolve_library(query: str, ctx: Context) -> object:
             recoverable=exc.recoverable,
         )
         return _serialise_tool_error(exc)
+    except Exception:
+        log.error("tool_unexpected_error", tool="resolve_library", exc_info=True)
+        raise
 
 
 @mcp.tool()
@@ -313,6 +316,9 @@ async def get_library_docs(library_id: str, ctx: Context) -> object:
             recoverable=exc.recoverable,
         )
         return _serialise_tool_error(exc)
+    except Exception:
+        log.error("tool_unexpected_error", tool="get_library_docs", exc_info=True)
+        raise
 
 
 @mcp.tool()
@@ -335,6 +341,9 @@ async def read_page(url: str, ctx: Context, offset: int = 1, limit: int = 2000) 
             recoverable=exc.recoverable,
         )
         return _serialise_tool_error(exc)
+    except Exception:
+        log.error("tool_unexpected_error", tool="read_page", exc_info=True)
+        raise
 
 
 # ---------------------------------------------------------------------------
