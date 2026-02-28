@@ -31,18 +31,43 @@ def _run_mcp_exchange(env: dict[str, str], messages: list[dict]) -> list[dict]:
 
     for message in messages:
         proc.stdin.write(json.dumps(message) + "\n")
+    proc.stdin.flush()
 
-    # Ask the server to shut down gracefully so pending responses are flushed
-    # before stdin close triggers transport teardown.
-    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 9999, "method": "shutdown"}) + "\n")
-    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "exit"}) + "\n")
+    # Read responses line-by-line until every request ID has been answered.
+    #
+    # The MCP stdio transport uses zero-capacity anyio streams, so the receive
+    # loop dispatches async tool handlers (e.g. aiosqlite lookups) via
+    # anyio.start_soon() and immediately continues reading the remaining stdin
+    # messages.  If we close stdin before those handlers finish, the receive
+    # loop exits and tears down the write stream, silently dropping in-flight
+    # responses.  Reading first keeps stdin open until the handlers complete.
+    expected_ids = frozenset(msg["id"] for msg in messages if "id" in msg)
+    responses: list[dict] = []
+    seen_ids: set = set()
+    while seen_ids < expected_ids:
+        line = proc.stdout.readline()
+        if not line:  # server exited before answering all requests
+            break
+        stripped = line.strip()
+        if stripped:
+            resp = json.loads(stripped)
+            responses.append(resp)
+            rid = resp.get("id")
+            if rid is not None:
+                seen_ids.add(rid)
+
+    # Ask the server to shut down gracefully now that we have all responses.
+    try:
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 9999, "method": "shutdown"}) + "\n")
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "exit"}) + "\n")
+    except OSError:
+        pass  # server already exited
     proc.stdin.close()
 
-    stdout_lines = [line for line in proc.stdout.read().splitlines() if line.strip()]
     proc.stderr.read()  # drain for reliable process shutdown
     proc.wait(timeout=10)
 
-    return [json.loads(line) for line in stdout_lines]
+    return responses
 
 
 def _seed_page_cache(
