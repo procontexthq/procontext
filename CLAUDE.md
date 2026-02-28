@@ -15,7 +15,10 @@ You must:
 1. Wait for the user to explicitly ask you to commit and push any changes made to the documentation or code.
 2. If you believe a commit is necessary, you can say "I think we should commit these changes. Should I commit and push them?" and wait for the user's response.
 3. NEVER ever mention a `co-authored-by` or similar aspects. In particular, never mention the tool used to create the commit message or PR.
-4. Always do a focused commit rather than committing every change. Commit only the changes relevant to the current session. If there are other pending changes, ask the user whether you should commit them as well.
+4. **Commit by intent**. If something is a coherent unit (a feature, fix, refactor, doc update), it deserves its own commit. Avoid these two extremes
+   - ❌ One giant commit/day: hard to review, hard to revert, hard to bisect.
+   - ❌ A commit for every tiny edit: noise, harder to understand history.
+5. Commit only the changes relevant to the current session. If there are other pending changes, ask the user whether you should commit them as well.
 
 ## Project Motivation
 
