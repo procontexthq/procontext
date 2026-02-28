@@ -99,9 +99,6 @@ def _registry_paths() -> tuple[Path, Path]:
     )
 
 
-FIRST_RUN_FETCH_TIMEOUT_SECONDS = 5.0
-
-
 def _jittered_delay(base_seconds: int) -> float:
     return base_seconds * random.uniform(0.8, 1.2)
 
@@ -123,18 +120,16 @@ def _log_bundled_registry_warning() -> None:
 async def _maybe_blocking_first_run_fetch(state: AppState) -> bool:
     """Attempt a one-shot blocking registry fetch on first run.
 
+    Uses split timeouts: 5s to connect (fail fast if unreachable), up to 5 minutes
+    to read (patient once the transfer has started).
+
     Returns True if the fetch succeeded and state was updated.
     """
     try:
-        outcome = await asyncio.wait_for(
-            check_for_registry_update(state),
-            timeout=FIRST_RUN_FETCH_TIMEOUT_SECONDS,
-        )
+        outcome = await check_for_registry_update(state)
         if outcome == "success":
             log.info("first_run_fetch_success", version=state.registry_version)
             return True
-    except TimeoutError:
-        log.warning("first_run_fetch_timeout", timeout=FIRST_RUN_FETCH_TIMEOUT_SECONDS)
     except Exception:
         log.warning("first_run_fetch_error", exc_info=True)
 

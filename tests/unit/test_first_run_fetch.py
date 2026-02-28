@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from procontext.config import Settings
@@ -26,7 +25,7 @@ class TestMaybeBlockingFirstRunFetch:
     async def test_success_updates_state(self) -> None:
         state = _make_state()
 
-        async def fake_check(s: AppState) -> str:
+        async def fake_check(s: AppState, **_: object) -> str:
             s.registry_version = "v1.0.0"
             return "success"
 
@@ -37,26 +36,6 @@ class TestMaybeBlockingFirstRunFetch:
 
         assert result is True
         mock_check.assert_awaited_once_with(state)
-
-    async def test_timeout_falls_back(self) -> None:
-        state = _make_state()
-
-        async def slow_check(_: AppState) -> str:
-            await asyncio.sleep(60)
-            return "success"
-
-        mock_check = AsyncMock(side_effect=slow_check)
-        mock_warning = MagicMock()
-
-        with (
-            patch("procontext.server.check_for_registry_update", mock_check),
-            patch("procontext.server.FIRST_RUN_FETCH_TIMEOUT_SECONDS", 0.01),
-            patch("procontext.server._log_bundled_registry_warning", mock_warning),
-        ):
-            result = await _maybe_blocking_first_run_fetch(state)
-
-        assert result is False
-        mock_warning.assert_called_once()
 
     async def test_transient_failure_falls_back(self) -> None:
         state = _make_state()

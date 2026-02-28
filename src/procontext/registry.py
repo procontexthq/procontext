@@ -208,13 +208,21 @@ def save_registry_to_disk(
                 tmp_path.unlink(missing_ok=True)
 
 
-async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
+_REGISTRY_TIMEOUT = httpx.Timeout(300.0, connect=5.0)
+
+
+async def check_for_registry_update(
+    state: AppState,
+    *,
+    metadata_timeout: float | httpx.Timeout = _REGISTRY_TIMEOUT,
+    registry_timeout: float | httpx.Timeout = _REGISTRY_TIMEOUT,
+) -> RegistryUpdateOutcome:
     """Check remote metadata and apply a registry update when available."""
     if state.http_client is None:
         return "semantic_failure"
 
     metadata_url = state.settings.registry.metadata_url
-    metadata_response = await _safe_get(state, metadata_url, timeout=10.0)
+    metadata_response = await _safe_get(state, metadata_url, timeout=metadata_timeout)
     if metadata_response is None:
         return "transient_failure"
 
@@ -244,7 +252,7 @@ async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
         log.info("registry_up_to_date", version=remote_version)
         return "success"
 
-    registry_response = await _safe_get(state, download_url, timeout=60.0)
+    registry_response = await _safe_get(state, download_url, timeout=registry_timeout)
     if registry_response is None:
         return "transient_failure"
 
@@ -314,7 +322,7 @@ async def _safe_get(
     state: AppState,
     url: str,
     *,
-    timeout: float,
+    timeout: float | httpx.Timeout,
 ) -> httpx.Response | None:
     if state.http_client is None:
         return None
