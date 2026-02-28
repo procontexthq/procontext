@@ -278,7 +278,10 @@ async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
         return "semantic_failure"
 
     new_indexes = build_indexes(new_entries)
-    new_allowlist = build_allowlist(new_entries)
+    new_allowlist = build_allowlist(
+        new_entries,
+        extra_domains=state.settings.fetcher.extra_allowed_domains,
+    )
 
     state.indexes, state.allowlist, state.registry_version = (
         new_indexes,

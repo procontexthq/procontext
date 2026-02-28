@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.fetcher import is_url_allowed
+from procontext.fetcher import extract_base_domains_from_content, is_url_allowed
 from procontext.models.tools import ReadPageInput, ReadPageOutput
 from procontext.parser import parse_headings
 
@@ -40,11 +40,17 @@ async def handle(url: str, offset: int, limit: int, state: AppState) -> dict:
             recoverable=False,
         ) from exc
 
-    assert state.cache is not None and state.fetcher is not None
+    if state.cache is None or state.fetcher is None:
+        raise RuntimeError("Phase 2 components (cache, fetcher) not initialized")
 
     # SSRF check — must happen before cache lookup so that pages from
     # domains removed from the allowlist are not served from cache.
-    if not is_url_allowed(validated.url, state.allowlist):
+    if not is_url_allowed(
+        validated.url,
+        state.allowlist,
+        check_private_ips=state.settings.fetcher.ssrf_private_ip_check,
+        check_domain=state.settings.fetcher.ssrf_domain_check,
+    ):
         log.warning("ssrf_blocked", url=validated.url, reason="not_in_allowlist")
         raise ProContextError(
             code=ErrorCode.URL_NOT_ALLOWED,
@@ -99,6 +105,13 @@ async def handle(url: str, offset: int, limit: int, state: AppState) -> dict:
     headings = parse_headings(content)
 
     log.info("fetch_complete", content_length=len(content))
+
+    # Depth 2: expand allowlist with domains discovered in fetched page content
+    if state.settings.fetcher.allowlist_depth >= 2:
+        new_domains = extract_base_domains_from_content(content) - state.allowlist
+        if new_domains:
+            state.allowlist = state.allowlist | new_domains
+            log.info("allowlist_expanded", added_domains=len(new_domains))
 
     # Store in cache (non-fatal on failure — handled inside Cache)
     await state.cache.set_page(
@@ -171,6 +184,13 @@ async def _background_refresh(
             return
         content = await state.fetcher.fetch(url, state.allowlist)
         headings = parse_headings(content)
+
+        if state.settings.fetcher.allowlist_depth >= 2:
+            new_domains = extract_base_domains_from_content(content) - state.allowlist
+            if new_domains:
+                state.allowlist = state.allowlist | new_domains
+                log.info("allowlist_expanded", added_domains=len(new_domains))
+
         await state.cache.set_page(
             url=url,
             url_hash=url_hash,

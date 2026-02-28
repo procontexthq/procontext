@@ -8,18 +8,22 @@ via constructor injection — the lifespan owns the client lifecycle.
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
 
 import httpx
 import structlog
 
+from procontext.config import FetcherSettings
 from procontext.errors import ErrorCode, ProContextError
 
 if TYPE_CHECKING:
     from procontext.models.registry import RegistryEntry
 
 log = structlog.get_logger()
+
+_URL_RE = re.compile(r"https?://[^\s\)\]\"<>]+")
 
 PRIVATE_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -50,10 +54,14 @@ def _base_domain(hostname: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
 
 
-def build_allowlist(entries: list[RegistryEntry]) -> frozenset[str]:
-    """Build the SSRF domain allowlist from registry entries.
+def build_allowlist(
+    entries: list[RegistryEntry],
+    extra_domains: list[str] | None = None,
+) -> frozenset[str]:
+    """Build the SSRF domain allowlist from registry entries and optional extra domains.
 
-    Extracts base domains from all ``docs_url`` and ``llms_txt_url`` fields.
+    Extracts base domains from all ``docs_url`` and ``llms_txt_url`` fields, then
+    merges any manually specified ``extra_domains``.
     """
     base_domains: set[str] = set()
     for entry in entries:
@@ -62,24 +70,52 @@ def build_allowlist(entries: list[RegistryEntry]) -> frozenset[str]:
                 hostname = urlparse(url).hostname or ""
                 if hostname:
                     base_domains.add(_base_domain(hostname))
+    for domain in extra_domains or []:
+        domain = domain.strip().lower()
+        if domain:
+            base_domains.add(_base_domain(domain))
     return frozenset(base_domains)
 
 
-def is_url_allowed(url: str, allowlist: frozenset[str]) -> bool:
-    """Check whether a URL is permitted by the SSRF allowlist.
+def extract_base_domains_from_content(content: str) -> frozenset[str]:
+    """Extract base domains from all http/https URLs found in content.
 
-    Private IP ranges are blocked unconditionally, regardless of allowlist.
+    Used for runtime allowlist expansion at depth 1 (llms.txt) and depth 2 (pages).
+    """
+    domains: set[str] = set()
+    for match in _URL_RE.finditer(content):
+        hostname = urlparse(match.group()).hostname or ""
+        if hostname:
+            domains.add(_base_domain(hostname))
+    return frozenset(domains)
+
+
+def is_url_allowed(
+    url: str,
+    allowlist: frozenset[str],
+    *,
+    check_private_ips: bool = True,
+    check_domain: bool = True,
+) -> bool:
+    """Check whether a URL is permitted by the SSRF controls.
+
+    ``check_private_ips``: block requests to private/internal IP ranges.
+    ``check_domain``: enforce the domain allowlist. When False, any public domain
+    is permitted (private IPs are still blocked if ``check_private_ips`` is True).
     """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
 
-    # Block private IPs unconditionally
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if any(addr in net for net in PRIVATE_NETWORKS):
-            return False
-    except ValueError:
-        pass  # hostname is a domain name, not an IP — proceed to allowlist check
+    if check_private_ips:
+        try:
+            addr = ipaddress.ip_address(hostname)
+            if any(addr in net for net in PRIVATE_NETWORKS):
+                return False
+        except ValueError:
+            pass  # hostname is a domain name, not an IP — proceed
+
+    if not check_domain:
+        return True
 
     return _base_domain(hostname) in allowlist
 
@@ -87,8 +123,13 @@ def is_url_allowed(url: str, allowlist: frozenset[str]) -> bool:
 class Fetcher:
     """HTTP documentation fetcher with SSRF-safe redirect handling."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        settings: FetcherSettings | None = None,
+    ) -> None:
         self._client = client
+        self._settings = settings or FetcherSettings()
 
     async def fetch(
         self,
@@ -105,7 +146,12 @@ class Fetcher:
 
         try:
             for hop in range(max_redirects + 1):
-                if not is_url_allowed(current_url, allowlist):
+                if not is_url_allowed(
+                    current_url,
+                    allowlist,
+                    check_private_ips=self._settings.ssrf_private_ip_check,
+                    check_domain=self._settings.ssrf_domain_check,
+                ):
                     log.warning("ssrf_blocked", url=current_url, reason="not_in_allowlist")
                     raise ProContextError(
                         code=ErrorCode.URL_NOT_ALLOWED,

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
+from procontext.fetcher import extract_base_domains_from_content
 from procontext.models.tools import GetLibraryDocsInput, GetLibraryDocsOutput
 
 if TYPE_CHECKING:
@@ -108,6 +109,13 @@ async def handle(library_id: str, state: AppState) -> dict:
 
     log.info("fetch_complete", content_length=len(content))
 
+    # Depth 1: expand allowlist with domains discovered in llms.txt content
+    if state.settings.fetcher.allowlist_depth >= 1:
+        new_domains = extract_base_domains_from_content(content) - state.allowlist
+        if new_domains:
+            state.allowlist = state.allowlist | new_domains
+            log.info("allowlist_expanded", added_domains=len(new_domains))
+
     # Store in cache (non-fatal on failure — handled inside Cache)
     await state.cache.set_toc(
         library_id=entry.id,
@@ -143,6 +151,13 @@ async def _background_refresh(
             log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
             return
         content = await state.fetcher.fetch(llms_txt_url, state.allowlist)
+
+        if state.settings.fetcher.allowlist_depth >= 1:
+            new_domains = extract_base_domains_from_content(content) - state.allowlist
+            if new_domains:
+                state.allowlist = state.allowlist | new_domains
+                log.info("allowlist_expanded", added_domains=len(new_domains))
+
         await state.cache.set_toc(
             library_id=library_id,
             llms_txt_url=llms_txt_url,

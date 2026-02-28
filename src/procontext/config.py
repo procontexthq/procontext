@@ -57,6 +57,13 @@ class CacheSettings(BaseModel):
     cleanup_interval_hours: int = 6
 
 
+class FetcherSettings(BaseModel):
+    ssrf_private_ip_check: bool = True
+    ssrf_domain_check: bool = True
+    allowlist_depth: Literal[0, 1, 2] = 0
+    extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
+
+
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     format: Literal["json", "text"] = "json"
@@ -74,6 +81,7 @@ class Settings(BaseSettings):
     server: ServerSettings = ServerSettings()
     registry: RegistrySettings = RegistrySettings()
     cache: CacheSettings = CacheSettings()
+    fetcher: FetcherSettings = FetcherSettings()
     logging: LoggingSettings = LoggingSettings()
 
     @classmethod

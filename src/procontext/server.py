@@ -219,7 +219,7 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
 
     # Phase 2: HTTP client, SSRF allowlist, cache, fetcher
     http_client = build_http_client()
-    allowlist = build_allowlist(entries)
+    allowlist = build_allowlist(entries, extra_domains=settings.fetcher.extra_allowed_domains)
 
     db_path = Path(settings.cache.db_path).expanduser()
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     cache = Cache(db)
     await cache.init_db()
 
-    fetcher = Fetcher(http_client)
+    fetcher = Fetcher(http_client, settings.fetcher)
 
     state = AppState(
         settings=settings,

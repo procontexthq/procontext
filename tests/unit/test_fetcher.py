@@ -6,12 +6,14 @@ import httpx
 import pytest
 import respx
 
+from procontext.config import FetcherSettings
 from procontext.errors import ErrorCode, ProContextError
 from procontext.fetcher import (
     Fetcher,
     _base_domain,
     build_allowlist,
     build_http_client,
+    extract_base_domains_from_content,
     is_url_allowed,
 )
 from procontext.models.registry import RegistryEntry
@@ -76,6 +78,25 @@ class TestBuildAllowlist:
         allowlist = build_allowlist(entries)
         assert "example.com" in allowlist
 
+    def test_extra_domains_merged(self, sample_entries: list[RegistryEntry]) -> None:
+        allowlist = build_allowlist(
+            sample_entries, extra_domains=["github.com", "githubusercontent.com"]
+        )
+        assert "github.com" in allowlist
+        assert "githubusercontent.com" in allowlist
+
+    def test_extra_domains_base_domain_normalised(
+        self, sample_entries: list[RegistryEntry]
+    ) -> None:
+        # subdomain in extra_domains should be reduced to base domain
+        allowlist = build_allowlist(sample_entries, extra_domains=["raw.githubusercontent.com"])
+        assert "githubusercontent.com" in allowlist
+
+    def test_extra_domains_none_is_noop(self, sample_entries: list[RegistryEntry]) -> None:
+        without = build_allowlist(sample_entries)
+        with_none = build_allowlist(sample_entries, extra_domains=None)
+        assert without == with_none
+
 
 # ---------------------------------------------------------------------------
 # is_url_allowed
@@ -112,6 +133,67 @@ class TestIsUrlAllowed:
 
     def test_empty_allowlist(self) -> None:
         assert not is_url_allowed("https://example.com", frozenset())
+
+    def test_check_domain_false_bypasses_allowlist(self) -> None:
+        # Any public domain allowed when check_domain=False
+        assert is_url_allowed("https://unknown.org/path", frozenset(), check_domain=False)
+
+    def test_check_domain_false_still_blocks_private_ip(self) -> None:
+        # Private IPs remain blocked even with check_domain=False
+        assert not is_url_allowed("http://192.168.1.1/path", frozenset(), check_domain=False)
+
+    def test_check_private_ips_false_allows_internal_hostname(self) -> None:
+        # Simulates an internal hostname (e.g. docs.internal.corp.com) that resolves to a
+        # private IP. With check_private_ips=False the domain allowlist is the only gate.
+        assert is_url_allowed(
+            "https://docs.internal.corp.com/guide",
+            frozenset({"corp.com"}),
+            check_private_ips=False,
+        )
+
+    def test_both_checks_false_allows_anything(self) -> None:
+        assert is_url_allowed(
+            "http://10.0.0.1/internal",
+            frozenset(),
+            check_private_ips=False,
+            check_domain=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# extract_base_domains_from_content
+# ---------------------------------------------------------------------------
+
+
+class TestExtractBaseDomainsFromContent:
+    def test_extracts_inline_link(self) -> None:
+        content = "See [guide](https://docs.example.com/guide) for details."
+        assert "example.com" in extract_base_domains_from_content(content)
+
+    def test_extracts_bare_url(self) -> None:
+        content = "Visit https://api.example.com/reference for the API."
+        assert "example.com" in extract_base_domains_from_content(content)
+
+    def test_multiple_domains(self) -> None:
+        content = "https://docs.foo.com/page\nhttps://bar.io/guide"
+        result = extract_base_domains_from_content(content)
+        assert "foo.com" in result
+        assert "bar.io" in result
+
+    def test_deduplicates(self) -> None:
+        content = "https://docs.example.com/a https://api.example.com/b"
+        result = extract_base_domains_from_content(content)
+        assert result == frozenset({"example.com"})
+
+    def test_empty_content(self) -> None:
+        assert extract_base_domains_from_content("") == frozenset()
+
+    def test_no_urls(self) -> None:
+        assert extract_base_domains_from_content("No links here.") == frozenset()
+
+    def test_ignores_non_http(self) -> None:
+        content = "ftp://files.example.com/archive"
+        assert extract_base_domains_from_content(content) == frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +316,25 @@ class TestFetcher:
             fetcher = Fetcher(client)
             with pytest.raises(ProContextError) as exc_info:
                 await fetcher.fetch("https://unknown.org/path", ALLOWLIST)
+            assert exc_info.value.code == ErrorCode.URL_NOT_ALLOWED
+
+    async def test_ssrf_domain_check_false_bypasses_allowlist(self) -> None:
+        settings = FetcherSettings(ssrf_domain_check=False)
+        with respx.mock:
+            respx.get("https://unknown.org/path").mock(
+                return_value=httpx.Response(200, text="content")
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client, settings)
+                result = await fetcher.fetch("https://unknown.org/path", frozenset())
+                assert result == "content"
+
+    async def test_ssrf_domain_check_false_still_blocks_private_ip(self) -> None:
+        settings = FetcherSettings(ssrf_domain_check=False)
+        async with httpx.AsyncClient() as client:
+            fetcher = Fetcher(client, settings)
+            with pytest.raises(ProContextError) as exc_info:
+                await fetcher.fetch("http://192.168.1.1/secret", frozenset())
             assert exc_info.value.code == ErrorCode.URL_NOT_ALLOWED
 
     async def test_relative_redirect_resolved(self) -> None:

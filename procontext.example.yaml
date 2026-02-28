@@ -28,6 +28,50 @@ cache:
   # db_path: "/custom/path/to/cache.db"
   cleanup_interval_hours: 6
 
+fetcher:
+  # Block requests to private/internal IP ranges (10.x.x.x, 192.168.x.x, 127.x.x.x,
+  # ::1, fc00::/7, etc.). Strongly recommended to keep enabled — disabling this allows
+  # ProContext to reach internal network services, which may expose sensitive endpoints.
+  ssrf_private_ip_check: true
+
+  # Restrict fetching to a known set of trusted domains. When enabled, ProContext only
+  # fetches URLs whose base domain appears in the allowed set (built from the registry,
+  # extra_allowed_domains, and any dynamically discovered domains per allowlist_depth).
+  # Set to false to allow fetching from any domain — only appropriate in fully isolated
+  # or air-gapped environments where all reachable hosts are trusted.
+  ssrf_domain_check: true
+
+  # Controls how far beyond the registry the domain allowlist is expanded at runtime.
+  # Has no effect when ssrf_domain_check is false.
+  #
+  #   0 — Registry only (default, strictest)
+  #         Only domains explicitly listed in the ProContext registry are trusted
+  #         (extracted from docs_url and llms_txt_url of each registry entry).
+  #         Use this if you want tight control over what ProContext can reach.
+  #
+  #   1 — Registry + URLs listed inside llms.txt
+  #         After fetching a library's llms.txt, any URLs found in that file have
+  #         their base domains added to the allowlist. Useful when a library's docs
+  #         span multiple domains not all covered by the registry entry.
+  #
+  #   2 — Registry + llms.txt URLs + URLs inside fetched pages
+  #         Additionally, any URLs found within documentation pages fetched via
+  #         read_page are also trusted. Allows following cross-references to domains
+  #         not in the registry. Note: in long-running HTTP mode the allowlist grows
+  #         as more pages are read and resets only when the registry is updated.
+  allowlist_depth: 0
+
+  # Additional domains to always trust, regardless of allowlist_depth. These are merged
+  # with the registry-derived allowlist at startup and persist across registry updates.
+  #
+  # ProContext matches on base domain (last two DNS labels), so adding a shared hosting
+  # platform like "readthedocs.io" or "github.io" will trust ALL projects hosted there,
+  # not just a specific one. Add shared hosting domains only if you trust the platform
+  # broadly.
+  extra_allowed_domains:
+    - github.com           # GitHub repository pages and documentation
+    - githubusercontent.com # Raw GitHub file content (raw.githubusercontent.com)
+
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
   format: json # json | text  (use text for local development)

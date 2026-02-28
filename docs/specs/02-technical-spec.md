@@ -508,7 +508,11 @@ def _base_domain(hostname: str) -> str:
     parts = hostname.rstrip(".").split(".")
     return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
 
-def build_allowlist(entries: list[RegistryEntry]) -> frozenset[str]:
+def build_allowlist(
+    entries: list[RegistryEntry],
+    extra_domains: list[str] | None = None,
+) -> frozenset[str]:
+    """Build the SSRF domain allowlist from registry entries and optional extra domains."""
     base_domains: set[str] = set()
     for entry in entries:
         for url in [entry.llms_txt_url, entry.docs_url]:
@@ -516,22 +520,62 @@ def build_allowlist(entries: list[RegistryEntry]) -> frozenset[str]:
                 hostname = urlparse(url).hostname or ""
                 if hostname:
                     base_domains.add(_base_domain(hostname))
+    for domain in extra_domains or []:
+        domain = domain.strip().lower()
+        if domain:
+            base_domains.add(_base_domain(domain))
     return frozenset(base_domains)
 
-def is_url_allowed(url: str, allowlist: frozenset[str]) -> bool:
+def extract_base_domains_from_content(content: str) -> frozenset[str]:
+    """Extract base domains from all http/https URLs found in content.
+
+    Used for runtime allowlist expansion at depth 1 (llms.txt) and depth 2 (pages).
+    """
+    domains: set[str] = set()
+    for match in _URL_RE.finditer(content):
+        hostname = urlparse(match.group()).hostname or ""
+        if hostname:
+            domains.add(_base_domain(hostname))
+    return frozenset(domains)
+
+def is_url_allowed(
+    url: str,
+    allowlist: frozenset[str],
+    *,
+    check_private_ips: bool = True,
+    check_domain: bool = True,
+) -> bool:
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
 
-    # Block private IPs unconditionally
-    try:
-        addr = ipaddress.ip_address(hostname)
-        if any(addr in net for net in PRIVATE_NETWORKS):
-            return False
-    except ValueError:
-        pass  # hostname is a domain name, not an IP — proceed to allowlist check
+    if check_private_ips:
+        try:
+            addr = ipaddress.ip_address(hostname)
+            if any(addr in net for net in PRIVATE_NETWORKS):
+                return False
+        except ValueError:
+            pass
+
+    if not check_domain:
+        return True
 
     return _base_domain(hostname) in allowlist
 ```
+
+**SSRF controls are configurable** via `FetcherSettings` (see Section 10):
+
+- **`ssrf_private_ip_check`** (default `true`): blocks all requests to private/internal IP ranges. Strongly recommended to keep enabled.
+- **`ssrf_domain_check`** (default `true`): enforces the domain allowlist. When `false`, any public domain is reachable — only appropriate for isolated/air-gapped environments.
+- **`allowlist_depth`** (default `0`): controls how far the allowlist is expanded at runtime beyond the registry (see below).
+- **`extra_allowed_domains`**: manually specified domains always merged into the allowlist at startup, regardless of depth. Ships with `["github.com", "githubusercontent.com"]` as defaults.
+
+**Runtime allowlist expansion** (reactive, not pre-fetched):
+
+- **Depth 0** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
+- **Depth 1**: after `get_library_docs` fetches an `llms.txt`, all URLs in its content have their base domains extracted and merged into `state.allowlist`. Enables `read_page` to follow cross-domain links listed in `llms.txt`.
+- **Depth 2**: additionally, after `read_page` fetches a page, URLs in the page content are also expanded into the allowlist. Enables following cross-references from one documentation page to another on a previously unseen domain.
+
+At depth 1 and 2, expansion is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
 
 **Known limitation**: Two-label base domain extraction is a simplification of proper eTLD+1 calculation. For shared hosting platforms like `github.io` or `readthedocs.io`, the base domain would be `github.io` or `readthedocs.io` — permitting all projects hosted there, not just the registered library. This is an acceptable trade-off for v1; a future version could adopt the `tldextract` library for accurate Public Suffix List-based matching.
 
@@ -1095,6 +1139,14 @@ cache:
   # db_path: platform-specific default via platformdirs.user_data_dir("procontext")
   cleanup_interval_hours: 6
 
+fetcher:
+  ssrf_private_ip_check: true  # block private/internal IPs; strongly recommended
+  ssrf_domain_check: true      # enforce domain allowlist; set false only in isolated environments
+  allowlist_depth: 0           # 0=registry only | 1=+llms.txt links | 2=+page links
+  extra_allowed_domains:       # always trusted, merged at startup regardless of depth
+    - github.com
+    - githubusercontent.com
+
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
   format: json # json | text (text for local dev)
@@ -1129,6 +1181,12 @@ class CacheSettings(BaseModel):
     db_path: str = _DEFAULT_DB_PATH  # platformdirs.user_data_dir("procontext") / "cache.db"
     cleanup_interval_hours: int = 6
 
+class FetcherSettings(BaseModel):
+    ssrf_private_ip_check: bool = True
+    ssrf_domain_check: bool = True
+    allowlist_depth: Literal[0, 1, 2] = 0
+    extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
+
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     format: Literal["json", "text"] = "json"
@@ -1146,6 +1204,7 @@ class Settings(BaseSettings):
     server: ServerSettings = ServerSettings()
     registry: RegistrySettings = RegistrySettings()
     cache: CacheSettings = CacheSettings()
+    fetcher: FetcherSettings = FetcherSettings()
     logging: LoggingSettings = LoggingSettings()
 
     @classmethod
