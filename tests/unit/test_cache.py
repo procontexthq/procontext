@@ -344,3 +344,93 @@ class TestLoadDiscoveredDomains:
         result = await cache.load_discovered_domains(include_toc=True, include_pages=True)
         assert result == frozenset()
         cache._db.execute = original_execute  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# cleanup_if_due
+# ---------------------------------------------------------------------------
+
+
+async def _insert_expired_toc(cache: Cache, library_id: str, days_ago: int = 8) -> None:
+    """Helper: insert a toc_cache entry whose expires_at is days_ago days in the past."""
+    expiry = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    now = datetime.now(UTC).isoformat()
+    await cache._db.execute(
+        "INSERT INTO toc_cache "
+        "(library_id, llms_txt_url, content, discovered_domains, fetched_at, expires_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (library_id, "https://example.com/llms.txt", "Content", "", now, expiry),
+    )
+    await cache._db.commit()
+
+
+class TestCleanupIfDue:
+    async def test_runs_cleanup_when_no_previous_record(self, cache: Cache) -> None:
+        """No last_cleanup_at in DB → cleanup runs and timestamp is written."""
+        await _insert_expired_toc(cache, "old")
+
+        await cache.cleanup_if_due(24)
+
+        assert await cache.get_toc("old") is None
+        cursor = await cache._db.execute(
+            "SELECT value FROM server_metadata WHERE key = 'last_cleanup_at'"
+        )
+        assert await cursor.fetchone() is not None
+
+    async def test_skips_when_recently_run(self, cache: Cache) -> None:
+        """Recent last_cleanup_at → cleanup is skipped, expired entries untouched."""
+        await cache._db.execute(
+            "INSERT INTO server_metadata (key, value) VALUES ('last_cleanup_at', ?)",
+            (datetime.now(UTC).isoformat(),),
+        )
+        await cache._db.commit()
+        await _insert_expired_toc(cache, "old")
+
+        await cache.cleanup_if_due(24)
+
+        # Expired entry should still be there — cleanup was skipped.
+        cursor = await cache._db.execute(
+            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
+        )
+        assert await cursor.fetchone() is not None
+
+    async def test_runs_when_interval_elapsed(self, cache: Cache) -> None:
+        """Stale last_cleanup_at → cleanup runs and updates the timestamp."""
+        stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        await cache._db.execute(
+            "INSERT INTO server_metadata (key, value) VALUES ('last_cleanup_at', ?)",
+            (stale,),
+        )
+        await cache._db.commit()
+        await _insert_expired_toc(cache, "old")
+
+        await cache.cleanup_if_due(24)
+
+        assert await cache.get_toc("old") is None
+        cursor = await cache._db.execute(
+            "SELECT value FROM server_metadata WHERE key = 'last_cleanup_at'"
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        # Timestamp should be newer than the stale value we wrote.
+        assert datetime.fromisoformat(row[0]) > datetime.fromisoformat(stale)
+
+    async def test_metadata_read_error_falls_through_to_cleanup(self, cache: Cache) -> None:
+        """aiosqlite.Error reading last_cleanup_at → cleanup still runs (fall-through)."""
+        await _insert_expired_toc(cache, "old")
+
+        original_execute = cache._db.execute
+        call_count = 0
+
+        async def fail_first_call(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise aiosqlite.OperationalError("disk error")
+            return await original_execute(*args, **kwargs)
+
+        cache._db.execute = fail_first_call  # type: ignore[assignment]
+        await cache.cleanup_if_due(24)
+        cache._db.execute = original_execute  # type: ignore[assignment]
+
+        assert await cache.get_toc("old") is None

@@ -19,7 +19,11 @@ from procontext.registry import (
     REGISTRY_MAX_BACKOFF_SECONDS,
     REGISTRY_MAX_TRANSIENT_BACKOFF_ATTEMPTS,
 )
-from procontext.schedulers import run_registry_update_scheduler
+from procontext.schedulers import (
+    _jittered_delay,
+    run_cache_cleanup_scheduler,
+    run_registry_update_scheduler,
+)
 from procontext.state import AppState
 
 
@@ -303,3 +307,90 @@ class TestSchedulerHttpMode:
             await run_registry_update_scheduler(state)
 
         assert sleep_durations[0] == state.settings.registry.poll_interval_hours * 3600
+
+
+# ---------------------------------------------------------------------------
+# Cache cleanup scheduler
+# ---------------------------------------------------------------------------
+
+
+class TestCacheCleanupScheduler:
+    async def test_stdio_calls_cleanup_if_due(self) -> None:
+        """stdio mode: cleanup_if_due is called once at startup, then returns."""
+        state = _make_state(transport="stdio")
+        mock_cache = AsyncMock()
+        state.cache = mock_cache
+
+        await run_cache_cleanup_scheduler(state)
+
+        mock_cache.cleanup_if_due.assert_awaited_once_with(
+            state.settings.cache.cleanup_interval_hours
+        )
+
+    async def test_none_cache_skips_cleanup(self) -> None:
+        """When cache is None, no cleanup call is made and the coroutine returns cleanly."""
+        state = _make_state(transport="stdio")
+        state.cache = None
+
+        # Should not raise
+        await run_cache_cleanup_scheduler(state)
+
+    async def test_http_calls_cleanup_at_startup_then_after_each_sleep(self) -> None:
+        """HTTP mode: cleanup runs at startup, then once more after each sleep interval."""
+        state = _make_state(transport="http")
+        mock_cache = AsyncMock()
+        state.cache = mock_cache
+        sleep_count = 0
+
+        async def fake_sleep(duration: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count >= 2:
+                raise asyncio.CancelledError
+
+        with (
+            patch("asyncio.sleep", side_effect=fake_sleep),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await run_cache_cleanup_scheduler(state)
+
+        # Called at startup + once after first sleep; second sleep raises before third call
+        assert mock_cache.cleanup_if_due.await_count == 2
+
+    async def test_http_sleeps_for_configured_interval(self) -> None:
+        """HTTP mode: asyncio.sleep receives the configured interval in seconds."""
+        state = _make_state(transport="http")
+        state.cache = AsyncMock()
+        sleep_durations: list[float] = []
+
+        async def fake_sleep(duration: float) -> None:
+            sleep_durations.append(duration)
+            raise asyncio.CancelledError
+
+        with (
+            patch("asyncio.sleep", side_effect=fake_sleep),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await run_cache_cleanup_scheduler(state)
+
+        assert sleep_durations[0] == state.settings.cache.cleanup_interval_hours * 3600
+
+
+# ---------------------------------------------------------------------------
+# _jittered_delay
+# ---------------------------------------------------------------------------
+
+
+class TestJitteredDelay:
+    def test_output_is_within_20_percent(self) -> None:
+        """Result should always be in [0.8 * base, 1.2 * base] across many samples."""
+        base = 100
+        for _ in range(50):
+            result = _jittered_delay(base)
+            assert 80.0 <= result <= 120.0
+
+    def test_non_deterministic(self) -> None:
+        """Results should vary (not all identical), confirming jitter is applied."""
+        results = {_jittered_delay(1000) for _ in range(20)}
+        # With random.uniform(0.8, 1.2) the chance of all 20 values being equal is negligible
+        assert len(results) > 1

@@ -13,6 +13,7 @@ from procontext.config import Settings
 from procontext.fetcher import build_allowlist
 from procontext.registry import (
     _fsync_directory,
+    _write_last_checked_at,
     check_for_registry_update,
     fetch_registry_for_setup,
     load_registry,
@@ -479,3 +480,177 @@ class TestFsyncDirectoryWindowsGuard:
             )
 
         assert registry_path.read_bytes() == registry_bytes
+
+
+# ---------------------------------------------------------------------------
+# load_registry edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_load_registry_returns_none_when_both_paths_none() -> None:
+    assert load_registry(None, None) is None
+
+
+def test_load_registry_returns_none_when_files_missing(tmp_path: Path) -> None:
+    assert load_registry(tmp_path / "missing.json", tmp_path / "also-missing.json") is None
+
+
+def test_load_registry_returns_none_on_invalid_version_type(tmp_path: Path) -> None:
+    """A non-string version (e.g. integer) in registry-state.json → None."""
+    payload = [{"id": "lib", "name": "Lib", "llms_txt_url": "https://docs.lib.dev/llms.txt"}]
+    registry_bytes = json.dumps(payload).encode("utf-8")
+    checksum = _sha256_prefixed(registry_bytes)
+
+    registry_path = tmp_path / "known-libraries.json"
+    state_path = tmp_path / "registry-state.json"
+    registry_path.write_bytes(registry_bytes)
+    state_path.write_text(
+        json.dumps({"version": 123, "checksum": checksum}),
+        encoding="utf-8",
+    )
+
+    assert load_registry(registry_path, state_path) is None
+
+
+def test_load_registry_returns_none_on_invalid_checksum_format(tmp_path: Path) -> None:
+    """A checksum that does not start with 'sha256:' → None."""
+    payload = [{"id": "lib", "name": "Lib", "llms_txt_url": "https://docs.lib.dev/llms.txt"}]
+    registry_bytes = json.dumps(payload).encode("utf-8")
+
+    registry_path = tmp_path / "known-libraries.json"
+    state_path = tmp_path / "registry-state.json"
+    registry_path.write_bytes(registry_bytes)
+    state_path.write_text(
+        json.dumps({"version": "1.0", "checksum": "not-sha256-prefixed"}),
+        encoding="utf-8",
+    )
+
+    assert load_registry(registry_path, state_path) is None
+
+
+def test_load_registry_returns_none_on_corrupt_json(tmp_path: Path) -> None:
+    """A registry file that is not valid JSON → None."""
+    registry_path = tmp_path / "known-libraries.json"
+    state_path = tmp_path / "registry-state.json"
+    registry_path.write_bytes(b"not valid json {{{")
+    state_path.write_text(
+        json.dumps({"version": "1.0", "checksum": "sha256:abc"}),
+        encoding="utf-8",
+    )
+
+    assert load_registry(registry_path, state_path) is None
+
+
+# ---------------------------------------------------------------------------
+# _write_last_checked_at
+# ---------------------------------------------------------------------------
+
+
+class TestWriteLastCheckedAt:
+    def test_updates_last_checked_at_and_preserves_other_fields(self, tmp_path: Path) -> None:
+        """Updates last_checked_at in-place without touching other state fields."""
+        state_path = tmp_path / "registry-state.json"
+        original = {
+            "version": "2026-02-20",
+            "checksum": "sha256:abc",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_checked_at": "2026-01-01T00:00:00Z",
+        }
+        state_path.write_text(json.dumps(original), encoding="utf-8")
+
+        before = datetime.now(UTC)
+        _write_last_checked_at(state_path)
+        after = datetime.now(UTC)
+
+        state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state_data["version"] == "2026-02-20"
+        assert state_data["checksum"] == "sha256:abc"
+        assert state_data["updated_at"] == "2026-01-01T00:00:00Z"
+        last_checked = datetime.fromisoformat(state_data["last_checked_at"])
+        assert before <= last_checked <= after
+
+    def test_nonexistent_file_does_not_raise(self, tmp_path: Path) -> None:
+        """A missing state file is silently ignored (non-fatal)."""
+        _write_last_checked_at(tmp_path / "nonexistent.json")
+
+
+# ---------------------------------------------------------------------------
+# check_for_registry_update — up-to-date path and 4xx semantic failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_for_registry_update_up_to_date_writes_last_checked_at(
+    tmp_path: Path,
+    indexes,
+    sample_entries,
+) -> None:
+    """When remote version equals current, returns 'success' and updates last_checked_at."""
+    current_version = "2026-02-20"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "version": current_version,
+                "download_url": "https://registry.example/known-libraries.json",
+                "checksum": "sha256:abc123",
+            },
+        )
+
+    # Write a state file for _write_last_checked_at to update
+    registry_dir = tmp_path / "registry"
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    old_checked = "2026-01-01T00:00:00Z"
+    (registry_dir / "registry-state.json").write_text(
+        json.dumps(
+            {
+                "version": current_version,
+                "checksum": "sha256:abc123",
+                "last_checked_at": old_checked,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        state = _build_state(
+            client=client,
+            tmp_path=tmp_path,
+            indexes=indexes,
+            sample_entries=sample_entries,
+            registry_version=current_version,
+        )
+        outcome = await check_for_registry_update(state)
+
+    assert outcome == "success"
+    assert state.registry_version == current_version  # unchanged
+
+    state_data = json.loads((registry_dir / "registry-state.json").read_text(encoding="utf-8"))
+    assert state_data["last_checked_at"] != old_checked  # timestamp was refreshed
+
+
+@pytest.mark.asyncio
+async def test_check_for_registry_update_semantic_on_metadata_4xx(
+    tmp_path: Path,
+    indexes,
+    sample_entries,
+) -> None:
+    """A 4xx response on the metadata URL maps to semantic_failure (not transient)."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        state = _build_state(
+            client=client,
+            tmp_path=tmp_path,
+            indexes=indexes,
+            sample_entries=sample_entries,
+        )
+        outcome = await check_for_registry_update(state)
+
+    assert outcome == "semantic_failure"
+    assert state.registry_version == "unknown"  # unchanged

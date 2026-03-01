@@ -28,30 +28,16 @@ You must:
    uv run ruff check src/ tests/
    uv run ruff format src/ tests/
    uv run pyright src/
-   uv run pytest
+   uv run pytest --cov=src/procontext --cov-fail-under=90
    ```
 
 ## Specifications
 
-Spec documents are in `docs/specs/` — read the relevant one before making changes.
+Spec documents are in `docs/specs/` - read the relevant one before making changes.
 These are the authoritative design documents for this repo.
 You are allowed to create new documents if the discussion warrants it.
 
-## Overview of tech stack, architecture, coding conventions, configurations, commands and testing strategy
-
-_Only add what Claude cannot infer from reading the code._
-
-| Include in this section                              | Do NOT include                                     |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| Bash commands Claude can't guess                     | Anything Claude can figure out by reading code     |
-| Code style rules that differ from defaults           | Standard language conventions Claude already knows |
-| Testing instructions and preferred test runners      | Detailed API documentation (link to docs instead)  |
-| Repository etiquette (branch naming, PR conventions) | Information that changes frequently                |
-| Architectural decisions specific to this project     | Long explanations or tutorials                     |
-| Developer environment quirks (required env vars)     | File-by-file descriptions of the codebase          |
-| Common gotchas or non-obvious behaviors              | Self-evident practices like "write clean code"     |
-
-### Commands
+## Commands
 
 ```bash
 # Install dependencies and create virtualenv
@@ -62,6 +48,9 @@ uv run procontext
 
 # Run the server (HTTP transport)
 PROCONTEXT__SERVER__TRANSPORT=http uv run procontext
+
+# First-time setup (download registry)
+uv run procontext setup
 
 # Lint
 uv run ruff check src/
@@ -76,35 +65,25 @@ uv run pyright src/
 uv run pytest
 ```
 
-### Critical: stdout vs stderr
+## Architecture
 
-In stdio MCP mode, **stdout is owned by the MCP JSON-RPC stream**. Any writes to stdout will corrupt the protocol. Logs must always go to stderr. `structlog.PrintLoggerFactory(file=sys.stderr)` is already configured in `server.py`. Never use `print()` without `file=sys.stderr` in server code.
+**AppState injection** — `AppState` is created once in the FastMCP lifespan and injected into tool handlers via `ctx.request_context.lifespan_context`. Tools receive `AppState` explicitly — no global variables, no module-level singletons.
 
-### AppState injection pattern
+**HTTP transport — MCPSecurityMiddleware** — `MCPSecurityMiddleware` in `transport.py` is a **pure ASGI middleware** (not `BaseHTTPMiddleware`). `BaseHTTPMiddleware` buffers the full response body before passing it along, which silently breaks SSE streaming. Never switch it to `BaseHTTPMiddleware`. The middleware enforces three checks in order: bearer auth → origin validation → protocol version. The ASGI `__call__` only intercepts `scope["type"] == "http"`; `lifespan` and `websocket` scopes pass through unconditionally.
 
-`AppState` is created once in the FastMCP lifespan and injected into tool handlers via `ctx.request_context.lifespan_context`. Tools receive `AppState` explicitly — no global variables, no module-level singletons.
+## Coding Conventions
 
-### Platform-aware paths
+**stdout vs stderr** — In stdio MCP mode, stdout is owned by the MCP JSON-RPC stream. Any writes to stdout will corrupt the protocol. Logs must always go to stderr. `structlog.PrintLoggerFactory(file=sys.stderr)` is already configured in `server.py`. Never use `print()` without `file=sys.stderr` in server code.
 
-All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/` or `~/.config/`. Use `platformdirs.user_config_dir("procontext")` in `config.py` and `platformdirs.user_data_dir("procontext")` for data. Registry paths derive from the data dir via `server.py:_registry_paths()`.
+**Platform-aware paths** — All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/` or `~/.config/`. Use `platformdirs.user_config_dir("procontext")` in `config.py` and `platformdirs.user_data_dir("procontext")` for data. Registry paths derive from `settings.data_dir` via `server.py:_registry_paths()`.
 
-### Forward references and TYPE_CHECKING
+**Annotations and TYPE_CHECKING** — All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks.
 
-All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks.
-
-### Type checker
-
-This project uses **pyright** (not mypy). Run `uv run pyright src/` to check. Standard mode is enforced.
-
-### HTTP transport — MCPSecurityMiddleware
-
-`MCPSecurityMiddleware` in `server.py` is a **pure ASGI middleware** (not `BaseHTTPMiddleware`). This is intentional: `BaseHTTPMiddleware` buffers the full response body before passing it along, which silently breaks SSE streaming. Never switch it to `BaseHTTPMiddleware`.
-
-The middleware enforces three checks in order: bearer auth → origin validation → protocol version. The ASGI `__call__` only intercepts `scope["type"] == "http"`; `lifespan` and `websocket` scopes pass through unconditionally.
+**Type checker** — This project uses **pyright** (not mypy). Standard mode is enforced.
 
 ## Changelog Maintenance
 
-`CHANGELOG.md` is maintained via the `/changelog-release` skill — use it before committing to populate `[Unreleased]`, or with a version number to finalize a release section.
+`CHANGELOG.md` is maintained via the `/changelog-release` skill - use it before committing to populate `[Unreleased]`, or with a version number to finalize a release section.
 
 ## Coding Guidelines
 
@@ -124,3 +103,17 @@ Key areas covered: API design, error handling, versioning and breaking changes, 
 4. When brainstorming, actively participate and add value to the conversation rather than just answering questions.
 5. You are a contributor to the project. Take ownership and actively look for ways to improve this repo.
 6. Avoid making assumptions. Refer to online sources and cross-verify information. If the requirement is unclear, ask Ankur for clarification.
+
+## Updates to CLAUDE.md
+
+_Only add what Claude cannot infer from reading the code._
+
+| Include in this section                              | Do NOT include                                     |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| Bash commands Claude can't guess                     | Anything Claude can figure out by reading code     |
+| Code style rules that differ from defaults           | Standard language conventions Claude already knows |
+| Testing instructions and preferred test runners      | Detailed API documentation (link to docs instead)  |
+| Repository etiquette (branch naming, PR conventions) | Information that changes frequently                |
+| Architectural decisions specific to this project     | Long explanations or tutorials                     |
+| Developer environment quirks (required env vars)     | File-by-file descriptions of the codebase          |
+| Common gotchas or non-obvious behaviors              | Self-evident practices like "write clean code"     |
