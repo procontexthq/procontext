@@ -269,11 +269,13 @@ class TestRegistryCheckIsDue:
     def test_recent_check_returns_false(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
         state_file.write_text(
-            json.dumps({
-                "version": "1",
-                "checksum": "sha256:abc",
-                "last_checked_at": datetime.now(UTC).isoformat(),
-            }),
+            json.dumps(
+                {
+                    "version": "1",
+                    "checksum": "sha256:abc",
+                    "last_checked_at": datetime.now(UTC).isoformat(),
+                }
+            ),
             encoding="utf-8",
         )
         assert registry_check_is_due(state_file, 24) is False
@@ -350,6 +352,7 @@ class TestFetchRegistryForSetup:
     @pytest.mark.asyncio
     async def test_transient_failure_returns_false(self, tmp_path: Path) -> None:
         """503 on metadata fetch → transient failure → returns False, no files written."""
+
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(503)
 
