@@ -73,13 +73,17 @@ uv run pytest
 
 ## Coding Conventions
 
+**Forbidden imports inside functions** - no imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
+
 **stdout vs stderr** — In stdio MCP mode, stdout is owned by the MCP JSON-RPC stream. Any writes to stdout will corrupt the protocol. Logs must always go to stderr. `structlog.PrintLoggerFactory(file=sys.stderr)` is already configured in `server.py`. Never use `print()` without `file=sys.stderr` in server code.
 
 **Platform-aware paths** — All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/` or `~/.config/`. Use `platformdirs.user_config_dir("procontext")` in `config.py` and `platformdirs.user_data_dir("procontext")` for data. Registry paths derive from `settings.data_dir` via `server.py:_registry_paths()`.
 
-**Annotations and TYPE_CHECKING** — All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks.
+**Annotations and TYPE_CHECKING** —
 
-**Type checker** — This project uses **pyright** (not mypy). Standard mode is enforced.
+- This project uses **pyright** (not mypy). Standard mode is enforced.
+- Provide high-quality type support. Do not only add basic type hints; use meaningful generics and define structured, typed exceptions.
+- All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks.
 
 ## Changelog Maintenance
 
@@ -89,11 +93,11 @@ uv run pytest
 
 **After making changes, you must run linting, formatting, type checks, and pytest to verify the codebase is clean and all tests pass..**
 
-This project follows a set of non-obvious coding guidelines specifically for public library development. These must be applied when writing or reviewing any code in this repo.
+This project follows a set of non-obvious coding guidelines. These must be applied when writing or reviewing any code in this repo.
 
 See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
 
-Key areas covered: API design, error handling, versioning and breaking changes, testing strategy, supply chain security, and library adoptability.
+Key areas covered: API design, error handling, versioning and breaking changes, testing strategy, supply chain security, and maintainability.
 
 ## Instructions for working with this repo
 

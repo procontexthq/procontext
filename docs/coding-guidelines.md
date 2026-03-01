@@ -1,4 +1,4 @@
-# Coding Guidelines for Public Libraries
+# Coding Guidelines
 
 Follow these rules when writing or reviewing any code in this repository.
 
@@ -22,7 +22,7 @@ Error message wording, collection iteration order, response timing, and incident
 
 ### 3. Keep the public surface area minimal
 
-Every exported symbol is a commitment. Removing or changing it later is a breaking change. Default to the most restrictive access modifier. Only expose what has a documented, intentional use case. Use `@Beta` or equivalent annotations to reserve the right to change APIs before fully committing.
+Every interface you expose is a commitment. MCP tool names, tool parameters, config schema fields, CLI commands, and public module functions — removing or changing any of them is a breaking change. Default to the most restrictive access modifier. Only expose what has a documented, intentional use case. Mark experimental interfaces clearly to reserve the right to change them before fully committing.
 
 ### 4. Keep abstractions consistent — no leaks by omission
 
@@ -36,9 +36,11 @@ Make the 80% case a one-liner. Make the 20% advanced case accessible but not req
 - `fetch(url, { timeout: 5000, retries: 3 })` — intermediate
 - `new HttpClient(config).request(spec)` — full control
 
-### 6. Provide intentional escape hatches
+### 6. Design intentional extension and override points
 
-All non-trivial abstractions leak eventually (Joel Spolsky's Law of Leaky Abstractions). Provide documented escape hatches that let consumers drop to a lower level without abandoning the library. Every escape hatch must be: easy to use when needed, well-integrated (easy to return to the higher abstraction), and documented with clear caveats.
+All non-trivial abstractions leak eventually (Joel Spolsky's Law of Leaky Abstractions). When a real operator need cannot be met by the default behaviour, the answer must be a documented configuration knob or extension point — not a fork. Every extension point must be: easy to use when needed, well-integrated (using it should not require understanding internal wiring), and documented with its defaults and caveats.
+
+For ProContext specifically: operators need levers for custom registries, trusted domains, auth, cache sizing, and transport. Design these up front rather than bolting them on when the first user hits the wall.
 
 ### 7. Keep all imports at the top of the file
 
@@ -50,18 +52,20 @@ The only acceptable exception is breaking a genuine circular import that cannot 
 
 ## Error Handling
 
-### 8. Never swallow errors in library code
+### 8. Never swallow errors in core modules
 
-An application can log-and-continue. A library must not. Catching an error silently steals the decision from the consumer — they cannot retry, fall back, alert, or audit what they cannot see. Do not write this:
+Low-level modules — resolver, cache, fetcher — must not catch errors silently. Catching an error silently steals the decision from the caller — they cannot retry, fall back, alert, or audit what they cannot see. Do not write this:
 
 ```python
 try:
     ...
 except Exception as e:
-    logger.error(e)  # silently swallowed — NEVER do this in library code
+    logger.error(e)  # silently swallowed — NEVER do this in core modules
 ```
 
-Always propagate errors with enough context for the consumer to act, or convert infrastructure errors into domain errors at your abstraction boundary.
+Always propagate errors with enough context for the caller to act, or convert infrastructure errors into domain errors at your module boundary.
+
+Top-level handlers (MCP tool handlers, schedulers) may catch errors to prevent process termination — but they must still log them (see Rule 12) and return a structured error response to the client rather than continuing silently.
 
 ### 9. Use typed, domain-specific error types
 
@@ -73,9 +77,9 @@ Do not force consumers to parse error strings. Use a typed error hierarchy:
 
 Every error type must carry: classification, human-readable message, and structured data the consumer needs to act on (which field failed validation, what the rate limit reset time is).
 
-### 10. Wrap infrastructure errors at the boundary
+### 10. Wrap infrastructure errors at the module boundary
 
-Do not let raw infrastructure exceptions (`httpx.ConnectError`, `sqlite3.OperationalError`) cross your library boundary. A consumer should never need to import `httpx` or `sqlite3` to handle your errors. Catch infrastructure exceptions at the boundary and wrap them in your domain error types with the original as the cause.
+Do not let raw infrastructure exceptions (`httpx.ConnectError`, `sqlite3.OperationalError`) cross module boundaries. Callers — whether MCP tool handlers or higher-level modules — should not need to import `httpx` or `sqlite3` to handle errors from the fetcher or cache. Catch infrastructure exceptions at the module boundary and wrap them in your domain error types with the original as the cause.
 
 ### 11. Catch specific exceptions, not bare `except Exception:`
 
@@ -87,7 +91,7 @@ Always catch the narrowest exception type that covers the failure mode:
 
 Reserve `except Exception:` for top-level handlers and fire-and-forget background tasks where any failure must be suppressed to keep the process alive. Every other `except` block must name the specific exception types it handles.
 
-### 12. Use `exc_info=True` when logging caught exceptions
+### 12. Use `exc_info=True` when logging caught exceptions; never suppress silently
 
 When an `except` block catches and suppresses an error, always pass `exc_info=True` to the logger so the full traceback is captured. Do not stringify the exception into the message — structlog captures it structurally.
 
@@ -99,6 +103,22 @@ except aiosqlite.Error:
 # Wrong — traceback lost, exception stuffed into a string
 except aiosqlite.Error as e:
     log.warning("cache_write_error", key=cache_key, error=str(e))
+```
+
+**Silence is never acceptable — even when there is nothing to do.** If you suppress an exception because recovery is not possible, you must still log it. The user must be able to see the error in logs to investigate or report it. Never write an `except` block that contains only `pass` or only a comment.
+
+```python
+# Wrong — silent suppression; the error disappears completely
+except OSError:
+    pass  # NEVER do this
+
+# Wrong — a comment is not a log entry
+except OSError:
+    # best-effort, ignore  # NEVER do this
+
+# Correct — logged even though no recovery is attempted
+except OSError:
+    log.warning("state_file_write_failed", path=str(path), exc_info=True)
 ```
 
 ---
@@ -179,20 +199,14 @@ Enterprise consumers increasingly require provenance. Its absence is an adoption
 
 ---
 
-## Library Adoptability
+## Maintainability
 
 ### 21. Minimize runtime dependencies
 
-Zero dependencies is ideal. When that is not practical, justify every runtime dependency. Be aware of the cost each one imposes on consumers:
+Zero dependencies is ideal. When that is not practical, justify every runtime dependency. Each one has an ongoing cost:
 
-- Transitive CVEs land on consumers' SBOMs
-- Version conflicts with other libraries in the consumer's project
-- Bundle size becomes unpredictable
+- Transitive CVEs become your CVEs to track and patch
+- Every dependency is a potential supply-chain attack vector
+- More dependencies mean slower installs and larger container images
 
-When you inline a dependency, note the version and license in source comments. Do not add utility packages without considering the downstream implications.
-
-## Additional guidelines:
-
-1. **Type support quality** — not just "has types" but whether generics are useful and errors are typed.
-2. **Changelog quality** — document breaking changes and provide migration guides.
-3. **Forbidden imports inside functions** - no imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
+When you inline a small helper instead of adding a dependency, note the source, version, and license in a comment. Do not add utility packages without weighing the ongoing maintenance cost.
