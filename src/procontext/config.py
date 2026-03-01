@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -23,7 +23,8 @@ from pydantic_settings import (
 )
 
 _DEFAULT_DATA_DIR = platformdirs.user_data_dir("procontext")
-_DEFAULT_DB_PATH = str(Path(_DEFAULT_DATA_DIR) / "cache.db")
+# Cache path default is intentionally independent from data_dir overrides.
+_DEFAULT_DB_PATH = str(Path(platformdirs.user_data_dir("procontext")) / "cache.db")
 
 
 def _find_config_file() -> str | None:
@@ -39,6 +40,7 @@ def _find_config_file() -> str | None:
 
 
 class ServerSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "127.0.0.1"
     port: int = 8080
@@ -47,17 +49,20 @@ class ServerSettings(BaseModel):
 
 
 class RegistrySettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     metadata_url: str = "https://procontext.github.io/registry_metadata.json"
     poll_interval_hours: int = 24
 
 
 class CacheSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     ttl_hours: int = 24
     db_path: str = _DEFAULT_DB_PATH
     cleanup_interval_hours: int = 6
 
 
 class FetcherSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     ssrf_private_ip_check: bool = True
     ssrf_domain_check: bool = True
     allowlist_depth: Literal[0, 1, 2] = 0
@@ -66,11 +71,13 @@ class FetcherSettings(BaseModel):
 
 
 class ResolverSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     fuzzy_score_cutoff: int = 70
     fuzzy_max_results: int = 5
 
 
 class LoggingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     format: Literal["json", "text"] = "json"
 

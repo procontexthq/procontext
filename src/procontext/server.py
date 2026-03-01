@@ -21,6 +21,7 @@ import aiosqlite
 import structlog
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import CallToolResult, TextContent
+from pydantic import ValidationError
 
 import procontext.tools.get_library_docs as t_get_docs
 import procontext.tools.read_page as t_read_page
@@ -308,7 +309,11 @@ async def _run_setup(settings: Settings) -> None:
 
 
 def main() -> None:
-    settings = Settings()
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        print(f"Configuration error:\n{exc}", file=sys.stderr)
+        sys.exit(1)
     _setup_logging(settings)
 
     if len(sys.argv) > 1 and sys.argv[1] == "setup":
