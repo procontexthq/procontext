@@ -2,7 +2,7 @@
 
 > **Document**: 05-security-spec.md
 > **Status**: Draft v1
-> **Last Updated**: 2026-02-24
+> **Last Updated**: 2026-03-01
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -146,8 +146,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Controls**:
 
 - SHA-256 checksum validation on registry downloads. The metadata JSON provides the expected checksum; the downloaded registry is verified before use. On mismatch, the existing registry is retained. (02-technical-spec, Section 9)
-- Startup checksum validation of the local registry pair (`known-libraries.json` + `registry-state.json`) detects torn/partial writes and forces bundled fallback instead of trusting inconsistent local state. (02-technical-spec, Section 9)
-- Bundled fallback snapshot (`data/known-libraries.json`) shipped with the package provides a known-good baseline. (01-functional-spec, Section 6)
+- Startup checksum validation of the local registry pair (`known-libraries.json` + `registry-state.json`) detects torn/partial writes; an invalid pair triggers a fresh auto-setup download rather than trusting inconsistent local state. (02-technical-spec, Section 9)
 - Registry served over HTTPS from GitHub Pages — relies on GitHub's infrastructure security for transport integrity.
 
 **Residual risk**: If both the registry JSON and the metadata JSON (containing the checksum) are compromised simultaneously, the checksum provides no protection. This is a single-origin trust problem inherent to the architecture. Future mitigations: signed registries (GPG or Sigstore), multiple independent metadata sources.
@@ -189,7 +188,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.6 Dependency Supply Chain
 
-**Description**: ProContext has 9 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
+**Description**: ProContext has 10 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
 
 **Severity**: Medium
 
@@ -270,7 +269,7 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 | `<data_dir>/cache.db`                      | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents        |
 | `<data_dir>/cache.db`                      | `page_cache` table: full page markdown  | Avoid re-fetching documentation pages      |
 | `<data_dir>/registry/known-libraries.json` | Library registry                        | Local copy of the registry for offline use |
-| `<data_dir>/registry/registry-state.json`  | Registry metadata (`version`, `checksum`, `updated_at`) | Local version/checksum source for update checks |
+| `<data_dir>/registry/registry-state.json`  | Registry metadata (`version`, `checksum`, `updated_at`, `last_checked_at`) | Local version/checksum source for update checks; `last_checked_at` gates startup polling |
 
 ### What is NOT stored
 

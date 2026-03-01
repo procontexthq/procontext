@@ -2,7 +2,7 @@
 
 > **Document**: 03-implementation-guide.md
 > **Status**: Draft v2
-> **Last Updated**: 2026-02-23
+> **Last Updated**: 2026-03-01
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -63,14 +63,15 @@ procontext/
 │       │   ├── resolve_library.py    # Business logic for resolve_library
 │       │   ├── get_library_docs.py   # Business logic for get_library_docs
 │       │   └── read_page.py          # Business logic for read_page
-│       ├── registry.py               # Registry loading, index building, update check
+│       ├── registry.py               # Registry loading, index building, disk persistence, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
 │       ├── cache.py                  # SQLite cache: toc_cache + page_cache, stale-while-revalidate
+│       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
 │       ├── parser.py                 # Heading parser, code block suppression, line number tracking
 │       ├── transport.py              # MCPSecurityMiddleware for HTTP mode
 │       └── data/
-│           └── known-libraries.json  # Bundled registry snapshot (updated at release time)
+│           └── __init__.py           # Package marker (data/ has no runtime-loaded files)
 ├── tests/
 │   ├── conftest.py                   # Top-level fixtures shared across all tests
 │   ├── unit/
@@ -98,7 +99,7 @@ The structure enforces a strict layering. Violations (e.g., a tool importing fro
 | **Entrypoint**     | `server.py`                                          | Registers tools, wires `AppState`, starts transport. No business logic.                |
 | **Tools**          | `tools/*.py`                                         | One file per tool. Receives `AppState`, returns output dict. Raises `ProContextError`. |
 | **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py` | Pure business logic. No MCP imports. Typed against protocols, not concrete classes.    |
-| **Infrastructure** | `registry.py`, `config.py`, `transport.py`           | Setup and wiring. Run once at startup.                                                 |
+| **Infrastructure** | `registry.py`, `config.py`, `transport.py`, `schedulers.py` | Setup and wiring. Run once at startup; schedulers run as long-lived background coroutines. |
 | **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`   | No dependencies on other layers. Imported freely.                                      |
 
 **Adding a new tool**: Create `tools/new_tool.py`, register it in `server.py`. No other files change.
@@ -141,14 +142,17 @@ dependencies = [
 [project.scripts]
 procontext = "procontext.server:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=1.0.0",
     "pytest-mock>=3.12.0",
+    "pytest-cov>=7.0.0",                        # Coverage measurement and enforcement
     "respx>=0.21.0",                            # httpx request mocking
     "ruff>=0.11.0",
     "pyright>=1.1.400",                         # Type checking (also run in CI)
+    "pip-audit>=2.7.0,<3.0.0",                 # Dependency vulnerability scanning
+    "python-semantic-release>=9.0.0,<10.0.0",  # Changelog generation + PyPI publishing
 ]
 
 [tool.pytest.ini_options]
@@ -222,21 +226,7 @@ async def get_toc(self, library_id: str) -> Optional[TocCacheEntry]: ...
 
 **Pydantic at all external boundaries.** Tool inputs are validated via Pydantic models before any processing. Registry JSON is parsed into `RegistryEntry` models on load. Never pass raw dicts between modules — use typed models.
 
-**Bundled data via `importlib.resources`.** Do not use `__file__`-relative paths to locate `known-libraries.json`. They break inside zip archives and editable installs.
-
-```python
-# Correct
-from importlib.resources import files
-import json
-
-def load_bundled_registry() -> list[dict]:
-    text = files("procontext.data").joinpath("known-libraries.json").read_text(encoding="utf-8")
-    return json.loads(text)
-
-# Incorrect
-import os
-path = os.path.join(os.path.dirname(__file__), "data", "known-libraries.json")
-```
+**Platform-aware data paths.** All filesystem defaults use `platformdirs` — never hardcode Unix paths like `~/.local/share/`. The registry and cache files live under `platformdirs.user_data_dir("procontext")` and are resolved via `Settings.data_dir`.
 
 ### 3.2 Protocol Interfaces
 
@@ -252,9 +242,30 @@ from procontext.models import TocCacheEntry, PageCacheEntry
 
 class CacheProtocol(Protocol):
     async def get_toc(self, library_id: str) -> TocCacheEntry | None: ...
-    async def set_toc(self, library_id: str, url: str, content: str, ttl_hours: int) -> None: ...
+    async def set_toc(
+        self,
+        library_id: str,
+        llms_txt_url: str,
+        content: str,
+        ttl_hours: int,
+        *,
+        discovered_domains: frozenset[str] = frozenset(),
+    ) -> None: ...
     async def get_page(self, url_hash: str) -> PageCacheEntry | None: ...
-    async def set_page(self, url: str, url_hash: str, content: str, ttl_hours: int) -> None: ...
+    async def set_page(
+        self,
+        url: str,
+        url_hash: str,
+        content: str,
+        headings: str,
+        ttl_hours: int,
+        *,
+        discovered_domains: frozenset[str] = frozenset(),
+    ) -> None: ...
+    async def load_discovered_domains(
+        self, *, include_toc: bool, include_pages: bool
+    ) -> frozenset[str]: ...
+    async def cleanup_if_due(self, interval_hours: int) -> None: ...
     async def cleanup_expired(self) -> None: ...
 
 class FetcherProtocol(Protocol):
@@ -269,21 +280,33 @@ All shared state lives in `AppState` (`state.py`), instantiated once at startup 
 
 ```python
 # state.py
-from dataclasses import dataclass
-from procontext.config import Settings
-from procontext.registry import RegistryIndexes
-from procontext.protocols import CacheProtocol, FetcherProtocol
+from __future__ import annotations
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
 import httpx
+
+if TYPE_CHECKING:
+    from procontext.config import Settings
+    from procontext.models.registry import RegistryIndexes
+    from procontext.protocols import CacheProtocol, FetcherProtocol
 
 @dataclass
 class AppState:
+    # Phase 0
     settings: Settings
+
+    # Phase 1: Registry & Resolution
     indexes: RegistryIndexes
-    registry_version: str
-    http_client: httpx.AsyncClient
-    cache: CacheProtocol       # Typed as protocol, not concrete Cache
-    fetcher: FetcherProtocol   # Typed as protocol, not concrete Fetcher
-    allowlist: frozenset[str]
+    registry_version: str = ""
+    registry_path: Path | None = None           # Path to known-libraries.json on disk
+    registry_state_path: Path | None = None     # Path to registry-state.json on disk
+
+    # Phase 2: Fetcher & Cache
+    http_client: httpx.AsyncClient | None = None
+    cache: CacheProtocol | None = None          # Typed as protocol, not concrete Cache
+    fetcher: FetcherProtocol | None = None      # Typed as protocol, not concrete Fetcher
+    allowlist: frozenset[str] = field(default_factory=frozenset)
 ```
 
 `AppState` is passed into the server via FastMCP's lifespan context and flows into tool handlers through the MCP `Context` object:
@@ -420,7 +443,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 1: Registry & Resolution
 
-**Goal**: `resolve_library` tool is fully functional. Registry loads from the bundled snapshot in this phase. Fuzzy matching works.
+**Goal**: `resolve_library` tool is fully functional. Registry loads from the local disk pair in this phase. Fuzzy matching works.
 
 **Phase boundary note**: End-state registry behavior is local-first (`<data_dir>/registry/known-libraries.json`, where `<data_dir>` is resolved by `platformdirs.user_data_dir("procontext")`) with background update checks. That behavior is implemented in **Phase 5** (`check_for_registry_update()`, `save_registry_to_disk()`, background tasks), not Phase 1.
 
@@ -437,7 +460,7 @@ echo '{}' | uv run procontext  # Responds without crash
 | `src/procontext/tools/resolve_library.py`  | `handle(query, state) -> dict`                                   |
 | `src/procontext/state.py`                  | Add `indexes`, `registry_version` fields                         |
 | `src/procontext/server.py`                 | Register `resolve_library` tool, initialise registry in lifespan |
-| `src/procontext/data/known-libraries.json` | Bundled registry snapshot (download latest from GitHub Pages)    |
+| `src/procontext/data/__init__.py`           | Package marker — the `data/` directory has no runtime-loaded files |
 | `tests/unit/test_resolver.py`              | See testing section                                              |
 
 **Key behaviours to verify**:
@@ -561,9 +584,9 @@ echo '{}' | uv run procontext  # Responds without crash
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
 - Successful update persists both `known-libraries.json` and `registry-state.json`
-- Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid/incomplete pair falls back to bundled snapshot with `local_version="unknown"` without blocking startup
+- Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid pair triggers auto-setup (blocking network fetch); if that also fails, server exits with actionable error
 - `save_registry_to_disk()` uses temp files + fsync + atomic replace (no partially written destination files)
-- Simulated interrupted write leaves startup in a safe state (either previous valid pair or bundled fallback)
+- Simulated interrupted write leaves startup in a safe state (either previous valid pair or clean auto-setup attempt)
 - HTTP mode scheduler: successful checks run every 24 hours
 - HTTP mode scheduler: transient failures use exponential backoff + jitter (1 minute to 60 minutes cap)
 - HTTP mode scheduler: after 8 consecutive transient failures, counter and backoff reset, cadence returns to 24 hours; next round gets a fresh set of fast-retry attempts
@@ -860,13 +883,8 @@ jobs:
 `python-semantic-release` and its `[tool.semantic_release]` config in `pyproject.toml` are added in Phase 5 — the release pipeline is not needed until the project is ready to publish.
 
 ```toml
-# Added to pyproject.toml in Phase 5:
-
-[project.optional-dependencies]
-dev = [
-    ...
-    "python-semantic-release>=9.0.0,<10.0.0",  # Changelog generation + PyPI publishing
-]
+# Already present in pyproject.toml [dependency-groups].dev:
+# "python-semantic-release>=9.0.0,<10.0.0",  # Changelog generation + PyPI publishing
 
 [tool.semantic_release]
 version_variables = ["src/procontext/__init__.py:__version__"]

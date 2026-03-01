@@ -2,7 +2,7 @@
 
 > **Document**: 04-api-reference.md
 > **Status**: Draft v1
-> **Last Updated**: 2026-02-23
+> **Last Updated**: 2026-03-01
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -53,7 +53,7 @@ ProContext implements the [Model Context Protocol](https://modelcontextprotocol.
 
 **HTTP transport**: JSON-RPC messages are sent as HTTP POST to `/mcp`. Server-sent events (SSE) are streamed as HTTP GET from `/mcp`. Session identity is tracked via the `MCP-Session-Id` header.
 
-Both transports expose the identical set of tools and resources.
+Both transports expose the identical set of tools. MCP resources are planned but not yet implemented (see Section 5).
 
 ---
 
@@ -678,6 +678,8 @@ Note: `headings` is identical in both responses — it always covers the full pa
 
 ## 5. Resource: session/libraries
 
+> **Status**: Planned — not yet implemented. The server currently registers no MCP resources. This section documents the intended design for a future release.
+
 ### 5.1 URI
 
 ```
@@ -850,25 +852,34 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 {
   "mcpServers": {
     "procontext": {
-      "command": "uvx",
-      "args": ["procontext"]
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/procontext", "procontext"]
     }
   }
 }
 ```
 
+> **Note**: Once published to PyPI this simplifies to `"command": "uvx", "args": ["procontext"]`.
+
 **With a local config file**:
+
+Place `procontext.yaml` in the directory you run the command from, or in the platform config directory (`platformdirs.user_config_dir("procontext")`). There is no `--config` CLI flag — the config file is discovered automatically.
 
 ```json
 {
   "mcpServers": {
     "procontext": {
-      "command": "uvx",
-      "args": ["procontext", "--config", "/path/to/procontext.yaml"]
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/procontext", "procontext"],
+      "env": {
+        "PROCONTEXT__CACHE__TTL_HOURS": "48"
+      }
     }
   }
 }
 ```
+
+Settings can also be passed as environment variables using the `PROCONTEXT__` prefix with `__` as the nested delimiter.
 
 **Process lifecycle**: The MCP client manages the process. ProContext exits when stdin is closed.
 
@@ -895,9 +906,9 @@ server:
 ```
 
 ```bash
-uvx procontext --config procontext.yaml
-# or via env var:
-PROCONTEXT__SERVER__TRANSPORT=http uvx procontext
+uv run procontext
+# or via env var (no config file needed):
+PROCONTEXT__SERVER__TRANSPORT=http uv run procontext
 ```
 
 **Request headers**:
@@ -955,7 +966,7 @@ ProContext follows [Semantic Versioning](https://semver.org) (`MAJOR.MINOR.PATCH
 | Bug fix, performance improvement       | PATCH        |
 | Registry update (no server change)     | No bump      |
 
-The server version is returned in the `initialize` response (`serverInfo.version`) and in the `X-ProContext-Version` HTTP response header (HTTP transport).
+The server version is returned in the `initialize` response (`serverInfo.version`).
 
 ### MCP Protocol Version
 
@@ -972,4 +983,4 @@ When a new MCP specification version is published, ProContext adds support in th
 
 The library registry (`known-libraries.json`) has its own version, independent of the server version. The registry is updated weekly on GitHub Pages. The server downloads the latest registry in the background at startup. Registry version changes never require a server update — the server is always forward-compatible with newer registry files.
 
-The current registry version loaded by a running server instance is visible in the `server_started` log event (`registry_version` field). This value is sourced from `<data_dir>/registry/registry-state.json` (where `<data_dir>` is resolved by `platformdirs.user_data_dir("procontext")`) when a valid local registry pair is present. If the local pair is missing or invalid (for example, first run after upgrading), startup falls back to the bundled snapshot and `registry_version` is `"unknown"` until a successful background update persists a valid pair.
+The current registry version loaded by a running server instance is visible in the `server_started` log event (`registry_version` field). This value is sourced from `<data_dir>/registry/registry-state.json` (where `<data_dir>` is resolved by `platformdirs.user_data_dir("procontext")`) when a valid local registry pair is present. If the local pair is missing or invalid (for example, first run before `procontext setup` has been run), the server attempts a one-time auto-setup; `registry_version` remains `"unknown"` if that also fails and the server exits with an error.

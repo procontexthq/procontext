@@ -2,7 +2,7 @@
 
 > **Document**: 01-functional-spec.md
 > **Status**: Draft v1
-> **Last Updated**: 2026-02-22
+> **Last Updated**: 2026-03-01
 
 ---
 
@@ -232,7 +232,7 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 
 - No network exposure — entirely local
 - Process lifecycle managed by the MCP client
-- Registry loaded from local disk when a valid local registry pair exists (`<data_dir>/registry/known-libraries.json` + `registry-state.json`), otherwise bundled snapshot fallback
+- Registry loaded from local disk when a valid local registry pair exists (`<data_dir>/registry/known-libraries.json` + `registry-state.json`). If no valid pair is found, the server attempts a one-time auto-setup (network fetch); if that also fails, it exits with an actionable error pointing to `procontext setup`.
 - SQLite database at `<data_dir>/cache.db`
 - No authentication required
 
@@ -242,12 +242,14 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 {
   "mcpServers": {
     "procontext": {
-      "command": "uvx",
-      "args": ["procontext"]
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/procontext", "procontext"]
     }
   }
 }
 ```
+
+> **Note**: Once published to PyPI, this simplifies to `"command": "uvx", "args": ["procontext"]`. Until then, use the `uv run` form above.
 
 ### 5.2 HTTP Transport
 
@@ -288,19 +290,20 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 
 1. Attempt to load local registry pair from `<data_dir>/registry/known-libraries.json` and `<data_dir>/registry/registry-state.json`
 2. Validate the pair (`known-libraries.json` parses, `registry-state.json` parses, checksum matches)
-3. If either file is missing or the pair is invalid: ignore local pair and fall back to bundled snapshot (shipped with the package)
+3. If either file is missing or the pair is invalid: attempt a one-time auto-setup (network fetch of registry). If auto-setup also fails, the server exits with an error message pointing to `procontext setup`.
 4. In the background: check the configured registry URL for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory in HTTP long-running mode (registry indexes + SSRF allowlist updated together).
 
 **Local state sidecar** (`registry-state.json`):
 
-- Stores metadata for the currently active local registry copy: `version`, `checksum`, `updated_at`
-- Is written whenever a background registry update is accepted
+- Stores metadata for the currently active local registry copy: `version`, `checksum`, `updated_at`, `last_checked_at`
+- `updated_at` is written whenever a background registry update is accepted (new version downloaded)
+- `last_checked_at` is written after every successful update check — even when the registry is already current — and is used to gate the startup check in stdio mode (see below)
 - Is persisted atomically with `known-libraries.json` as a consistency unit (temp file + fsync + atomic rename)
 - Is used as the source of truth for `registry_version` on startup when loading from disk
 
 **Update scheduling policy**:
 
-- Both transports perform one registry update check at startup
+- At startup, both transports attempt one registry update check, **gated by `last_checked_at`**: if the state file shows a check was performed within the configured `poll_interval_hours`, the startup check is skipped. This prevents redundant metadata fetches when a stdio server is restarted frequently.
 - In HTTP long-running mode, successful checks follow a steady 24-hour cadence
 - In HTTP long-running mode, **transient** failures (network timeout/DNS/connection issues, upstream 5xx) retry with exponential backoff (starting at 1 minute, capped at 60 minutes, with jitter)
 - In HTTP long-running mode, after `8` consecutive transient failures, the failure counter and backoff reset, and checks return to 24-hour cadence. The next round gets a fresh set of fast-retry attempts.
@@ -311,9 +314,10 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 
 - Package name → library ID (many-to-one): `"langchain-openai"` → `"langchain"`
 - Library ID → full registry entry (one-to-one)
-- Alias + ID corpus for fuzzy matching
+- Alias → library ID (exact alias lookup, e.g. `"torch"` → `"pytorch"`)
+- Library ID + alias corpus for fuzzy matching (rapidfuzz, 70% threshold)
 
-These three indexes serve all `resolve_library` lookups. No database reads during resolution.
+These four indexes serve all `resolve_library` lookups. No database reads during resolution.
 
 ---
 
@@ -324,7 +328,7 @@ These three indexes serve all `resolve_library` lookups. No database reads durin
 All documentation is fetched via plain HTTP GET. ProContext uses `httpx` with:
 
 - Manual redirect handling (each redirect target is validated against the SSRF allowlist before following)
-- 30-second request timeout
+- Configurable request timeout (default: 30 seconds; see `fetcher.request_timeout_seconds`)
 - Maximum 3 redirect hops
 
 ### Cache

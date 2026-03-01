@@ -29,7 +29,9 @@ uvx procontext
 
 ```bash
 git clone https://github.com/procontexthq/procontext.git
-cd procontext && uv sync
+cd procontext
+uv sync
+uv run procontext setup   # download the library registry (one-time)
 ```
 
 Add to your MCP client config:
@@ -139,7 +141,10 @@ Config, cache, and data paths resolve automatically on Windows, macOS, and Linux
 git clone https://github.com/procontexthq/procontext.git
 cd procontext
 uv sync
+uv run procontext setup   # download the library registry (one-time, requires network)
 ```
+
+> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, the server will attempt a one-time auto-setup on first run — if the network is unavailable at that point, it will exit with an actionable error.
 
 ### stdio mode (default)
 

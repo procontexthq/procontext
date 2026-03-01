@@ -2,7 +2,7 @@
 
 > **Document**: 02-technical-spec.md
 > **Status**: Draft v1
-> **Last Updated**: 2026-02-23
+> **Last Updated**: 2026-03-01
 > **Depends on**: 01-functional-spec.md
 
 ---
@@ -340,7 +340,7 @@ class ProContextError(Exception):
 
 ### 4.1 In-Memory Indexes
 
-Loaded from `known-libraries.json` at startup. Three Python dicts rebuilt in a single pass (<100ms for 1,000 entries):
+Loaded from `known-libraries.json` at startup. Four Python dicts/lists rebuilt in a single pass (<100ms for 1,000 entries):
 
 ```python
 @dataclass
@@ -352,13 +352,18 @@ class RegistryIndexes:
     # Index 2: library ID (lowercase) → full RegistryEntry
     by_id: dict[str, RegistryEntry]
 
-    # Index 3: flat list of (term, library_id) for fuzzy matching
+    # Index 3: alias (lowercase) → library ID (O(1) exact alias lookup)
+    # e.g. "torch" → "pytorch"
+    by_alias: dict[str, str]
+
+    # Index 4: flat list of (term, library_id) for fuzzy matching
     # Populated from: all IDs + all package names + all aliases (lowercased)
     fuzzy_corpus: list[tuple[str, str]]
 
 def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
     by_package: dict[str, str] = {}
     by_id: dict[str, RegistryEntry] = {}
+    by_alias: dict[str, str] = {}
     fuzzy_corpus: list[tuple[str, str]] = []
 
     for entry in entries:
@@ -370,11 +375,13 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
             fuzzy_corpus.append((pkg.lower(), entry.id))
 
         for alias in entry.aliases:
+            by_alias[alias.lower()] = entry.id
             fuzzy_corpus.append((alias.lower(), entry.id))
 
     return RegistryIndexes(
         by_package=by_package,
         by_id=by_id,
+        by_alias=by_alias,
         fuzzy_corpus=fuzzy_corpus,
     )
 ```
@@ -395,8 +402,8 @@ Step 2: Exact ID match
         "langchain" → RegistryEntry  ✓
 
 Step 3: Alias match
-        Linear scan of fuzzy_corpus for exact string equality
-        "lang-chain" → "langchain"  ✓
+        indexes.by_alias.get(normalised)   # O(1) dict lookup
+        "torch" → "pytorch"  ✓
 
 Step 4: Fuzzy match (Levenshtein)
         rapidfuzz.process.extract against fuzzy_corpus terms
@@ -623,7 +630,8 @@ async def fetch(
                     suggestion="The documentation URL has an unusually long redirect chain.",
                     recoverable=False,
                 )
-            current_url = str(response.next_request.url)
+            location = response.headers["location"]
+            current_url = urljoin(current_url, location)  # resolves relative redirects
             continue
 
         if not response.is_success:
@@ -684,29 +692,25 @@ CREATE INDEX IF NOT EXISTS idx_page_expires  ON page_cache(expires_at);
 
 ### 6.2 Stale-While-Revalidate
 
+`Cache.get_toc()` marks the entry as stale but does **not** launch the background task — that responsibility belongs to the tool handler, which has the full `AppState` (fetcher, allowlist, settings) needed to do the re-fetch.
+
 ```python
+# In Cache.get_toc() — marks stale, returns entry; does NOT create a task
 async def get_toc(self, library_id: str) -> TocCacheEntry | None:
     entry = await self.db.fetch_toc(library_id)
     if entry is None:
         return None
     if entry.expires_at < datetime.now(UTC):
         entry.stale = True
-        asyncio.create_task(self._refresh_toc(library_id))  # background
     return entry
 
-async def _refresh_toc(self, library_id: str) -> None:
-    log = structlog.get_logger().bind(tool="get_library_docs", library_id=library_id)
-    try:
-        content = await self.fetcher.fetch_text(llms_txt_url, self.allowlist)
-        await self.db.upsert_toc(library_id, content, ttl_hours=24)
-        log.info("stale_refresh_complete", key=f"toc:{library_id}")
-    except Exception:
-        # Non-fatal: stale content continues to be served; retry on next request.
-        # exc_info=True captures the full traceback — required for suppressed exceptions.
-        log.warning("stale_refresh_failed", key=f"toc:{library_id}", exc_info=True)
+# In tools/get_library_docs.py — tool handler launches the background refresh
+toc = await state.cache.get_toc(library_id)
+if toc is not None and toc.stale:
+    asyncio.create_task(_refresh_toc(state, library_id, llms_txt_url))
 ```
 
-The same pattern applies to `page_cache`. The agent always gets a response immediately — a background `asyncio.create_task` handles the refresh without blocking.
+The same pattern applies to `page_cache`. The agent always gets a response immediately — a background `asyncio.create_task` in the tool handler handles the refresh without blocking.
 
 **Why `except Exception` and not `except ProContextError`**: Background refresh failures include both expected errors (`ProContextError` — e.g., fetch failed, URL not allowed) and unexpected ones (network timeouts not yet wrapped, `aiosqlite` write failures). Catching only `ProContextError` would let infrastructure exceptions escape and crash the background task silently. `except Exception` with `exc_info=True` ensures all failures are logged and the server continues serving stale content regardless of the failure type.
 
@@ -963,7 +967,7 @@ Two registry artefacts live on disk:
 | Artefact | Location | Purpose |
 |---|---|---|
 | **Local registry** | `<data_dir>/registry/known-libraries.json` | Downloaded by `procontext setup` and updated by the background scheduler. |
-| **Local state file** | `<data_dir>/registry/registry-state.json` | Stores `version`, `sha256` checksum, and `updated_at` for the local registry. |
+| **Local state file** | `<data_dir>/registry/registry-state.json` | Stores `version`, `sha256` checksum, `updated_at`, and `last_checked_at` for the local registry. |
 
 `<data_dir>` defaults to `platformdirs.user_data_dir("procontext")` and can be overridden via `PROCONTEXT__DATA_DIR`.
 
@@ -973,9 +977,13 @@ Two registry artefacts live on disk:
 {
   "version": "2026-02-24",
   "checksum": "sha256:abc123...",
-  "updated_at": "2026-02-24T07:10:00Z"
+  "updated_at": "2026-02-24T07:10:00Z",
+  "last_checked_at": "2026-02-25T08:00:00Z"
 }
 ```
+
+- `updated_at` — set only when a new registry version is actually downloaded and persisted.
+- `last_checked_at` — set after every successful update check, even when the registry is already current. Used to gate the startup check in stdio mode: if the gap between now and `last_checked_at` is less than `registry.poll_interval_hours`, the startup check is skipped to avoid redundant metadata fetches on frequent restarts.
 
 The local registry pair (both files together) is the consistency unit. If either file is missing, cannot be parsed, or the checksum in the state file does not match `sha256(known-libraries.json)`, the pair is considered invalid and the server treats it as if no registry exists.
 
@@ -1153,6 +1161,7 @@ server:
 registry:
   url: "https://procontext.github.io/known-libraries.json"
   metadata_url: "https://procontext.github.io/registry_metadata.json"
+  poll_interval_hours: 24      # How often to check for a new registry version
 
 cache:
   ttl_hours: 24
@@ -1166,6 +1175,11 @@ fetcher:
   extra_allowed_domains:       # always trusted, merged at startup regardless of depth
     - github.com
     - githubusercontent.com
+  request_timeout_seconds: 30.0 # per-request read timeout for documentation fetches
+
+resolver:
+  fuzzy_score_cutoff: 70        # minimum rapidfuzz score (0–100) for a fuzzy match to count
+  fuzzy_max_results: 5          # maximum number of fuzzy candidates returned
 
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
@@ -1195,6 +1209,7 @@ class ServerSettings(BaseModel):
 class RegistrySettings(BaseModel):
     url: str = "https://procontext.github.io/known-libraries.json"
     metadata_url: str = "https://procontext.github.io/registry_metadata.json"
+    poll_interval_hours: int = 24
 
 class CacheSettings(BaseModel):
     ttl_hours: int = 24
@@ -1206,6 +1221,11 @@ class FetcherSettings(BaseModel):
     ssrf_domain_check: bool = True
     allowlist_depth: Literal[0, 1, 2] = 0
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
+    request_timeout_seconds: float = 30.0
+
+class ResolverSettings(BaseModel):
+    fuzzy_score_cutoff: int = 70
+    fuzzy_max_results: int = 5
 
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -1221,10 +1241,12 @@ class Settings(BaseSettings):
         yaml_file_encoding="utf-8",
     )
 
+    data_dir: str = _DEFAULT_DATA_DIR  # platformdirs.user_data_dir("procontext")
     server: ServerSettings = ServerSettings()
     registry: RegistrySettings = RegistrySettings()
     cache: CacheSettings = CacheSettings()
     fetcher: FetcherSettings = FetcherSettings()
+    resolver: ResolverSettings = ResolverSettings()
     logging: LoggingSettings = LoggingSettings()
 
     @classmethod
@@ -1277,7 +1299,7 @@ async def get_library_docs_handler(library_id: str) -> dict:
 | Event                    | Fields                                               |
 | ------------------------ | ---------------------------------------------------- |
 | `server_started`         | `transport`, `version`, `registry_entries`, `registry_version` |
-| `registry_loaded`        | `version`, `entries`, `source` (`disk` \| `bundled`) — for `disk`, `version` comes from `registry-state.json`; for `bundled`, `version` is `"unknown"` |
+| `registry_loaded`        | `version`, `entries`, `source` (`disk`) — `version` comes from `registry-state.json` |
 | `registry_updated`       | `version`, `entries`                                 |
 | `registry_local_pair_invalid` | `reason`, `path_registry`, `path_state`       |
 | `registry_persist_failed` | `version`, `error`                                   |

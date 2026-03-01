@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New configurable settings** — fetch timeout, fuzzy match score cutoff,
   fuzzy max results, and registry poll interval are now exposed via
   `procontext.yaml` or `PROCONTEXT__*` environment variables.
+- **`last_checked_at` field in `registry-state.json`** — written after every
+  successful update check (even when the registry is already current). In stdio
+  mode, the startup check is skipped if this timestamp is within the configured
+  `poll_interval_hours`, avoiding redundant metadata fetches on frequent
+  restarts.
 
 ### Changed
 
