@@ -23,6 +23,13 @@ You must:
    - ❌ One giant commit/day: hard to review, hard to revert, hard to bisect.
    - ❌ A commit for every tiny edit: noise, harder to understand history.
 5. Commit only the changes relevant to the current session. If there are other pending changes, ask the user whether you should commit them as well.
+6. **Run all checks before pushing**
+   ```bash
+   uv run ruff check src/ tests/
+   uv run ruff format src/ tests/
+   uv run pyright src/
+   uv run pytest
+   ```
 
 ## Specifications
 
@@ -97,9 +104,11 @@ The middleware enforces three checks in order: bearer auth → origin validation
 
 ## Changelog Maintenance
 
-`CHANGELOG.md` is maintained via the `/changelog-release` skill — use it after committing to populate `[Unreleased]`, or with a version number to finalize a release section.
+`CHANGELOG.md` is maintained via the `/changelog-release` skill — use it before committing to populate `[Unreleased]`, or with a version number to finalize a release section.
 
 ## Coding Guidelines
+
+**After making changes, you must run linting, formatting, type checks, and pytest to verify the codebase is clean and all tests pass..**
 
 This project follows a set of non-obvious coding guidelines specifically for public library development. These must be applied when writing or reviewing any code in this repo.
 

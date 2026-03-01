@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`procontext setup` command** — one-time CLI command that downloads and
+  persists the registry to the platform data directory. Run this after
+  installing before starting the server for the first time.
+- **Auto-setup on first run** — if no local registry is found at startup, the
+  server attempts a one-time fetch automatically before failing with an
+  actionable error message pointing to `procontext setup`.
+- **New configurable settings** — fetch timeout, fuzzy match score cutoff,
+  fuzzy max results, and registry poll interval are now exposed via
+  `procontext.yaml` or `PROCONTEXT__*` environment variables.
+
+### Changed
+
+- **Bundled registry snapshot removed** — the server no longer ships with an
+  embedded registry. Use `procontext setup` to initialise the registry before
+  first use (or let the auto-setup fallback handle it on the first run).
+
 ## [0.1.0] - 2026-02-28
 
 ### Added

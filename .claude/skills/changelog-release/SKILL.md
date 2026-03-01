@@ -6,19 +6,15 @@ user-invokable: true
 ---
 
 Arguments: $ARGUMENTS
-Today's date: !`date +%Y-%m-%d`
-Last release tag: !`git describe --tags --abbrev=0 2>/dev/null || echo "none"`
-
-Commits since last tag:
-!`git log $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD --pretty=format:"  %h %s"`
 
 ---
 
-Read CHANGELOG.md, then act based on the arguments above.
+Read CHANGELOG.md, then act based on the arguments.
 
 ## Mode 1 — Populate [Unreleased] (no version argument given)
 
 Filter the commit list. Skip:
+
 - `chore(release):` version bump commits
 - `test:` commits
 - `ci:` commits
@@ -26,15 +22,19 @@ Filter the commit list. Skip:
 - Merge commits
 
 Group the remaining commits into Keep a Changelog subsections:
+
 - `feat:` → **Added**
 - `fix:` → **Fixed**
 - Any commit mentioning security, SSRF, auth, or vulnerability → **Security**
 - `refactor:` or `chore:` that changes observable behavior → **Changed**
 - `refactor:` or `chore:` with no user-visible impact → skip
 
+A change is **user-facing** if it affects someone installing, configuring, or using the server: new CLI commands or tools, changed behaviour they relied on, config options added or removed, breakage requiring action on their part, or security fixes. Internal refactors with identical observable behaviour, spec/doc edits, CI changes, and test-only changes are not user-facing and must be skipped.
+
 Write clean, user-facing prose entries under `## [Unreleased]`. Do not copy raw commit subject lines — rewrite them as clear, concise changelog entries describing what changed for someone using the library.
 
 Rules:
+
 - Only add entries not already present in `[Unreleased]`
 - Do not touch any existing versioned release sections
 - If there is nothing user-facing to add, say so and make no edits
