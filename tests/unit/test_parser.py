@@ -125,6 +125,28 @@ class TestLineNumbering:
         assert result == "1: # Title\n3: ## Overview\n11: ### Details"
 
 
+class TestIndentedHeadings:
+    """CommonMark allows up to 3 spaces of indentation before the # character."""
+
+    def test_one_space_indent(self) -> None:
+        assert parse_headings(" # Title") == "1:  # Title"
+
+    def test_two_space_indent(self) -> None:
+        assert parse_headings("  ## Section") == "1:   ## Section"
+
+    def test_three_space_indent(self) -> None:
+        assert parse_headings("   ### Sub") == "1:    ### Sub"
+
+    def test_four_space_indent_not_a_heading(self) -> None:
+        # 4+ spaces is a code block in CommonMark, not a heading
+        assert parse_headings("    # Not a heading") == ""
+
+    def test_indented_heading_preserves_original_line_in_output(self) -> None:
+        # Output should include the original indentation
+        result = parse_headings("  ## Section")
+        assert result == "1:   ## Section"
+
+
 class TestEdgeCases:
     """Edge cases: empty input, all code, large documents."""
 

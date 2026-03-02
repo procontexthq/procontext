@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-_HEADING_RE = re.compile(r"^(#{1,4}) (.+)")
+_HEADING_RE = re.compile(r"^ {0,3}(#{1,4}) (.+)")
 
 
 def parse_headings(content: str) -> str:
@@ -44,7 +44,7 @@ def parse_headings(content: str) -> str:
         if in_code_block:
             continue
 
-        # Rule 2: heading detection (H1–H4)
+        # Rule 2: heading detection (H1–H4, up to 3 spaces of indentation allowed)
         match = _HEADING_RE.match(line)
         if not match:
             continue
