@@ -4,14 +4,36 @@
 
 **Accurate, live library documentation for AI coding agents.**
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![MCP 2025-11-25](https://img.shields.io/badge/MCP-2025--11--25-green.svg)](https://modelcontextprotocol.io)
-[![llms.txt](https://img.shields.io/badge/llms.txt-supported-blue)](https://llmstxt.org)
+[![License: GPL v3][license-badge]][license-url]
+[![Python 3.12+][python-badge]][python-url]
+[![Protocol][protocol-badge]][protocol-url]
+[![Specification][spec-badge]][spec-url]
 
 </div>
 
-ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that gives AI coding agents - Claude Code, Cursor, Windsurf - accurate, up-to-date documentation for the libraries they write code with. It prevents hallucinated APIs by serving real documentation on demand from a curated, pre-validated registry.
+ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that gives AI coding agents - Claude Code, Cursor, Codex - accurate, up-to-date documentation for the libraries they write code with. It prevents hallucinated APIs by serving real documentation on demand from a curated, pre-validated registry.
+
+---
+
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [The Problem](#the-problem)
+- [Features](#features)
+- [Installation](#installation)
+- [Integrations](#integrations)
+- [Platform Support](#platform-support)
+- [Registry](#registry)
+- [Contributing](#contributing)
+- [License](#license)
+
+[license-badge]: https://img.shields.io/badge/License-GPLv3-blue.svg
+[license-url]: https://www.gnu.org/licenses/gpl-3.0
+[python-badge]: https://img.shields.io/badge/python-3.12%2B-blue.svg
+[python-url]: https://www.python.org/downloads/
+[protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
+[protocol-url]: https://modelcontextprotocol.io
+[spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
+[spec-url]: https://modelcontextprotocol.io/specification/latest
 
 ---
 
@@ -61,7 +83,6 @@ resolve_library({ "query": "langchain>=0.2" })
 → {
     "library_id": "langchain",
     "name": "LangChain",
-    "docs_url": "https://docs.langchain.com",
     "matched_via": "package_name",
     "relevance": 1.0
   }
@@ -144,7 +165,7 @@ uv sync
 uv run procontext setup   # download the library registry (one-time, requires network)
 ```
 
-> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, the server will attempt a one-time auto-setup on first run — if the network is unavailable at that point, it will exit with an actionable error.
+> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, the server will attempt a one-time auto-setup on first run - if the network is unavailable at that point, it will exit with an actionable error.
 
 ### stdio mode (default)
 
@@ -192,24 +213,9 @@ uv run procontext
 
 ## Integrations
 
-### Claude Code
+### stdio (Claude Code, Claude Desktop, Cursor, Windsurf, and others)
 
-Add to `.claude/mcp_config.json` (project-level) or `~/.claude/mcp_config.json` (global):
-
-```json
-{
-  "mcpServers": {
-    "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"]
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+Add to your MCP client config:
 
 ```json
 {
@@ -222,19 +228,10 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-### Codex / Cursor / Antigravity / Windsurf
+For Claude Code, you can also add it from the CLI:
 
-Add to your MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"]
-    }
-  }
-}
+```bash
+claude mcp add procontext -- uv run --project /path/to/procontext procontext
 ```
 
 ### HTTP mode (shared deployments)
@@ -251,23 +248,31 @@ Point your MCP client at the server URL:
 }
 ```
 
+For Claude Code:
+
+```bash
+claude mcp add --transport http procontext http://your-server:8080/mcp
+```
+
 ---
 
 ## Platform Support
 
-All filesystem paths resolve automatically - no manual configuration needed.
-
-| Platform | Config & data directory                    |
-| -------- | ------------------------------------------ |
-| Linux    | `~/.local/share/procontext`                |
-| macOS    | `~/Library/Application Support/procontext` |
-| Windows  | `%LOCALAPPDATA%\procontext`                |
+All filesystem paths (config, cache, data) resolve automatically via `platformdirs` - no manual configuration needed on any platform.
 
 ---
 
 ## Documentation
 
 Design decisions, architecture, and API reference are in [`docs/specs/`](docs/specs/).
+
+---
+
+## Registry
+
+The library registry is maintained in a separate repository: **[procontexthq/procontexthq.github.io](https://github.com/procontexthq/procontexthq.github.io)**
+
+If you want to add a library or update an existing entry, open a PR there - not here. Registry PRs opened in this repository will be closed without review.
 
 ---
 

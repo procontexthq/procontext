@@ -10,7 +10,7 @@ For non-trivial changes - new tools, architectural decisions, changes that touch
 
 This isn't gatekeeping; it's to avoid wasted effort. A PR that conflicts with the roadmap or an already-planned design decision will be closed regardless of code quality.
 
-For bug fixes, documentation improvements, and registry additions, you can go straight to a PR.
+For bug fixes and documentation improvements, you can go straight to a PR.
 
 ---
 
@@ -48,7 +48,6 @@ uv run pytest                  # Tests
 
 - Check [open issues](https://github.com/procontexthq/procontext/issues) for bugs or feature requests.
 - Check the [Roadmap](ROADMAP.md) for planned work and future directions.
-- Suggest libraries or MCP servers for the curated registry.
 - Review the specs in [`docs/specs/`](docs/specs/) and open issues for anything unclear or inconsistent.
 
 If you're unsure whether a change is wanted, open an issue first to discuss it.
@@ -217,6 +216,14 @@ What we will close:
 - Code that doesn't respect the architecture - AppState injection, Protocol interfaces, the ProContextError pattern, stdout vs stderr discipline
 
 What we expect from any PR, AI-assisted or not: that the author has read the relevant spec, understands why the code is structured the way it is, and can explain the change in the PR description. If you used an AI tool to help write the code, that's fine - but the understanding behind the submission should be yours.
+
+---
+
+## Adding libraries to the registry
+
+The library registry is maintained in a separate repository: **[procontexthq/procontexthq.github.io](https://github.com/procontexthq/procontexthq.github.io)**
+
+If you want to add a library or update an existing registry entry, open a PR there. Registry PRs opened in this repository will be closed without review.
 
 ---
 
