@@ -4,6 +4,7 @@
 
 **Accurate, live library documentation for AI coding agents.**
 
+[![Website][website-badge]][website-url]
 [![License: GPL v3][license-badge]][license-url]
 [![Python 3.12+][python-badge]][python-url]
 [![Protocol][protocol-badge]][protocol-url]
@@ -12,6 +13,8 @@
 </div>
 
 ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that gives AI coding agents - Claude Code, Cursor, Codex - accurate, up-to-date documentation for the libraries they write code with. It prevents hallucinated APIs by serving real documentation on demand from a curated, pre-validated registry.
+
+**[procontext.dev](https://procontext.dev)**
 
 ---
 
@@ -26,6 +29,8 @@ ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that 
 - [Contributing](#contributing)
 - [License](#license)
 
+[website-badge]: https://img.shields.io/badge/website-procontext.dev-blue.svg
+[website-url]: https://procontext.dev
 [license-badge]: https://img.shields.io/badge/License-GPLv3-blue.svg
 [license-url]: https://www.gnu.org/licenses/gpl-3.0
 [python-badge]: https://img.shields.io/badge/python-3.12%2B-blue.svg
@@ -284,9 +289,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, development workf
 
 ## License
 
-GPL-3.0 - see [LICENSE](LICENSE) for details.
+GPL-3.0 - see [LICENSE](LICENSE) for details. Free to use for individuals, teams, and organizations.
 
-The GPL ensures that ProContext and any derivatives remain free and open-source.
+A managed hosted version and enterprise self-deployable options are coming. If you're interested in early access, visit [procontext.dev](https://procontext.dev).
 
 ---
 
@@ -294,6 +299,6 @@ The GPL ensures that ProContext and any derivatives remain free and open-source.
 
 **Built with ❤️ for AI coding agents**
 
-[Specifications](docs/specs/) · [Issues](../../issues) · [Discussions](../../discussions) · [MCP](https://modelcontextprotocol.io) · [llms.txt](https://llmstxt.org)
+[procontext.dev](https://procontext.dev) · [Specifications](docs/specs/) · [Issues](../../issues) · [Discussions](../../discussions) · [MCP](https://modelcontextprotocol.io) · [llms.txt](https://llmstxt.org)
 
 </div>
