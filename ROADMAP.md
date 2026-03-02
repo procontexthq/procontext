@@ -24,7 +24,7 @@ No features are currently planned for v0.2. Future work will be driven by issues
 - Docker image for HTTP transport deployments
 - Support for additional documentation formats beyond llms.txt
 - Performance improvements for high-concurrency HTTP deployments
-- SLSA provenance attestation on releases (`actions/attest-build-provenance`) — cryptographic proof that a published artifact was built from a specific source commit
+- Empirically validate the `read_page` default line limit — design tests against real-world documentation pages to determine whether the current 2000-line default is too generous and whether reducing it (e.g. 300–500 lines) improves agent navigation behaviour by making the heading map and pagination more meaningful
 
 ## Design decisions
 
