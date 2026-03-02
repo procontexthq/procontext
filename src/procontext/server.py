@@ -34,6 +34,7 @@ from procontext.fetcher import Fetcher, build_allowlist, build_http_client
 from procontext.registry import build_indexes, fetch_registry_for_setup, load_registry
 from procontext.schedulers import (
     run_cache_cleanup_scheduler,
+    run_cache_startup_cleanup,
     run_registry_startup_check,
     run_registry_update_scheduler,
 )
@@ -155,9 +156,10 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
 
     if settings.server.transport == "http":
         registry_update_task = asyncio.create_task(run_registry_update_scheduler(state))
+        cache_cleanup_task = asyncio.create_task(run_cache_cleanup_scheduler(state))
     else:
         registry_update_task = asyncio.create_task(run_registry_startup_check(state))
-    cache_cleanup_task = asyncio.create_task(run_cache_cleanup_scheduler(state))
+        cache_cleanup_task = asyncio.create_task(run_cache_startup_cleanup(state))
 
     log.info(
         "server_started",

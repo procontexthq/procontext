@@ -22,6 +22,7 @@ from procontext.registry import (
 from procontext.schedulers import (
     _jittered_delay,
     run_cache_cleanup_scheduler,
+    run_cache_startup_cleanup,
     run_registry_startup_check,
     run_registry_update_scheduler,
 )
@@ -314,7 +315,7 @@ class TestCacheCleanupScheduler:
         mock_cache = AsyncMock()
         state.cache = mock_cache
 
-        await run_cache_cleanup_scheduler(state)
+        await run_cache_startup_cleanup(state)
 
         mock_cache.cleanup_if_due.assert_awaited_once_with(
             state.settings.cache.cleanup_interval_hours
@@ -326,7 +327,7 @@ class TestCacheCleanupScheduler:
         state.cache = None
 
         # Should not raise
-        await run_cache_cleanup_scheduler(state)
+        await run_cache_startup_cleanup(state)
 
     async def test_http_calls_cleanup_at_startup_then_after_each_sleep(self) -> None:
         """HTTP mode: cleanup runs at startup, then once more after each sleep interval."""

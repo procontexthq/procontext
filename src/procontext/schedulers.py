@@ -26,18 +26,17 @@ def _jittered_delay(base_seconds: int) -> float:
     return base_seconds * random.uniform(0.8, 1.2)
 
 
-async def run_cache_cleanup_scheduler(state: AppState) -> None:
-    """Run cache cleanup at startup and (HTTP mode) on the configured interval."""
-    interval_hours = state.settings.cache.cleanup_interval_hours
+async def run_cache_startup_cleanup(state: AppState) -> None:
+    """stdio mode: run a single cache cleanup pass at startup if one is due."""
+    if state.cache is not None:
+        await state.cache.cleanup_if_due(state.settings.cache.cleanup_interval_hours)
 
-    # Both transports: run at startup, skipping if it ran recently.
+
+async def run_cache_cleanup_scheduler(state: AppState) -> None:
+    """HTTP mode: run cache cleanup at startup then on a recurring interval."""
+    interval_hours = state.settings.cache.cleanup_interval_hours
     if state.cache is not None:
         await state.cache.cleanup_if_due(interval_hours)
-
-    if state.settings.server.transport != "http":
-        return
-
-    # HTTP long-running mode: repeat on the configured interval.
     while True:
         await anyio.sleep(interval_hours * 3600)
         if state.cache is not None:
