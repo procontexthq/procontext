@@ -244,6 +244,5 @@ class TestMatchStructure:
         assert match.library_id == "langchain"
         assert match.name == "LangChain"
         assert "python" in match.languages
-        assert match.docs_url == "https://python.langchain.com/docs/"
         assert match.matched_via == "package_name"
         assert match.relevance == 1.0

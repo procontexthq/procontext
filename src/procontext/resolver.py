@@ -93,7 +93,6 @@ def _match_from_entry(
         library_id=entry.id,
         name=entry.name,
         languages=entry.languages,
-        docs_url=entry.docs_url,
         matched_via=matched_via,
         relevance=relevance,
     )

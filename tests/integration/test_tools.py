@@ -40,7 +40,6 @@ class TestResolveLibraryHandler:
             "library_id",
             "name",
             "languages",
-            "docs_url",
             "matched_via",
             "relevance",
         }

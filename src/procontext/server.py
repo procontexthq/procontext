@@ -119,7 +119,6 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     entries, version = registry
     indexes = build_indexes(entries)
 
-    # Phase 2: HTTP client, SSRF allowlist, cache, fetcher
     http_client = build_http_client(settings.fetcher)
     allowlist = build_allowlist(entries, extra_domains=settings.fetcher.extra_allowed_domains)
 
@@ -317,7 +316,7 @@ async def _run_setup(settings: Settings) -> None:
         print(
             """Setup failed. Check your network and try again.
 If the error persists, you can manually download the registry,
-and configure it's path in procontext.yaml""",
+and configure its path in procontext.yaml""",
             file=sys.stderr,
         )
         sys.exit(1)

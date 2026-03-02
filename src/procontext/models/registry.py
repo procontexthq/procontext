@@ -38,7 +38,6 @@ class LibraryMatch(BaseModel):
     library_id: str
     name: str
     languages: list[str]
-    docs_url: str | None
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
     relevance: float  # 0.0–1.0
 
