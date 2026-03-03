@@ -42,12 +42,6 @@ All non-trivial abstractions leak eventually (Joel Spolsky's Law of Leaky Abstra
 
 For ProContext specifically: operators need levers for custom registries, trusted domains, auth, cache sizing, and transport. Design these up front rather than bolting them on when the first user hits the wall.
 
-### 7. Keep all imports at the top of the file
-
-Place every import at module level. Do not import inside functions, methods, or conditional blocks (other than `if TYPE_CHECKING:`). In-function imports hide dependencies, make it harder to see what a module uses at a glance, and create subtle performance traps when called in loops.
-
-The only acceptable exception is breaking a genuine circular import that cannot be resolved by restructuring. If you hit a circular import, first try to break the cycle by moving shared types to a lower-level module. Resort to an in-function import only as a last option, and add a comment explaining why.
-
 ---
 
 ## Error Handling
@@ -159,9 +153,25 @@ Automate via Conventional Commits + semantic-release. The changelog is the artif
 
 ---
 
+## Code Conventions
+
+### 16. Keep all imports at the top of the file
+
+Place every import at module level. Do not import inside functions, methods, or conditional blocks (other than `if TYPE_CHECKING:`). In-function imports hide dependencies, make it harder to see what a module uses at a glance, and create subtle performance traps when called in loops.
+
+The only acceptable exception is breaking a genuine circular import that cannot be resolved by restructuring. If you hit a circular import, first try to break the cycle by moving shared types to a lower-level module. Resort to an in-function import only as a last option, and add a comment explaining why.
+
+### 17. Keep functions small and focused
+
+A function should do one thing. If you find yourself reaching for a comment like `# Step 2` or `# Phase 2`, that's a signal to extract a named function. Functions that are hard to name are usually doing too much.
+
+A useful heuristic: if a function cannot be understood in one reading without scrolling, it is too long.
+
+---
+
 ## Testing Strategy
 
-### 16. Test the public API contract, not the implementation
+### 18. Test the public API contract, not the implementation
 
 Write tests from the perspective of a consumer: import the public API and assert on observable behavior. Do not reach into private methods or internal state.
 
@@ -169,11 +179,11 @@ Write tests from the perspective of a consumer: import the public API and assert
 
 Do not generate tests that mirror the source file structure and test private helpers directly. Resist this pattern.
 
-### 17. Keep tests for deprecated APIs until removal
+### 19. Keep tests for deprecated APIs until removal
 
 Deprecated code is still public API. Maintain tests for it through the entire deprecation cycle. Suppress deprecation warnings explicitly in those test files so future contributors know the suppression is intentional.
 
-### 18. Every bug fix requires a regression test
+### 20. Every bug fix requires a regression test
 
 Do not merge a bug fix without a test that fails before the fix and passes after. This prevents the same bug from reappearing silently in a future refactor.
 
@@ -181,7 +191,7 @@ Do not merge a bug fix without a test that fails before the fix and passes after
 
 ## Supply Chain Security
 
-### 19. Publish provenance attestations
+### 21. Publish provenance attestations
 
 Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
@@ -193,7 +203,7 @@ Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
 Enterprise consumers increasingly require provenance. Its absence is an adoption barrier.
 
-### 20. Verify every dependency against the actual registry
+### 22. Verify every dependency against the actual registry
 
 ~20% of AI-suggested packages do not exist in any public registry (2025 study, 576k samples). Attackers register these hallucinated names with malicious code ("slopsquatting"). Before adding any dependency, verify the package name exists in the actual registry and is the package you intend to use.
 
@@ -201,7 +211,7 @@ Enterprise consumers increasingly require provenance. Its absence is an adoption
 
 ## Maintainability
 
-### 21. Minimize runtime dependencies
+### 23. Minimize runtime dependencies
 
 Zero dependencies is ideal. When that is not practical, justify every runtime dependency. Each one has an ongoing cost:
 
