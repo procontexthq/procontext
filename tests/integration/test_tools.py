@@ -484,14 +484,39 @@ class TestReadPageHandler:
         assert str(respx.calls[1].request.url) == base_url
 
     @respx.mock
-    async def test_md_url_not_doubled(self, app_state: AppState) -> None:
-        """A URL already ending in .md is fetched as-is without appending another .md."""
-        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+    async def test_url_with_extension_not_probed(self, app_state: AppState) -> None:
+        """A URL with any file extension is fetched as-is — no .md probe attempted."""
+        for url in [
+            _SAMPLE_URL,  # .md
+            "https://python.langchain.com/llms.txt",  # .txt
+            "https://python.langchain.com/docs/index.html",  # .html
+        ]:
+            respx.get(url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
+        for url in [
+            _SAMPLE_URL,
+            "https://python.langchain.com/llms.txt",
+            "https://python.langchain.com/docs/index.html",
+        ]:
+            result = await read_page_handle(url, 1, 500, app_state)
+            assert result["cached"] is False
+
+        # Each URL fetched exactly once — no .md probes
+        assert respx.calls.call_count == 3
+
+    @respx.mock
+    async def test_version_segment_url_is_probed(self, app_state: AppState) -> None:
+        """A URL whose last segment looks like a version (e.g. v1.2) should still be
+        probed with .md — numeric-only suffixes are not real file extensions."""
+        base_url = "https://python.langchain.com/docs/v1.2"
+        md_url = base_url + ".md"
+        respx.get(md_url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(base_url, 1, 500, app_state)
 
         assert result["cached"] is False
-        assert str(respx.calls[0].request.url) == _SAMPLE_URL
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == md_url
 
     @respx.mock
     async def test_html_md_probe_returned_as_is(self, app_state: AppState) -> None:

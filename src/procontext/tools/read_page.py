@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from os.path import splitext
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlparse
 
 import structlog
 
@@ -108,9 +110,9 @@ async def handle(
         )
 
     # Cache miss — fetch from network.
-    # If the URL does not already end with .md, try the .md variant first.
+    # If the URL has no file extension, try the .md variant first.
     # On any failure (404, timeout, redirect error) fall back to the original URL.
-    if not validated.url.endswith(".md"):
+    if not _has_file_extension(validated.url):
         md_url = validated.url + ".md"
         try:
             log.info("cache_miss_fetching", url=md_url)
@@ -151,6 +153,20 @@ async def handle(
         cached_at=None,
         stale=False,
     )
+
+
+def _has_file_extension(url: str) -> bool:
+    """Return True if the URL's last path segment has a real file extension.
+
+    Used to decide whether to probe the .md variant — skipped when the URL
+    already has any alphabetic extension (.md, .txt, .html, etc.).
+
+    Version segments like ``v1.2`` are NOT treated as extensions because the
+    part after the dot is numeric, not alphabetic.
+    """
+    last_segment = urlparse(url).path.rsplit("/", 1)[-1]
+    _, ext = splitext(last_segment)
+    return bool(ext) and ext[1:].isalpha()
 
 
 def _build_output(
@@ -210,7 +226,7 @@ async def _background_refresh(
         if state.fetcher is None or state.cache is None:
             log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
             return
-        if not url.endswith(".md"):
+        if not _has_file_extension(url):
             md_url = url + ".md"
             try:
                 content = await state.fetcher.fetch(md_url, state.allowlist)
