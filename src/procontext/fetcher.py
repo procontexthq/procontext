@@ -171,11 +171,15 @@ class Fetcher:
 
         try:
             for hop in range(max_redirects + 1):
+                # On redirect hops the originating domain was already vetted, so skip
+                # the domain allowlist check. Private IP check still runs on every hop
+                # to prevent open-redirect abuse toward internal network addresses.
+                check_domain = self._settings.ssrf_domain_check and hop == 0
                 if not is_url_allowed(
                     current_url,
                     allowlist,
                     check_private_ips=self._settings.ssrf_private_ip_check,
-                    check_domain=self._settings.ssrf_domain_check,
+                    check_domain=check_domain,
                 ):
                     log.warning("ssrf_blocked", url=current_url, reason="not_in_allowlist")
                     raise ProContextError(

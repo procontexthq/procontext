@@ -468,16 +468,20 @@ class TestReadPageHandler:
         assert respx.calls.call_count == 1  # Only one network request total
 
     @respx.mock
-    async def test_non_md_url_404_raises_page_not_found(self, app_state: AppState) -> None:
-        """If the .md variant returns 404, PAGE_NOT_FOUND is raised immediately."""
+    async def test_non_md_url_404_falls_back_to_original(self, app_state: AppState) -> None:
+        """If the .md variant returns 404, the original URL is fetched as fallback."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
         respx.get(md_url).mock(return_value=httpx.Response(404))
+        respx.get(base_url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(base_url, 1, 500, app_state)
+        result = await read_page_handle(base_url, 1, 500, app_state)
 
-        assert exc_info.value.code == ErrorCode.PAGE_NOT_FOUND
+        assert result["cached"] is False
+        assert "# Streaming" in result["content"]
+        assert respx.calls.call_count == 2
+        assert str(respx.calls[0].request.url) == md_url
+        assert str(respx.calls[1].request.url) == base_url
 
     @respx.mock
     async def test_md_url_not_doubled(self, app_state: AppState) -> None:
@@ -488,3 +492,18 @@ class TestReadPageHandler:
 
         assert result["cached"] is False
         assert str(respx.calls[0].request.url) == _SAMPLE_URL
+
+    @respx.mock
+    async def test_html_md_probe_returned_as_is(self, app_state: AppState) -> None:
+        """HTML 200 from .md probe is returned as-is — no fallback, since the original
+        URL would also return HTML on an SPA (the content is identical either way)."""
+        base_url = "https://python.langchain.com/docs/concepts/streaming"
+        md_url = base_url + ".md"
+        html_body = "<!DOCTYPE html><html><head></head><body>Not markdown</body></html>"
+        respx.get(md_url).mock(return_value=httpx.Response(200, text=html_body))
+
+        result = await read_page_handle(base_url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert html_body in result["content"]
+        assert respx.calls.call_count == 1  # Only .md was requested, no fallback

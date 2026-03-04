@@ -281,16 +281,22 @@ class TestFetcher:
                 result = await fetcher.fetch("https://example.com/old", ALLOWLIST)
                 assert result == "Redirected content"
 
-    async def test_redirect_to_disallowed_domain(self) -> None:
+    async def test_redirect_to_different_domain_is_followed(self) -> None:
+        # Domain check is skipped on redirect hops — the originating domain was
+        # already vetted. Private IP check still applies (see test below).
         with respx.mock:
             respx.get("https://example.com/redirect").mock(
-                return_value=httpx.Response(301, headers={"location": "https://evil.com/steal"})
+                return_value=httpx.Response(
+                    301, headers={"location": "https://otherdomain.com/page"}
+                )
+            )
+            respx.get("https://otherdomain.com/page").mock(
+                return_value=httpx.Response(200, text="Redirected content")
             )
             async with httpx.AsyncClient() as client:
                 fetcher = Fetcher(client)
-                with pytest.raises(ProContextError) as exc_info:
-                    await fetcher.fetch("https://example.com/redirect", ALLOWLIST)
-                assert exc_info.value.code == ErrorCode.URL_NOT_ALLOWED
+                result = await fetcher.fetch("https://example.com/redirect", ALLOWLIST)
+                assert result == "Redirected content"
 
     async def test_redirect_to_private_ip(self) -> None:
         with respx.mock:

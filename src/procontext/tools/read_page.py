@@ -108,11 +108,20 @@ async def handle(
         )
 
     # Cache miss — fetch from network.
-    # If the URL does not already end with .md, fetch the .md variant to ensure
-    # markdown content. Fail fast on 404 — no fallback to the original URL.
-    fetch_url = validated.url if validated.url.endswith(".md") else validated.url + ".md"
-    log.info("cache_miss_fetching", url=fetch_url)
-    content = await state.fetcher.fetch(fetch_url, state.allowlist)
+    # If the URL does not already end with .md, try the .md variant first.
+    # On any failure (404, timeout, redirect error) fall back to the original URL.
+    if not validated.url.endswith(".md"):
+        md_url = validated.url + ".md"
+        try:
+            log.info("cache_miss_fetching", url=md_url)
+            content = await state.fetcher.fetch(md_url, state.allowlist)
+        except Exception:
+            log.info("md_probe_failed_falling_back", md_url=md_url, fallback_url=validated.url)
+            log.info("cache_miss_fetching", url=validated.url)
+            content = await state.fetcher.fetch(validated.url, state.allowlist)
+    else:
+        log.info("cache_miss_fetching", url=validated.url)
+        content = await state.fetcher.fetch(validated.url, state.allowlist)
     outline = parse_outline(content)
 
     log.info("fetch_complete", content_length=len(content))
@@ -201,8 +210,15 @@ async def _background_refresh(
         if state.fetcher is None or state.cache is None:
             log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
             return
-        fetch_url = url if url.endswith(".md") else url + ".md"
-        content = await state.fetcher.fetch(fetch_url, state.allowlist)
+        if not url.endswith(".md"):
+            md_url = url + ".md"
+            try:
+                content = await state.fetcher.fetch(md_url, state.allowlist)
+            except Exception:
+                log.info("md_probe_failed_falling_back", md_url=md_url, fallback_url=url)
+                content = await state.fetcher.fetch(url, state.allowlist)
+        else:
+            content = await state.fetcher.fetch(url, state.allowlist)
         outline = parse_outline(content)
 
         discovered_domains = expand_allowlist_from_content(content, state, depth_threshold=2)
