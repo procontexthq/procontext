@@ -202,7 +202,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 | Field         | Description                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `headings`    | Plain-text heading map of the full page (always complete, regardless of offset/limit). Each line: `<line_number>: <heading line>`. Only H1–H4 included. |
+| `headings`    | Plain-text structural map of the full page (always complete, regardless of offset/limit). Each line: `<line_number>: <original line>`. Includes H1–H6 headings (including blockquote headings such as `> ## Section`), headings inside fenced code blocks, and fence opener/closer lines. Fence lines give the agent context to distinguish structural headings from code block content. |
 | `total_lines` | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`      | The 1-based line number the returned content starts from.                                                                                               |
 | `limit`       | The maximum number of lines requested.                                                                                                                  |

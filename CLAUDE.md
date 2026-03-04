@@ -33,8 +33,9 @@ You must:
 
 ## Specifications
 
-Spec documents are in `docs/specs/` - read the relevant one before making changes.
-These are the authoritative design documents for this repo.
+Spec documents are in `docs/specs/` - read the relevant one before making changes. These are the authoritative design documents for this repo.
+
+**Document everything** - Follow a document first approach. We must make sure that every feature, design decision, and architectural choice is reflected in the specs. This ensures that the rationale behind decisions is clear and that future contributors can understand the context without needing to read through all the code.
 You are allowed to create new documents if the discussion warrants it.
 
 ## Commands

@@ -748,66 +748,56 @@ async def set_toc(self, library_id: str, ...) -> None:
 
 ## 7. Heading Parser
 
-The heading parser is used exclusively by `read_page`. It produces a plain-text heading map with 1-based line numbers for each heading (H1–H4). Defined in `src/procontext/parser.py`.
+The heading parser is used exclusively by `read_page`. It produces a plain-text structural map with 1-based line numbers for headings and fenced code block boundaries. Defined in `src/procontext/parser.py`.
 
-The output format is a newline-separated string where each line is `<line_number>: <heading line>`, e.g.:
+The output format is a newline-separated string where each line is `<line_number>: <original line>`, e.g.:
 
 ```
-1: # Streaming
-3: ## Overview
-12: ## Streaming with Chat Models
-18: ### Using .stream()
+1: # Authenticate
+5: ## OpenAPI
+7: ````yaml https://api.example.com/openapi.json
+14:     ## Authentication
+22: ````
+25: ## Next Section
 ```
 
-This plain-text format is compact and directly navigable — the agent reads line numbers from the heading map and passes them as `offset` to `read_page` for targeted section reads.
+Fence opener/closer lines are included so the agent can determine which heading-like lines belong to code block content vs. structural page sections. The agent reads line numbers from the map and passes them as `offset` to `read_page` for targeted section reads.
 
 ### 7.1 Algorithm
 
-Two rules applied in a single pass:
+Stateless single-pass: emit a line if it matches either of two patterns.
 
-**Rule 1 — Code block tracking**
+**Pattern 1 — Fence lines**
 
-Suppress heading detection inside fenced code blocks. A block opens on a line starting with ` ``` ` or `~~~` and closes on the next line starting with the same fence string. Heading detection is disabled between open and close.
+```python
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+```
 
-````python
-def parse_headings(content: str) -> str:
-    lines: list[str] = []
+Matched against the original `line`. The `^ {0,3}` indentation constraint ensures that 4-space indented lines (CommonMark indented code blocks) are not treated as fences.
 
-    in_code_block = False
-    fence: str | None = None
+**Pattern 2 — Heading lines**
 
-    for lineno, line in enumerate(content.splitlines(), start=1):
-        stripped = line.strip()
+```python
+_HEADING_RE = re.compile(r"(?:>\s*)?(#{1,6}) .+")
+```
 
-        # Rule 1: code block tracking
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            current_fence = stripped[:3]
-            if not in_code_block:
-                in_code_block = True
-                fence = current_fence
-            elif current_fence == fence:
-                in_code_block = False
-                fence = None
-            continue
+Matched against `stripped` (leading/trailing whitespace removed). Matching on the stripped line serves two purposes:
+- Handles blockquote headings (`> ## Section`) by ignoring the `>` prefix
+- Captures headings inside code blocks regardless of their indentation (e.g. `    ## Host` in a YAML block)
 
-        if in_code_block:
-            continue
-
-        # Rule 2: heading detection (H1–H4)
-        match = re.match(r"^(#{1,4}) (.+)", line)
-        if not match:
-            continue
-
+```python
+for lineno, line in enumerate(content.splitlines(), start=1):
+    stripped = line.strip()
+    if _FENCE_RE.match(line) or _HEADING_RE.match(stripped):
         lines.append(f"{lineno}: {line}")
-
-    return "\n".join(lines)
-````
+```
 
 **What is deliberately excluded**:
 
-- `#####` and `######` headings: Too granular, negligible in real documentation
+- Lines with 7+ hashes (`#######`): Not valid in CommonMark; only H1–H6 exist
 - HTML headings (`<h2>`): Essentially absent from markdown documentation pages
 - Setext-style headings (`===` / `---` underlines): Rare in practice, ambiguous with horizontal rules
+- Deeply nested blockquotes (`>> ## heading`): The `(?:>\s*)?` prefix matches a single `>` only
 
 ---
 
