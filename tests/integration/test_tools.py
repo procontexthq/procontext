@@ -12,6 +12,7 @@ import httpx
 import pytest
 import respx
 
+from procontext.cache import Cache
 from procontext.errors import ErrorCode, ProContextError
 from procontext.tools.get_library_docs import handle as get_docs_handle
 from procontext.tools.read_page import handle as read_page_handle
@@ -71,7 +72,7 @@ class TestResolveLibraryHandler:
 
 
 class TestGetLibraryDocsHandler:
-    """Full handler pipeline tests for get_library_docs."""
+    """Full handler pipeline tests for get_library_index."""
 
     @respx.mock
     async def test_cache_miss_fetches_from_network(self, app_state: AppState) -> None:
@@ -131,7 +132,7 @@ class TestGetLibraryDocsHandler:
         from datetime import UTC, datetime, timedelta
 
         past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        assert app_state.cache is not None
+        assert isinstance(app_state.cache, Cache)
         await app_state.cache._db.execute(  # pyright: ignore[reportPrivateUsage]
             "UPDATE toc_cache SET expires_at = ? WHERE library_id = ?",
             (past, "langchain"),
@@ -153,6 +154,7 @@ class TestGetLibraryDocsHandler:
         assert set(result.keys()) == {
             "library_id",
             "name",
+            "index_url",
             "content",
             "cached",
             "cached_at",
@@ -228,15 +230,15 @@ class TestReadPageHandler:
     async def test_cache_miss_fetches_and_returns(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
 
         assert result["url"] == _SAMPLE_URL
         assert result["cached"] is False
         assert result["cached_at"] is None
         assert result["stale"] is False
         assert result["total_lines"] == 21
-        assert "# Streaming" in result["headings"]
-        assert "## Overview" in result["headings"]
+        assert "# Streaming" in result["outline"]
+        assert "## Overview" in result["outline"]
         assert "# Streaming" in result["content"]
 
     @respx.mock
@@ -244,10 +246,10 @@ class TestReadPageHandler:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
         # First call — cache miss
-        await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
 
         # Second call — cache hit
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert result["cached"] is True
         assert result["cached_at"] is not None
         assert result["stale"] is False
@@ -260,7 +262,7 @@ class TestReadPageHandler:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
         # First call to populate cache
-        await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
 
         # Artificially expire the cached entry to simulate stale-while-revalidate.
         # Accesses Cache._db directly because the public API has no way to set a
@@ -269,7 +271,7 @@ class TestReadPageHandler:
         from datetime import UTC, datetime, timedelta
 
         past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-        assert app_state.cache is not None
+        assert isinstance(app_state.cache, Cache)
         await app_state.cache._db.execute(  # pyright: ignore[reportPrivateUsage]
             "UPDATE page_cache SET expires_at = ? WHERE url = ?",
             (past, _SAMPLE_URL),
@@ -277,7 +279,7 @@ class TestReadPageHandler:
         await app_state.cache._db.commit()  # pyright: ignore[reportPrivateUsage]
 
         # Second call — stale hit
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert result["cached"] is True
         assert result["stale"] is True
         assert "# Streaming" in result["content"]
@@ -295,21 +297,21 @@ class TestReadPageHandler:
         assert result["limit"] == 3
 
     @respx.mock
-    async def test_headings_always_full_page(self, app_state: AppState) -> None:
+    async def test_outline_always_full_page(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        # Even with a narrow window, headings reflect the full page
+        # Even with a narrow window, outline reflects the full page
         result = await read_page_handle(_SAMPLE_URL, 1, 2, app_state)
-        headings = result["headings"]
+        outline = result["outline"]
 
         # Should contain all headings, not just those in the window
-        assert "## Streaming with Chains" in headings
+        assert "## Streaming with Chains" in outline
 
     @respx.mock
     async def test_total_lines_correct(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         actual_lines = len(_SAMPLE_PAGE.splitlines())
         assert result["total_lines"] == actual_lines
 
@@ -319,7 +321,7 @@ class TestReadPageHandler:
         respx.get(evil_url).mock(return_value=httpx.Response(200, text="# Evil"))
 
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(evil_url, 1, 2000, app_state)
+            await read_page_handle(evil_url, 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.URL_NOT_ALLOWED
         assert exc_info.value.recoverable is False
 
@@ -328,7 +330,7 @@ class TestReadPageHandler:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(404))
 
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+            await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.PAGE_NOT_FOUND
         assert exc_info.value.recoverable is False
 
@@ -337,7 +339,7 @@ class TestReadPageHandler:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(503))
 
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+            await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.PAGE_FETCH_FAILED
         assert exc_info.value.recoverable is True
 
@@ -354,30 +356,30 @@ class TestReadPageHandler:
         respx.get(r4).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+            await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.TOO_MANY_REDIRECTS
         assert exc_info.value.recoverable is False
 
     async def test_invalid_url_scheme_raises(self, app_state: AppState) -> None:
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle("ftp://example.com/docs.md", 1, 2000, app_state)
+            await read_page_handle("ftp://example.com/docs.md", 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.INVALID_INPUT
         assert exc_info.value.recoverable is False
 
     async def test_url_too_long_raises(self, app_state: AppState) -> None:
         long_url = "https://example.com/" + "a" * 2040
         with pytest.raises(ProContextError) as exc_info:
-            await read_page_handle(long_url, 1, 2000, app_state)
+            await read_page_handle(long_url, 1, 500, app_state)
         assert exc_info.value.code == ErrorCode.INVALID_INPUT
 
     @respx.mock
     async def test_output_contains_all_required_fields(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert set(result.keys()) == {
             "url",
-            "headings",
+            "outline",
             "total_lines",
             "offset",
             "limit",
@@ -394,24 +396,24 @@ class TestReadPageHandler:
         result = await read_page_handle(_SAMPLE_URL, 9999, 100, app_state)
         assert result["content"] == ""
         assert result["total_lines"] == 21
-        assert result["headings"] != ""  # Headings still present
+        assert result["outline"] != ""  # Outline still present
 
     @respx.mock
-    async def test_view_headings_omits_content(self, app_state: AppState) -> None:
+    async def test_view_outline_omits_content(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state, view="headings")
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state, view="outline")
 
         assert "content" not in result
-        assert "headings" in result
+        assert "outline" in result
         assert "total_lines" in result
-        assert "# Streaming" in result["headings"]
+        assert "# Streaming" in result["outline"]
 
     @respx.mock
-    async def test_view_headings_total_lines_correct(self, app_state: AppState) -> None:
+    async def test_view_outline_total_lines_correct(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state, view="headings")
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state, view="outline")
 
         assert result["total_lines"] == len(_SAMPLE_PAGE.splitlines())
 
@@ -419,7 +421,7 @@ class TestReadPageHandler:
     async def test_view_full_explicit_returns_content(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state, view="full")
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state, view="full")
 
         assert "content" in result
         assert "# Streaming" in result["content"]
@@ -428,6 +430,6 @@ class TestReadPageHandler:
     async def test_view_default_is_full(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
-        result = await read_page_handle(_SAMPLE_URL, 1, 2000, app_state)
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
 
         assert "content" in result

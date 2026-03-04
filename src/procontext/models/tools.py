@@ -44,8 +44,14 @@ class GetLibraryDocsInput(BaseModel):
 class GetLibraryDocsOutput(BaseModel):
     library_id: str = Field(description="Canonical library ID.")
     name: str = Field(description="Human-readable library name.")
+    index_url: str = Field(
+        description=(
+            "Source URL of this library's documentation index. "
+            "Use as the base URL to resolve any relative links found in content."
+        )
+    )
     content: str = Field(
-        description="Raw llms.txt markdown — index of documentation pages with titles and URLs."
+        description="Raw markdown index of documentation pages with titles and URLs."
     )
     cached: bool = Field(description="True if served from cache.")
     cached_at: datetime | None = Field(
@@ -60,8 +66,8 @@ class GetLibraryDocsOutput(BaseModel):
 class ReadPageInput(BaseModel):
     url: str
     offset: int = 1
-    limit: int = 2000
-    view: Literal["headings", "full"] = "full"
+    limit: int = 500
+    view: Literal["outline", "full"] = "full"
 
     @field_validator("url")
     @classmethod
@@ -90,15 +96,20 @@ class ReadPageInput(BaseModel):
 
 class ReadPageOutput(BaseModel):
     url: str = Field(description="The URL of the fetched page.")
-    headings: str = Field(
-        description='H1–H4 headings with 1-based line numbers, e.g. "1: # Title\\n42: ## Usage".'
+    outline: str = Field(
+        description=(
+            "H1–H6 headings and fence markers with 1-based line numbers,"
+            ' e.g. "1: # Title\\n42: ## Usage".'
+        )
     )
-    total_lines: int = Field(description="Total number of lines in the full page.")
+    total_lines: int = Field(
+        description="Total number of lines in the full page. Always present regardless of view."
+    )
     offset: int = Field(description="1-based line number where the content window starts.")
     limit: int = Field(description="Maximum number of lines in the content window.")
     content: str | None = Field(
         default=None,
-        description="Content window lines. Present when view='full'; absent when view='headings'.",
+        description="Content window lines. Present when view='full'; absent when view='outline'.",
     )
     cached: bool = Field(description="True if served from cache.")
     cached_at: datetime | None = Field(

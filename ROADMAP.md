@@ -9,7 +9,7 @@
 v0.1.0 ships a complete, production-ready MCP server. The core loop works: an agent resolves a library name, fetches its llms.txt table of contents, and reads specific documentation pages — all from a curated, pre-validated registry with SSRF protection and a stale-while-revalidate cache.
 
 - **`resolve_library`** — resolves a library name or pip specifier to a known documentation source via fuzzy matching against a curated registry
-- **`get_library_docs`** — fetches the llms.txt table of contents for a library with stale-while-revalidate caching
+- **`get_library_index`** — fetches the llms.txt table of contents for a library with stale-while-revalidate caching
 - **`read_page`** — fetches a documentation page with offset/limit windowing and a full heading map for section navigation
 - **stdio transport** — default; process lifecycle managed by the MCP client
 - **HTTP transport** — MCP Streamable HTTP (spec 2025-11-25) with security middleware (bearer auth, origin validation, protocol version checks)
@@ -35,7 +35,6 @@ The value of ProContext scales directly with the breadth and quality of the regi
 
 ### Tool quality
 
-- **Validate the `read_page` default line limit** — empirically test against real-world documentation pages to determine whether the current 2000-line default is too generous and whether a smaller window (e.g. 300–500 lines) improves agent navigation by making the heading map and pagination more meaningful
 - **Additional documentation formats** — as the ecosystem evolves, the server should serve documentation from formats that emerge alongside or complement llms.txt
 
 ### Performance

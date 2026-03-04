@@ -58,6 +58,7 @@ async def handle(library_id: str, state: AppState) -> dict:
         output = GetLibraryDocsOutput(
             library_id=entry.id,
             name=entry.name,
+            index_url=entry.llms_txt_url,
             content=cached_entry.content,
             cached=True,
             cached_at=cached_entry.fetched_at,
@@ -78,6 +79,7 @@ async def handle(library_id: str, state: AppState) -> dict:
         output = GetLibraryDocsOutput(
             library_id=entry.id,
             name=entry.name,
+            index_url=entry.llms_txt_url,
             content=cached_entry.content,
             cached=True,
             cached_at=cached_entry.fetched_at,
@@ -125,6 +127,7 @@ async def handle(library_id: str, state: AppState) -> dict:
     output = GetLibraryDocsOutput(
         library_id=entry.id,
         name=entry.name,
+        index_url=entry.llms_txt_url,
         content=content,
         cached=False,
         cached_at=None,

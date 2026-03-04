@@ -96,9 +96,10 @@ resolve_library({ "query": "langchain>=0.2" })
 **Step 2 - Fetch the table of contents**
 
 ```
-get_library_docs({ "library_id": "langchain" })
+get_library_index({ "library_id": "langchain" })
 
 → {
+    "index_url": "https://python.langchain.com/llms.txt",
     "content": "# LangChain\n\n## Concepts\n- [Chat Models](https://...)\n- [Tools](https://...)\n...",
     "cached": false,
     "stale": false
@@ -111,13 +112,13 @@ get_library_docs({ "library_id": "langchain" })
 read_page({ "url": "https://docs.langchain.com/docs/concepts/chat_models.md", "limit": 200 })
 
 → {
-    "headings": "1: # Chat Models\n45: ## Streaming\n89: ## Tool Calling\n...",
+    "outline": "1: # Chat Models\n45: ## Streaming\n89: ## Tool Calling\n...",
     "total_lines": 312,
     "content": "# Chat Models\n\nChat models are..."
   }
 ```
 
-The agent reads the TOC, identifies the pages it needs, and reads them directly - jumping to relevant sections via the heading map. ProContext fetches from known, pre-validated sources and caches the results for subsequent calls.
+The agent reads the TOC, identifies the pages it needs, and reads them directly - jumping to relevant sections via the outline. ProContext fetches from known, pre-validated sources and caches the results for subsequent calls.
 
 ---
 

@@ -13,7 +13,7 @@
 - [3. Non-Goals](#3-non-goals)
 - [4. MCP Tools](#4-mcp-tools)
   - [4.1 resolve_library](#41-resolve_library)
-  - [4.2 get_library_docs](#42-get_library_docs)
+  - [4.2 get_library_index](#42-get_library_index)
   - [4.3 read_page](#43-read_page)
 - [5. Transport Modes](#5-transport-modes)
   - [5.1 stdio Transport](#51-stdio-transport)
@@ -117,7 +117,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 ---
 
-### 4.2 get_library_docs
+### 4.2 get_library_index
 
 **Purpose**: Fetch the table of contents for a library's documentation. Returns the raw llms.txt content so the agent can read it directly and decide what to fetch next.
 
@@ -140,6 +140,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 {
   "library_id": "langchain",
   "name": "LangChain",
+  "index_url": "https://python.langchain.com/llms.txt",
   "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://...): Interface for language models...\n- [Streaming](https://...): Stream model outputs...\n\n## API Reference\n\n- [Create Deployment](https://...): Create a new deployment.\n",
   "cached": false,
   "cached_at": null,
@@ -149,6 +150,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 | Field       | Description                                                                                                                                                                     |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index_url` | Source URL of the documentation index file. Use as the base URL to resolve any relative links found in `content`                                                                |
 | `content`   | Raw llms.txt content as markdown. The agent reads this directly to understand available documentation and extract URLs to pass to `read_page`                                   |
 | `cached`    | Whether this response was served from cache                                                                                                                                     |
 | `cached_at` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                                                       |
@@ -163,36 +165,37 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 ### 4.3 read_page
 
-**Purpose**: Fetch the content of a documentation page with line-number navigation. Returns a heading map of the full page and a windowed slice of the content controlled by `offset` and `limit`.
+**Purpose**: Fetch the content of a documentation page with line-number navigation. Returns a structural outline of the full page and a windowed slice of the content controlled by `offset` and `limit`.
 
 **Input**:
 
 | Parameter | Type    | Required | Default | Description                                                                                     |
 | --------- | ------- | -------- | ------- | ----------------------------------------------------------------------------------------------- |
-| `url`     | string  | Yes      | —       | URL of the documentation page, typically from `get_library_docs` sections                       |
+| `url`     | string  | Yes      | —       | URL of the documentation page, typically from `get_library_index` sections                       |
 | `offset`  | integer | No       | 1       | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
-| `limit`   | integer | No       | 2000    | Maximum number of lines to return from the offset.                                              |
+| `limit`   | integer | No       | 500     | Maximum number of lines to return from the offset.                                              |
+| `view`    | string  | No       | `"full"` | `"full"`: returns outline and content window. `"outline"`: returns outline and total_lines only, no content. |
 
 **Processing**:
 
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1
 2. Check SQLite cache for `page:{sha256(url)}` — if fresh, return from cache
-3. On cache miss: HTTP GET the URL, parse headings, store full content + headings in SQLite cache (TTL: 24 hours)
-4. Build plain-text heading map from full page (always complete, regardless of offset/limit)
+3. On cache miss: HTTP GET the URL, parse outline, store full content + outline in SQLite cache (TTL: 24 hours)
+4. Build plain-text outline from full page (always complete, regardless of offset/limit)
 5. Slice content to the requested window (`offset`/`limit`)
-6. Return heading map, windowed content, and pagination metadata
+6. Return outline, windowed content, and pagination metadata
 
-**Navigation workflow**: Call `read_page` with just the URL to get the heading map and the first 2000 lines. Inspect headings to find the section you need. Call again with `offset` set to that heading's line number to jump there.
+**Navigation workflow**: Call `read_page` with `view="full"` to get the outline and the first 500 lines. Inspect the outline to find the section you need, then call again with `offset` set to that line number. Alternatively, call with `view="outline"` across multiple candidate pages to compare structure cheaply before committing to a full read.
 
 **Output**:
 
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "headings": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
+  "outline": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
   "total_lines": 42,
   "offset": 1,
-  "limit": 2000,
+  "limit": 500,
   "content": "# Streaming\n\n## Overview\n...",
   "cached": false,
   "cached_at": null,
@@ -202,7 +205,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 | Field         | Description                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `headings`    | Plain-text structural map of the full page (always complete, regardless of offset/limit). Each line: `<line_number>: <original line>`. Includes H1–H6 headings (including blockquote headings such as `> ## Section`), headings inside fenced code blocks, and fence opener/closer lines. Fence lines give the agent context to distinguish structural headings from code block content. |
+| `outline`     | Plain-text structural map of the full page (always complete, regardless of offset/limit). Each line: `<line_number>: <original line>`. Includes H1–H6 headings (including blockquote headings such as `> ## Section`), headings inside fenced code blocks, and fence opener/closer lines. Fence lines give the agent context to distinguish structural headings from code block content. |
 | `total_lines` | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`      | The 1-based line number the returned content starts from.                                                                                               |
 | `limit`       | The maximum number of lines requested.                                                                                                                  |
@@ -213,7 +216,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 **Notes**:
 
-- The full page and headings are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
+- The full page and outline are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
 - URLs must be from the allowlist. See Section 8.
 
 ---
@@ -407,12 +410,12 @@ Every error response follows the same structure:
 
 | Code                    | Tool                            | `recoverable` | Description                                                                           |
 | ----------------------- | ------------------------------- | ------------- | ------------------------------------------------------------------------------------- |
-| `LIBRARY_NOT_FOUND`     | `get_library_docs`              | `false`       | `library_id` not in registry; retrying won't help                                     |
-| `LLMS_TXT_NOT_FOUND`    | `get_library_docs`              | `false`       | HTTP 404 fetching llms.txt — the URL in the registry is incorrect                     |
-| `LLMS_TXT_FETCH_FAILED` | `get_library_docs`              | `true`        | Transient network error or server error fetching llms.txt; retry may succeed          |
+| `LIBRARY_NOT_FOUND`     | `get_library_index`              | `false`       | `library_id` not in registry; retrying won't help                                     |
+| `LLMS_TXT_NOT_FOUND`    | `get_library_index`              | `false`       | HTTP 404 fetching llms.txt — the URL in the registry is incorrect                     |
+| `LLMS_TXT_FETCH_FAILED` | `get_library_index`              | `true`        | Transient network error or server error fetching llms.txt; retry may succeed          |
 | `PAGE_NOT_FOUND`        | `read_page`                     | `false`       | HTTP 404 — the page does not exist at that URL                                        |
 | `PAGE_FETCH_FAILED`     | `read_page`                     | `true`        | Transient network error or non-200/404 HTTP response fetching page; retry may succeed |
-| `TOO_MANY_REDIRECTS`    | `get_library_docs`, `read_page` | `false`       | Redirect chain exceeded the 3-hop safety limit                                        |
+| `TOO_MANY_REDIRECTS`    | `get_library_index`, `read_page` | `false`       | Redirect chain exceeded the 3-hop safety limit                                        |
 | `URL_NOT_ALLOWED`       | `read_page`                     | `false`       | URL domain not in SSRF allowlist; only a different URL will succeed                   |
 | `INVALID_INPUT`         | Any                             | `false`       | Input validation failed; the request must be corrected before retrying                |
 

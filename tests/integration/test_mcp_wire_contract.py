@@ -119,7 +119,7 @@ def _seed_page_cache(
     *,
     url: str,
     content: str,
-    headings: str,
+    outline: str,
 ) -> None:
     db_path = tmp_path / "cache.db"
     url_hash = hashlib.sha256(url.encode()).hexdigest()
@@ -133,7 +133,7 @@ def _seed_page_cache(
                 url_hash           TEXT PRIMARY KEY,
                 url                TEXT NOT NULL UNIQUE,
                 content            TEXT NOT NULL,
-                headings           TEXT NOT NULL DEFAULT '',
+                outline            TEXT NOT NULL DEFAULT '',
                 discovered_domains TEXT NOT NULL DEFAULT '',
                 fetched_at         TEXT NOT NULL,
                 expires_at         TEXT NOT NULL
@@ -143,14 +143,14 @@ def _seed_page_cache(
         conn.execute(
             """
             INSERT OR REPLACE INTO page_cache
-            (url_hash, url, content, headings, fetched_at, expires_at)
+            (url_hash, url, content, outline, fetched_at, expires_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 url_hash,
                 url,
                 content,
-                headings,
+                outline,
                 now.isoformat(),
                 expires_at.isoformat(),
             ),
@@ -188,14 +188,14 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     tools_by_name = {tool["name"]: tool for tool in tools}
 
     assert "resolve_library" in tools_by_name
-    assert "get_library_docs" in tools_by_name
+    assert "get_library_index" in tools_by_name
     assert "read_page" in tools_by_name
 
     resolve_schema = tools_by_name["resolve_library"]["inputSchema"]
     assert resolve_schema["type"] == "object"
     assert "query" in resolve_schema["required"]
 
-    get_docs_schema = tools_by_name["get_library_docs"]["inputSchema"]
+    get_docs_schema = tools_by_name["get_library_index"]["inputSchema"]
     assert get_docs_schema["type"] == "object"
     assert "library_id" in get_docs_schema["required"]
 
@@ -206,14 +206,14 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert read_page_schema["properties"]["limit"]["type"] == "integer"
 
     # Each tool must advertise its outputSchema.
-    for tool_name in ("resolve_library", "get_library_docs", "read_page"):
+    for tool_name in ("resolve_library", "get_library_index", "read_page"):
         tool = tools_by_name[tool_name]
         assert "outputSchema" in tool, f"{tool_name} missing outputSchema"
         assert tool["outputSchema"]["type"] == "object"
 
     assert "matches" in tools_by_name["resolve_library"]["outputSchema"]["properties"]
-    assert "library_id" in tools_by_name["get_library_docs"]["outputSchema"]["properties"]
-    assert "headings" in tools_by_name["read_page"]["outputSchema"]["properties"]
+    assert "library_id" in tools_by_name["get_library_index"]["outputSchema"]["properties"]
+    assert "outline" in tools_by_name["read_page"]["outputSchema"]["properties"]
 
 
 def test_resolve_library_wire_success(subprocess_env: dict[str, str]) -> None:
@@ -254,8 +254,8 @@ def test_resolve_library_wire_success(subprocess_env: dict[str, str]) -> None:
 def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[str, str]) -> None:
     url = "https://python.langchain.com/docs/concepts/cached.md"
     content = "# Title\n\n## Section\nLine A\nLine B"
-    headings = "1: # Title\n3: ## Section"
-    _seed_page_cache(tmp_path, url=url, content=content, headings=headings)
+    outline = "1: # Title\n3: ## Section"
+    _seed_page_cache(tmp_path, url=url, content=content, outline=outline)
 
     responses = _run_mcp_exchange(
         subprocess_env,
@@ -292,7 +292,7 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
     assert payload["stale"] is False
     assert payload["offset"] == 3
     assert payload["limit"] == 2
-    assert payload["headings"] == headings
+    assert payload["outline"] == outline
     assert payload["total_lines"] == 5
     assert payload["content"] == "## Section\nLine A"
 
@@ -331,7 +331,7 @@ def test_read_page_wire_error_envelope(subprocess_env: dict[str, str]) -> None:
     assert "URL_NOT_ALLOWED" in text
 
 
-def test_get_library_docs_wire_success_from_cache(
+def test_get_library_index_wire_success_from_cache(
     tmp_path: Path, subprocess_env: dict[str, str]
 ) -> None:
     _seed_toc_cache(
@@ -360,7 +360,7 @@ def test_get_library_docs_wire_success_from_cache(
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "get_library_docs",
+                    "name": "get_library_index",
                     "arguments": {"library_id": "langchain"},
                 },
             },
@@ -379,6 +379,7 @@ def test_get_library_docs_wire_success_from_cache(
     assert set(payload.keys()) == {
         "library_id",
         "name",
+        "index_url",
         "content",
         "cached",
         "cached_at",
@@ -386,7 +387,7 @@ def test_get_library_docs_wire_success_from_cache(
     }
 
 
-def test_get_library_docs_wire_error_envelope(subprocess_env: dict[str, str]) -> None:
+def test_get_library_index_wire_error_envelope(subprocess_env: dict[str, str]) -> None:
     responses = _run_mcp_exchange(
         subprocess_env,
         [
@@ -406,7 +407,7 @@ def test_get_library_docs_wire_error_envelope(subprocess_env: dict[str, str]) ->
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "get_library_docs",
+                    "name": "get_library_index",
                     "arguments": {"library_id": "nonexistent-lib"},
                 },
             },

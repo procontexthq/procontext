@@ -61,7 +61,7 @@ procontext/
 │       ├── tools/
 │       │   ├── __init__.py
 │       │   ├── resolve_library.py    # Business logic for resolve_library
-│       │   ├── get_library_docs.py   # Business logic for get_library_docs
+│       │   ├── get_library_docs.py   # Business logic for get_library_index
 │       │   └── read_page.py          # Business logic for read_page
 │       ├── registry.py               # Registry loading, index building, disk persistence, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
@@ -257,7 +257,7 @@ class CacheProtocol(Protocol):
         url: str,
         url_hash: str,
         content: str,
-        headings: str,
+        outline: str,
         ttl_hours: int,
         *,
         discovered_domains: frozenset[str] = frozenset(),
@@ -366,7 +366,7 @@ if not entry:
 import structlog
 
 async def handle(library_id: str, state: AppState) -> dict:
-    log = structlog.get_logger().bind(tool="get_library_docs", library_id=library_id)
+    log = structlog.get_logger().bind(tool="get_library_index", library_id=library_id)
     log.info("handler_called")
     ...
     log.info("cache_hit")
@@ -475,7 +475,7 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ### Phase 2: Fetcher & Cache
 
-**Goal**: `get_library_docs` tool is fully functional. SQLite cache works with stale-while-revalidate.
+**Goal**: `get_library_index` tool is fully functional. SQLite cache works with stale-while-revalidate.
 
 **Files to create/update**:
 
@@ -485,11 +485,11 @@ echo '{}' | uv run procontext  # Responds without crash
 | `src/procontext/cache.py`                  | `Cache` class: `init_db()`, `get_toc()`, `set_toc()`, `get_page()`, `set_page()`, `cleanup_expired()`      |
 | `src/procontext/protocols.py`              | Fill out `CacheProtocol` and `FetcherProtocol` with full method signatures                                 |
 | `src/procontext/models/cache.py`           | `TocCacheEntry`, `PageCacheEntry`                                                                          |
-| `src/procontext/models/tools.py`           | Add `GetLibraryDocsInput`, `GetLibraryDocsOutput`                                                          |
+| `src/procontext/models/tools.py`           | Add `GetLibraryIndexInput`, `GetLibraryIndexOutput`                                                          |
 | `src/procontext/models/__init__.py`        | Re-export new models                                                                                       |
 | `src/procontext/tools/get_library_docs.py` | `handle(library_id, state) -> dict`                                                                        |
 | `src/procontext/state.py`                  | Add `http_client`, `cache`, `fetcher`, `allowlist` fields                                                  |
-| `src/procontext/server.py`                 | Register `get_library_docs` tool, initialise `Cache` and `Fetcher` in lifespan                             |
+| `src/procontext/server.py`                 | Register `get_library_index` tool, initialise `Cache` and `Fetcher` in lifespan                             |
 | `tests/unit/test_fetcher.py`               | See testing section                                                                                        |
 | `tests/unit/test_cache.py`                 | See testing section                                                                                        |
 
@@ -514,22 +514,24 @@ echo '{}' | uv run procontext  # Responds without crash
 
 | File                                | What to implement                                                            |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| `src/procontext/parser.py`          | `parse_headings()` — returns plain-text heading map                          |
+| `src/procontext/parser.py`          | `parse_outline()` — returns plain-text structural outline                    |
 | `src/procontext/tools/read_page.py` | `handle(url, offset, limit, state) -> dict`                                  |
 | `src/procontext/server.py`          | Register `read_page` tool                                                    |
 | `tests/unit/test_parser.py`         | See testing section                                                          |
 | `tests/integration/test_tools.py`   | End-to-end tool call tests for all three tools                               |
 
-**Note**: `ReadPageInput`, `ReadPageOutput`, and `PageCacheEntry` (with `headings` field) were already added in Phase 2.
+**Note**: `ReadPageInput`, `ReadPageOutput`, and `PageCacheEntry` (with `outline` field) were already added in Phase 2.
 
 **Key behaviours to verify**:
 
-- `#>` inside code block is not detected as heading
-- `# comment` inside code block is not detected as heading
-- Heading at any level (H1–H4) outside code block is detected with correct `line` number
+- H1–H6 headings detected with correct 1-based line numbers
+- Blockquote headings (`> ## Section`) are captured
+- Fence opener/closer lines are emitted so the agent knows where code blocks start/end
+- Headings inside code blocks are captured as-is (agent infers context from surrounding fence lines)
+- 4-space indented lines are not treated as fence openers
 - Page is cached on first fetch; subsequent calls with different offsets are served from cache without re-fetch
 - `offset` and `limit` correctly window the content
-- `headings` always reflects the full page regardless of offset/limit
+- `outline` always reflects the full page regardless of offset/limit or `view`
 
 ---
 
@@ -738,18 +740,19 @@ async def app_state(indexes, sample_entries):
 
 `tests/unit/test_parser.py`
 
-- Heading inside fenced ` ``` ` block: not detected
-- Heading inside `~~~` block: not detected
-- `#>` comment in code block: not detected
-- H1–H4 outside code blocks: all detected with correct level
-- H5+ ignored
-- Line numbers: each heading records the correct 1-based line number from the source content
+- H1–H6 headings detected with correct 1-based line numbers
+- Blockquote headings (`> ## Section`) are captured; deeply nested (`>> ##`) are not
+- Fence opener/closer lines emitted as-is
+- Headings inside code blocks captured with original indentation
+- 4-space indented lines not treated as fence openers
+- Lines with 7+ hashes not captured
+- BOM (`\ufeff`) on line 1 does not prevent heading detection
 
 `tests/integration/test_tools.py`
 
 - `resolve_library`: full call, correct output shape
-- `get_library_docs`: cache miss path (mocked HTTP), cache hit path
-- `get_library_docs`: unknown library raises `LIBRARY_NOT_FOUND`
+- `get_library_index`: cache miss path (mocked HTTP), cache hit path
+- `get_library_index`: unknown library raises `LIBRARY_NOT_FOUND`
 - `read_page`: cache miss path (mocked HTTP), cache hit path
 - `read_page`: URL not in allowlist raises `URL_NOT_ALLOWED`
 - HTTP transport: `auth_enabled=true`, explicit key, missing bearer key → 401

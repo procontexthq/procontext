@@ -19,7 +19,7 @@
   - [2.2 Output Schema](#22-output-schema)
   - [2.3 Examples](#23-examples)
   - [2.4 Error Cases](#24-error-cases)
-- [3. Tool: get_library_docs](#3-tool-get_library_docs)
+- [3. Tool: get_library_index](#3-tool-get_library_index)
   - [3.1 Input Schema](#31-input-schema)
   - [3.2 Output Schema](#32-output-schema)
   - [3.3 Examples](#33-examples)
@@ -207,7 +207,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 
 ## 2. Tool: resolve_library
 
-**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain a `library_id` for use with `get_library_docs`.
+**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain a `library_id` for use with `get_library_index`.
 
 ### 2.1 Input Schema
 
@@ -375,7 +375,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ---
 
-## 3. Tool: get_library_docs
+## 3. Tool: get_library_index
 
 **Purpose**: Fetch the table of contents (llms.txt) for a library. Returns the raw markdown content the agent reads to identify documentation pages and their URLs.
 
@@ -383,7 +383,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ```json
 {
-  "name": "get_library_docs",
+  "name": "get_library_index",
   "description": "Fetch the llms.txt table of contents for a library. Returns raw markdown listing documentation sections and page URLs. The agent reads this to decide which pages to fetch with read_page.",
   "inputSchema": {
     "type": "object",
@@ -413,6 +413,10 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
       "type": "string",
       "description": "Human-readable library name."
     },
+    "index_url": {
+      "type": "string",
+      "description": "Source URL of the documentation index file. Use as the base URL to resolve any relative links found in content."
+    },
     "content": {
       "type": "string",
       "description": "Raw llms.txt content as markdown. Contains section headings and links to documentation pages. The agent reads this directly to extract page URLs."
@@ -431,7 +435,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
       "description": "True if the cached entry has passed its TTL. Content is still valid but a background refresh has been triggered."
     }
   },
-  "required": ["library_id", "name", "content", "cached", "cached_at", "stale"]
+  "required": ["library_id", "name", "index_url", "content", "cached", "cached_at", "stale"]
 }
 ```
 
@@ -457,6 +461,7 @@ Result:
 {
   "library_id": "langchain",
   "name": "LangChain",
+  "index_url": "https://python.langchain.com/llms.txt",
   "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://docs.langchain.com/docs/concepts/chat_models.md): Interface for language models that take messages as input and return messages as output.\n- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated.\n\n## How-to Guides\n\n- [How to return structured data from a model](https://docs.langchain.com/docs/how_to/structured_output.md): ...\n\n## API Reference\n\n- [BaseChatModel](https://api.python.langchain.com/en/latest/language_models/langchain_core.language_models.chat_models.BaseChatModel.md): ...\n",
   "cached": false,
   "cached_at": null,
@@ -470,6 +475,7 @@ Result:
 {
   "library_id": "langchain",
   "name": "LangChain",
+  "index_url": "https://python.langchain.com/llms.txt",
   "content": "...",
   "cached": true,
   "cached_at": "2026-02-23T10:00:00Z",
@@ -483,6 +489,7 @@ Result:
 {
   "library_id": "langchain",
   "name": "LangChain",
+  "index_url": "https://python.langchain.com/llms.txt",
   "content": "...",
   "cached": true,
   "cached_at": "2026-02-22T10:00:00Z",
@@ -518,27 +525,27 @@ Result:
 
 ## 4. Tool: read_page
 
-**Purpose**: Fetch a documentation page from a URL returned by `get_library_docs`. Returns a heading map of the full page (H1–H4) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned.
+**Purpose**: Fetch a documentation page from a URL returned by `get_library_index`. Returns a structural outline of the full page (H1–H6 headings and fence markers) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned.
 
 ### 4.1 Input Schema
 
 ```json
 {
   "name": "read_page",
-  "description": "Fetch a documentation page from a URL returned by get_library_docs. Two views: view=\"full\" (default) returns the heading map and a content window; view=\"headings\" returns the heading map and total_lines only. The heading map lists every H1–H4 heading with its 1-based line number. Use view=\"headings\" to scan structure across candidate pages, then call with view=\"full\" and offset=<line number> to jump to the relevant section.",
+  "description": "Fetch a documentation page from a URL returned by get_library_index. Two views: view=\"full\" (default) returns the outline and a content window; view=\"outline\" returns the outline and total_lines only. The outline lists every H1–H6 heading and fence marker with its 1-based line number. Use view=\"outline\" to scan structure across candidate pages, then call with view=\"full\" and offset=<line number> to jump to the relevant section.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the documentation page, typically extracted from get_library_docs output. Must use http or https. Must be a domain from the library registry.",
+        "description": "URL of the documentation page, typically extracted from get_library_index output. Must use http or https. Must be a domain from the library registry.",
         "maxLength": 2048
       },
       "view": {
         "type": "string",
-        "enum": ["full", "headings"],
+        "enum": ["full", "outline"],
         "default": "full",
-        "description": "\"full\" returns the heading map plus a content window. \"headings\" returns the heading map and total_lines only, without page content."
+        "description": "\"full\" returns the outline plus a content window. \"outline\" returns the outline and total_lines only, without page content."
       },
       "offset": {
         "type": "integer",
@@ -549,8 +556,8 @@ Result:
       "limit": {
         "type": "integer",
         "minimum": 1,
-        "default": 2000,
-        "description": "Maximum number of lines to return from the offset. Defaults to 2000. Only used when view=\"full\"."
+        "default": 500,
+        "description": "Maximum number of lines to return from the offset. Defaults to 500. Only used when view=\"full\"."
       }
     },
     "required": ["url"]
@@ -559,7 +566,7 @@ Result:
 ```
 
 **Navigation workflow**:
-1. Call with `view="headings"` to inspect the page structure without fetching content.
+1. Call with `view="outline"` to inspect the page structure without fetching content.
 2. Find the heading closest to the section you need and note its line number.
 3. Call again with `view="full"` and `offset=<that line number>` to read the section.
 
@@ -575,9 +582,9 @@ For short pages or when you need the full content in one call, omit `view` (defa
       "type": "string",
       "description": "The URL requested by the client and used as the cache key."
     },
-    "headings": {
+    "outline": {
       "type": "string",
-      "description": "Plain-text heading map of the full page (always complete, regardless of view/offset/limit). Each line is formatted as '<line_number>: <heading line>' where line_number is 1-based. Only H1–H4 markdown headings are included."
+      "description": "Plain-text structural outline of the full page (always complete, regardless of view/offset/limit). Each line is formatted as '<line_number>: <original line>' where line_number is 1-based. Includes H1–H6 headings (including blockquote headings such as '> ## Section'), headings inside fenced code blocks, and fence opener/closer lines."
     },
     "total_lines": {
       "type": "integer",
@@ -593,26 +600,26 @@ For short pages or when you need the full content in one call, omit `view` (defa
     },
     "content": {
       "type": "string",
-      "description": "Page markdown for the requested window (from offset, up to limit lines). Present only when view=\"full\". Absent when view=\"headings\"."
+      "description": "Page markdown for the requested window (from offset, up to limit lines). Present only when view=\"full\". Absent when view=\"outline\"."
     },
     "cached": { "type": "boolean" },
     "cached_at": { "type": ["string", "null"], "format": "date-time" },
     "stale": { "type": "boolean" }
   },
-  "required": ["url", "headings", "total_lines", "offset", "limit", "cached", "cached_at", "stale"]
+  "required": ["url", "outline", "total_lines", "offset", "limit", "cached", "cached_at", "stale"]
 }
 ```
 
-**Headings**: Always reflect the full page regardless of `view`, `offset`, or `limit`. Headings and full content are cached together so subsequent calls with different views or offsets don't re-fetch.
+**Outline**: Always reflects the full page regardless of `view`, `offset`, or `limit`. The outline and full content are cached together so subsequent calls with different views or offsets don't re-fetch.
 
 ### 4.3 Examples
 
-**Scan structure only (`view="headings"`)**:
+**Scan structure only (`view="outline"`)**:
 
 Request arguments:
 
 ```json
-{ "url": "https://docs.langchain.com/docs/concepts/streaming.md", "view": "headings" }
+{ "url": "https://docs.langchain.com/docs/concepts/streaming.md", "view": "outline" }
 ```
 
 Result:
@@ -620,10 +627,10 @@ Result:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "headings": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
+  "outline": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
   "total_lines": 42,
   "offset": 1,
-  "limit": 2000,
+  "limit": 500,
   "cached": false,
   "cached_at": null,
   "stale": false
@@ -643,7 +650,7 @@ Result:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "headings": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
+  "outline": "1: # Streaming\n3: ## Overview\n12: ## Streaming with Chat Models\n18: ### Using .stream()\n27: ### Using .astream()\n35: ## Streaming with Chains",
   "total_lines": 42,
   "offset": 18,
   "limit": 10,
@@ -654,7 +661,7 @@ Result:
 }
 ```
 
-Note: `headings` is identical across all responses for the same URL — it always covers the full page.
+Note: `outline` is identical across all responses for the same URL — it always covers the full page.
 
 ### 4.4 Error Cases
 
@@ -668,7 +675,7 @@ Note: `headings` is identical across all responses for the same URL — it alway
 | Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED`   | `false`       |
 | URL over 2048 characters                 | `INVALID_INPUT`     | `false`       |
 | `offset` < 1 or `limit` < 1             | `INVALID_INPUT`     | `false`       |
-| `view` not `"full"` or `"headings"`      | `INVALID_INPUT`     | `false`       |
+| `view` not `"full"` or `"outline"`       | `INVALID_INPUT`     | `false`       |
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -677,7 +684,7 @@ Note: `headings` is identical across all responses for the same URL — it alway
   "error": {
     "code": "URL_NOT_ALLOWED",
     "message": "URL 'https://internal.example.com/docs' is not permitted.",
-    "suggestion": "Only URLs from known documentation domains are allowed. Use get_library_docs to obtain valid documentation URLs.",
+    "suggestion": "Only URLs from known documentation domains are allowed. Use get_library_index to obtain valid documentation URLs.",
     "recoverable": false
   }
 }
@@ -834,12 +841,12 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 
 | Code                    | Raised by          | Description                                                                                    | `recoverable` |
 | ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------- | ------------- |
-| `LIBRARY_NOT_FOUND`     | `get_library_docs` | `library_id` is valid syntax but not present in the registry                                   | `false`       |
-| `LLMS_TXT_NOT_FOUND`    | `get_library_docs` | HTTP 404 fetching the llms.txt URL — the URL in the registry is incorrect                      | `false`       |
-| `LLMS_TXT_FETCH_FAILED` | `get_library_docs` | Network error, timeout, or server error fetching the llms.txt URL                              | `true`        |
+| `LIBRARY_NOT_FOUND`     | `get_library_index` | `library_id` is valid syntax but not present in the registry                                   | `false`       |
+| `LLMS_TXT_NOT_FOUND`    | `get_library_index` | HTTP 404 fetching the llms.txt URL — the URL in the registry is incorrect                      | `false`       |
+| `LLMS_TXT_FETCH_FAILED` | `get_library_index` | Network error, timeout, or server error fetching the llms.txt URL                              | `true`        |
 | `PAGE_NOT_FOUND`        | `read_page`        | HTTP 404 for the requested URL                                                                 | `false`       |
 | `PAGE_FETCH_FAILED`     | `read_page`        | Network error, timeout, or non-200/404 HTTP response (excluding redirect exhaustion)           | `true`        |
-| `TOO_MANY_REDIRECTS`    | `get_library_docs`, `read_page` | Redirect chain exceeded the 3-hop safety limit                                       | `false`       |
+| `TOO_MANY_REDIRECTS`    | `get_library_index`, `read_page` | Redirect chain exceeded the 3-hop safety limit                                       | `false`       |
 | `URL_NOT_ALLOWED`       | `read_page`        | URL domain is not in the SSRF allowlist, or is a private IP range                              | `false`       |
 | `INVALID_INPUT`         | Any tool           | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false`       |
 

@@ -66,7 +66,7 @@
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Tools                                       │   │
-│  │  resolve_library │ get_library_docs │ read_page│  │
+│  │  resolve_library │ get_library_index │ read_page│  │
 │  └────────────────────────┬─────────────────────┘   │
 │                           │                         │
 │  ┌────────────────────────▼─────────────────────┐   │
@@ -97,7 +97,7 @@ resolve_library("langchain-openai>=0.3")
   ├─ Index 1 (package → ID): "langchain-openai" → "langchain"  ✓
   └─ Return [{ library_id: "langchain", matched_via: "package_name", relevance: 1.0 }]
 
-get_library_docs("langchain")
+get_library_index("langchain")
   │
   ├─ Registry lookup: "langchain" → llms_txt_url
   ├─ Cache check: toc:langchain
@@ -112,13 +112,13 @@ read_page("https://docs.langchain.com/concepts/streaming.md")
   │
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: page:{sha256(url)}
-  │    HIT (fresh)  → return cached content + headings
+  │    HIT (fresh)  → return cached content + outline
   │    HIT (stale)  → return + trigger background refresh
   │    MISS         → continue
   ├─ Fetch: HTTP GET url (30s timeout, SSRF validated per redirect)
   ├─ Store: page_cache (TTL 24h)
-  ├─ Parse: extract headings (code-block-aware, H1–H4, line numbers)
-  └─ Return: { headings: [...], content: "..." }
+  ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
+  └─ Return: { outline: "...", content: "..." }
 ```
 
 ---
@@ -202,7 +202,7 @@ class PageCacheEntry(BaseModel):
     url: str
     url_hash: str             # SHA-256 of url (primary key)
     content: str              # Full page markdown
-    headings: str             # Plain-text heading map: "<line>: <heading>\n..."
+    outline: str              # Plain-text structural outline: "<line>: <original line>\n..."
     fetched_at: datetime
     expires_at: datetime
     stale: bool = False
@@ -250,7 +250,8 @@ class GetLibraryDocsOutput(BaseModel):
 class ReadPageInput(BaseModel):
     url: str
     offset: int = 1
-    limit: int = 2000
+    limit: int = 500
+    view: Literal["outline", "full"] = "full"
 
     @field_validator("url")
     @classmethod
@@ -278,11 +279,11 @@ class ReadPageInput(BaseModel):
 
 class ReadPageOutput(BaseModel):
     url: str
-    headings: str             # Plain-text heading map: "<line>: <heading>\n..."
+    outline: str              # Plain-text structural outline: "<line>: <original line>\n..."
     total_lines: int
     offset: int
     limit: int
-    content: str              # Page markdown for the requested window
+    content: str | None       # Page markdown for the requested window; None when view="outline"
     cached: bool
     cached_at: datetime | None
     stale: bool = False
@@ -588,7 +589,7 @@ def is_url_allowed(
 **Runtime allowlist expansion** (reactive, not pre-fetched):
 
 - **Depth 0** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
-- **Depth 1**: after `get_library_docs` fetches an `llms.txt`, all URLs in its content have their base domains extracted and merged into `state.allowlist`. Enables `read_page` to follow cross-domain links listed in `llms.txt`.
+- **Depth 1**: after `get_library_index` fetches an `llms.txt`, all URLs in its content have their base domains extracted and merged into `state.allowlist`. Enables `read_page` to follow cross-domain links listed in `llms.txt`.
 - **Depth 2**: additionally, after `read_page` fetches a page, URLs in the page content are also expanded into the allowlist. Enables following cross-references from one documentation page to another on a previously unseen domain.
 
 At depth 1 and 2, expansion is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
@@ -674,7 +675,7 @@ CREATE TABLE IF NOT EXISTS page_cache (
     url_hash           TEXT PRIMARY KEY,             -- SHA-256(url)
     url                TEXT NOT NULL UNIQUE,
     content            TEXT NOT NULL,
-    headings           TEXT NOT NULL DEFAULT '',     -- Plain-text heading map
+    outline            TEXT NOT NULL DEFAULT '',     -- Plain-text structural outline
     discovered_domains TEXT NOT NULL DEFAULT '',     -- Space-separated base domains extracted from content
     fetched_at         TEXT NOT NULL,
     expires_at         TEXT NOT NULL
@@ -832,12 +833,12 @@ async def resolve_library(query: str, ctx: Context) -> dict:
     return await t_resolve.handle(query, state)
 
 @mcp.tool()
-async def get_library_docs(library_id: str, ctx: Context) -> dict:
+async def get_library_index(library_id: str, ctx: Context) -> dict:
     state: AppState = ctx.request_context.lifespan_context
     return await t_get_docs.handle(library_id, state)
 
 @mcp.tool()
-async def read_page(url: str, ctx: Context, offset: int = 1, limit: int = 2000) -> dict:
+async def read_page(url: str, ctx: Context, offset: int = 1, limit: int = 500) -> dict:
     state: AppState = ctx.request_context.lifespan_context
     return await t_read_page.handle(url, offset, limit, state)
 
@@ -1267,8 +1268,8 @@ import structlog
 log = structlog.get_logger()
 
 # Per-request context binding
-async def get_library_docs_handler(library_id: str) -> dict:
-    log = structlog.get_logger().bind(tool="get_library_docs", library_id=library_id)
+async def get_library_index_handler(library_id: str) -> dict:
+    log = structlog.get_logger().bind(tool="get_library_index", library_id=library_id)
 
     log.info("cache_check")
     entry = await cache.get_toc(library_id)

@@ -27,6 +27,7 @@ import procontext.tools.resolve_library as t_resolve
 from procontext import __version__
 from procontext.cache import Cache
 from procontext.config import Settings
+from procontext.errors import ProContextError
 from procontext.fetcher import Fetcher, build_allowlist, build_http_client
 from procontext.models.tools import GetLibraryDocsOutput, ReadPageOutput, ResolveLibraryOutput
 from procontext.registry import build_indexes, fetch_registry_for_setup, load_registry
@@ -194,44 +195,63 @@ mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 async def resolve_library(
     query: Annotated[
         str,
-        Field(description="Library name, package specifier (e.g. 'langchain>=0.2'), or alias."),
+        Field(
+            description=("Library name, package specifier (e.g. 'langchain-community'), or alias.")
+        ),
     ],
     ctx: Context,
 ) -> ResolveLibraryOutput:
     """Resolve a library name to its documentation source.
 
-    Returns a ranked list of matches. Pass the library_id from the top match
-    to get_library_docs.
+    Returns a ranked list of matches sorted by relevance; the top match is almost always
+    correct. Matched in priority order: exact PyPI/npm package names, canonical library IDs,
+    registered aliases, then fuzzy name matching.
+
+    Always call this first to obtain a library_id, then pass it to get_library_index.
     """
     state: AppState = ctx.request_context.lifespan_context
-    return ResolveLibraryOutput.model_validate(await t_resolve.handle(query, state))
+    try:
+        return ResolveLibraryOutput.model_validate(await t_resolve.handle(query, state))
+    except ProContextError as exc:
+        log.warning("tool_error", tool="resolve_library", code=exc.code, message=exc.message)
+        raise
+    except Exception:
+        log.error("tool_unexpected_error", tool="resolve_library", exc_info=True)
+        raise
 
 
 @mcp.tool()
-async def get_library_docs(
+async def get_library_index(
     library_id: Annotated[
         str,
-        Field(description="Library ID from resolve_library. Use the library_id of the best match."),
+        Field(description="Library ID returned by resolve_library."),
     ],
     ctx: Context,
 ) -> GetLibraryDocsOutput:
-    """Fetch the llms.txt table of contents for a library.
+    """Fetch the table of contents for a library's documentation.
 
-    Returns a structured index of documentation pages with titles and URLs.
-    Use the page URLs as input to read_page.
+    Returns raw markdown containing URLs to specific documentation pages.
+    Pass these URLs to read_page to fetch a specific page.
 
     stale=true means the content was served from an expired cache entry and
     is being refreshed in the background; it is still usable.
     """
     state: AppState = ctx.request_context.lifespan_context
-    return GetLibraryDocsOutput.model_validate(await t_get_docs.handle(library_id, state))
+    try:
+        return GetLibraryDocsOutput.model_validate(await t_get_docs.handle(library_id, state))
+    except ProContextError as exc:
+        log.warning("tool_error", tool="get_library_index", code=exc.code, message=exc.message)
+        raise
+    except Exception:
+        log.error("tool_unexpected_error", tool="get_library_index", exc_info=True)
+        raise
 
 
 @mcp.tool()
 async def read_page(
     url: Annotated[
         str,
-        Field(description="Documentation page URL from get_library_docs."),
+        Field(description="Documentation page URL."),
     ],
     ctx: Context,
     offset: Annotated[
@@ -241,36 +261,44 @@ async def read_page(
     limit: Annotated[
         int,
         Field(description="Maximum number of content lines to return.", ge=1),
-    ] = 2000,
+    ] = 500,
     view: Annotated[
-        Literal["headings", "full"],
+        Literal["outline", "full"],
         Field(
             description=(
-                "headings: returns heading map and total_lines only, no page content. "
-                "full: returns heading map plus content window."
+                "outline: returns page outline and total_lines only, no page content. "
+                "full: returns page outline plus content window based on offset and limit."
             )
         ),
     ] = "full",
 ) -> ReadPageOutput:
-    """Fetch a documentation page from a URL returned by get_library_docs.
+    """Fetch the outline and content of a documentation page.
 
-    The heading map lists every H1–H4 heading with its 1-based line number.
-    total_lines is always present. If offset + limit < total_lines, call again
-    with a higher offset to read more content.
-    Repeated calls on the same URL are served from cache (sub-100ms).
+    Accepts any documentation URL — from get_library_index or linked within a page
+    from read_page content.
 
     Navigation patterns:
-      Single page — call with view="full", use heading line numbers with
-      offset to jump to specific sections, increment offset to read further chunks.
+      Pattern 1 — call with view="full", then scroll through using offset
+      or use outline line numbers to jump directly to specific sections.
 
-      Multiple candidate pages — call view="headings" across pages from
-      get_library_docs to compare structure cheaply before committing to
-      a full read.
+      Pattern 2 — call view="outline" across pages from get_library_index
+      to compare structure cheaply before committing to a full read. Useful
+      when skimming multiple pages to find the right one.
+
+    Pattern 1 is the recommended default.
+    Repeated calls on the same URL are served from cache (sub-100ms).
     """
     state: AppState = ctx.request_context.lifespan_context
-    return ReadPageOutput.model_validate(
-        await t_read_page.handle(url, offset, limit, state, view=view)
-    )
+    try:
+        return ReadPageOutput.model_validate(
+            await t_read_page.handle(url, offset, limit, state, view=view)
+        )
+    except ProContextError as exc:
+        log.warning("tool_error", tool="read_page", code=exc.code, message=exc.message)
+        raise
+    except Exception:
+        log.error("tool_unexpected_error", tool="read_page", exc_info=True)
+        raise
 
 
 # ---------------------------------------------------------------------------

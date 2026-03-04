@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`resolve_library` no longer returns `docs_url`** — the field has been
   removed from the response. It was the human-facing documentation homepage and
   is not a valid input to any tool, serving no purpose in the agent workflow.
-  Use `get_library_docs` to retrieve the llms.txt table of contents and then
+  Use `get_library_index` to retrieve the llms.txt table of contents and then
   `read_page` for individual pages.
 
 - **Bundled registry snapshot removed** — the server no longer ships with an
