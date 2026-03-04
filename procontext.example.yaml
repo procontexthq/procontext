@@ -42,9 +42,12 @@ cache:
   cleanup_interval_hours: 6
 
 fetcher:
-  # Timeout (in seconds) for each HTTP request to a documentation source.
+  # Time (in seconds) to establish a TCP connection to a documentation host.
+  # Keeps hangs short when a host is unreachable or unresponsive.
+  connect_timeout_seconds: 5
+
+  # Time (in seconds) to wait for the response body after connecting.
   # Increase if you regularly fetch large pages or are on a slow network.
-  # Applies to every fetch made by get_library_docs and read_page.
   request_timeout_seconds: 30
 
   # Block requests to private/internal IP ranges (10.x.x.x, 192.168.x.x, 127.x.x.x,

@@ -39,10 +39,11 @@ PRIVATE_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
 
 def build_http_client(settings: FetcherSettings | None = None) -> httpx.AsyncClient:
     """Create the shared httpx client. Called once at startup."""
-    timeout = settings.request_timeout_seconds if settings is not None else 30.0
+    read_timeout = settings.request_timeout_seconds if settings is not None else 30.0
+    connect_timeout = settings.connect_timeout_seconds if settings is not None else 5.0
     return httpx.AsyncClient(
         follow_redirects=False,
-        timeout=httpx.Timeout(timeout),
+        timeout=httpx.Timeout(read_timeout, connect=connect_timeout),
         headers={"User-Agent": f"procontext/{__version__}"},
         limits=httpx.Limits(
             max_connections=10,

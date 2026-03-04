@@ -67,6 +67,7 @@ class FetcherSettings(BaseModel):
     ssrf_domain_check: bool = True
     allowlist_depth: Literal[0, 1, 2] = 0
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
+    connect_timeout_seconds: float = 5.0
     request_timeout_seconds: float = 30.0
 
 
