@@ -178,7 +178,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1
 2. Check SQLite cache for `page:{sha256(url)}` — if fresh, return from cache
-3. On cache miss: if URL does not already end with `.md`, fetch `url + ".md"` instead. If that returns 404, raise `PAGE_NOT_FOUND` (fail fast — no fallback to the original URL). Store full content + outline in SQLite cache keyed against the original URL.
+3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first. On any failure (404, timeout, network error), fall back to the original URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the original URL.
 4. Build plain-text outline from full page (always complete, regardless of offset/limit)
 5. Slice content to the requested window (`offset`/`limit`)
 6. Return outline, windowed content, and pagination metadata

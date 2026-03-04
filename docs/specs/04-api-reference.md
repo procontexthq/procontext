@@ -518,7 +518,7 @@ Result:
 
 ## 4. Tool: read_page
 
-**Purpose**: Fetch a documentation page from a URL returned by `get_library_index`. Returns a structural outline of the full page (H1–H6 headings and fence markers) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned. If the URL does not end with `.md`, the server automatically fetches the `.md` variant to ensure markdown content is returned; `PAGE_NOT_FOUND` is raised if the variant does not exist.
+**Purpose**: Fetch a documentation page from a URL returned by `get_library_index`. Returns a structural outline of the full page (H1–H6 headings and fence markers) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned. If the URL does not end with `.md`, the server tries the `.md` variant first; on any failure (404, timeout, network error) it falls back to the original URL. A 200 HTML response from the `.md` probe is accepted as-is. `.md` is never appended to redirect targets.
 
 ### 4.1 Input Schema
 
@@ -531,7 +531,7 @@ Result:
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the documentation page. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server automatically fetches url+\".md\" to retrieve the markdown version. Raises PAGE_NOT_FOUND if the .md variant does not exist.",
+        "description": "URL of the documentation page. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure (404, timeout, network error) it falls back to the original URL.",
         "maxLength": 2048
       },
       "view": {
