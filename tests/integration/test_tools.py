@@ -552,3 +552,75 @@ class TestReadPageHandler:
         assert result["cached"] is False
         assert html_body in result["content"]
         assert respx.calls.call_count == 1  # Only .md was requested, no fallback
+
+    @respx.mock
+    async def test_query_string_url_md_probe_correct_path(self, app_state: AppState) -> None:
+        """Query string must be preserved and .md must land in the path, not inside the query."""
+        base_url = "https://python.langchain.com/docs/concepts/streaming?v=latest"
+        # .md goes in the path; query string is preserved
+        expected_request_url = "https://python.langchain.com/docs/concepts/streaming.md?v=latest"
+        respx.get(expected_request_url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(base_url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == expected_request_url
+
+    @respx.mock
+    async def test_trailing_slash_url_not_probed(self, app_state: AppState) -> None:
+        """A URL with a trailing slash is fetched as-is — appending .md would
+        produce an invalid path like /docs/page/.md."""
+        url = "https://python.langchain.com/docs/concepts/"
+        respx.get(url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == url
+
+    @respx.mock
+    async def test_500_on_probe_falls_back_to_original(self, app_state: AppState) -> None:
+        """A 500 response from the .md probe triggers fallback to the original URL."""
+        base_url = "https://python.langchain.com/docs/concepts/streaming"
+        md_url = base_url + ".md"
+        respx.get(md_url).mock(return_value=httpx.Response(500))
+        respx.get(base_url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(base_url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert "# Streaming" in result["content"]
+        assert respx.calls.call_count == 2
+        assert str(respx.calls[0].request.url) == md_url
+        assert str(respx.calls[1].request.url) == base_url
+
+    @respx.mock
+    async def test_timeout_on_probe_falls_back_to_original(self, app_state: AppState) -> None:
+        """A timeout on the .md probe triggers fallback to the original URL."""
+        base_url = "https://python.langchain.com/docs/concepts/streaming"
+        md_url = base_url + ".md"
+        respx.get(md_url).mock(side_effect=httpx.TimeoutException("timed out"))
+        respx.get(base_url).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(base_url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert "# Streaming" in result["content"]
+        assert respx.calls.call_count == 2
+
+    @respx.mock
+    async def test_probe_and_fallback_both_fail_raises(self, app_state: AppState) -> None:
+        """If both the .md probe and the original URL fail, the error is propagated."""
+        from procontext.errors import ProContextError
+
+        base_url = "https://python.langchain.com/docs/concepts/streaming"
+        md_url = base_url + ".md"
+        respx.get(md_url).mock(return_value=httpx.Response(404))
+        respx.get(base_url).mock(return_value=httpx.Response(404))
+
+        with pytest.raises(ProContextError):
+            await read_page_handle(base_url, 1, 500, app_state)
+
+        assert respx.calls.call_count == 2

@@ -171,10 +171,16 @@ def _has_file_extension(url: str) -> bool:
     Used to decide whether to probe the .md variant — skipped when the URL
     already has any alphabetic extension (.md, .txt, .html, etc.).
 
+    Returns True (skip probe) for empty last segments — trailing slashes
+    (``/docs/``) or bare domain roots — because appending ``.md`` to an empty
+    segment would corrupt the URL (e.g. ``/docs/.md``).
+
     Version segments like ``v1.2`` are NOT treated as extensions because the
     part after the dot is numeric, not alphabetic.
     """
     last_segment = urlparse(url).path.rsplit("/", 1)[-1]
+    if not last_segment:
+        return True  # trailing slash or no path — skip probe
     _, ext = splitext(last_segment)
     return bool(ext) and ext[1:].isalpha()
 
