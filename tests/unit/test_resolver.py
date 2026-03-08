@@ -243,6 +243,7 @@ class TestMatchStructure:
         match = matches[0]
         assert match.library_id == "langchain"
         assert match.name == "LangChain"
+        assert match.description == "Framework for building LLM-powered applications."
         assert "python" in match.languages
         assert match.matched_via == "package_name"
         assert match.relevance == 1.0

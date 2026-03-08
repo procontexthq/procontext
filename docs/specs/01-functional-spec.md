@@ -91,6 +91,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
     {
       "library_id": "langchain",
       "name": "LangChain",
+      "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
       "matched_via": "package_name",
       "relevance": 1.0
@@ -103,6 +104,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | ------------- | ------------------------------------------------------------------------------- |
 | `library_id`  | Stable identifier used in all subsequent tool calls                             |
 | `name`        | Human-readable display name                                                     |
+| `description` | Short description of what the library does. May be empty for older registry entries |
 | `languages`   | Languages this library supports                                                 |
 | `matched_via` | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`  |
 | `relevance`   | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance |

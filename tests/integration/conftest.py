@@ -62,12 +62,14 @@ def subprocess_env(tmp_path: Path) -> dict[str, str]:
             {
                 "id": "requests",
                 "name": "requests",
+                "description": "Elegant HTTP library for Python.",
                 "llms_txt_url": "https://docs.python-requests.org/llms.txt",
                 "packages": {"pypi": ["requests"]},
             },
             {
                 "id": "langchain",
                 "name": "LangChain",
+                "description": "Framework for building LLM-powered applications.",
                 "docs_url": "https://python.langchain.com/docs/",
                 "llms_txt_url": "https://python.langchain.com/llms.txt",
                 "packages": {"pypi": ["langchain", "langchain-openai", "langchain-core"]},

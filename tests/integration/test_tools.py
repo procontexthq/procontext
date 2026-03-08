@@ -40,6 +40,7 @@ class TestResolveLibraryHandler:
         assert set(match.keys()) == {
             "library_id",
             "name",
+            "description",
             "languages",
             "matched_via",
             "relevance",

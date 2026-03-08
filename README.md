@@ -88,6 +88,7 @@ resolve_library({ "query": "langchain>=0.2" })
 → {
     "library_id": "langchain",
     "name": "LangChain",
+    "description": "Framework for building LLM-powered applications.",
     "matched_via": "package_name",
     "relevance": 1.0
   }

@@ -15,6 +15,7 @@ def sample_entries() -> list[RegistryEntry]:
         RegistryEntry(
             id="langchain",
             name="LangChain",
+            description="Framework for building LLM-powered applications.",
             docs_url="https://python.langchain.com/docs/",
             repo_url="https://github.com/langchain-ai/langchain",
             languages=["python"],
@@ -28,6 +29,7 @@ def sample_entries() -> list[RegistryEntry]:
         RegistryEntry(
             id="pydantic",
             name="Pydantic",
+            description="Data validation using Python type annotations.",
             docs_url="https://docs.pydantic.dev/latest/",
             repo_url="https://github.com/pydantic/pydantic",
             languages=["python"],

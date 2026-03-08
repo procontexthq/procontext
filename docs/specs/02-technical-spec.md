@@ -159,6 +159,7 @@ class RegistryEntry(BaseModel):
     """Single entry in known-libraries.json"""
     id: str
     name: str
+    description: str = ""
     docs_url: str | None = None
     repo_url: str | None = None
     languages: list[str] = []
@@ -178,6 +179,7 @@ class LibraryMatch(BaseModel):
     """Single result from resolve_library"""
     library_id: str
     name: str
+    description: str          # Short description of what the library does
     languages: list[str]
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
     relevance: float          # 0.0–1.0

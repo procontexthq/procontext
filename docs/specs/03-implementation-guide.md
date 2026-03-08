@@ -637,6 +637,7 @@ def sample_entries() -> list[RegistryEntry]:
         RegistryEntry(
             id="langchain",
             name="LangChain",
+            description="Framework for building LLM-powered applications.",
             languages=["python"],
             packages=RegistryPackages(pypi=["langchain", "langchain-openai", "langchain-core"]),
             aliases=["lang-chain"],
@@ -645,6 +646,7 @@ def sample_entries() -> list[RegistryEntry]:
         RegistryEntry(
             id="pydantic",
             name="Pydantic",
+            description="Data validation using Python type annotations.",
             languages=["python"],
             packages=RegistryPackages(pypi=["pydantic", "pydantic-settings"]),
             aliases=[],

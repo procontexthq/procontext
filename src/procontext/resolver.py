@@ -92,6 +92,7 @@ def _match_from_entry(
     return LibraryMatch(
         library_id=entry.id,
         name=entry.name,
+        description=entry.description,
         languages=entry.languages,
         matched_via=matched_via,
         relevance=relevance,

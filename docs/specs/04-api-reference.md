@@ -263,6 +263,10 @@ All matching is in-memory. No network calls.
             "type": "string",
             "description": "Human-readable display name."
           },
+          "description": {
+            "type": "string",
+            "description": "Short description of what the library does. May be empty for older registry entries."
+          },
           "languages": {
             "type": "array",
             "items": { "type": "string" },
@@ -283,6 +287,7 @@ All matching is in-memory. No network calls.
         "required": [
           "library_id",
           "name",
+          "description",
           "languages",
           "matched_via",
           "relevance"
@@ -312,6 +317,7 @@ Result (`text` field, parsed):
     {
       "library_id": "langchain",
       "name": "LangChain",
+      "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
       "matched_via": "package_name",
       "relevance": 1.0
@@ -336,6 +342,7 @@ Result (typo example — `"fasapi"` → `"fastapi"`):
     {
       "library_id": "fastapi",
       "name": "FastAPI",
+      "description": "Modern Python web framework for building APIs.",
       "languages": ["python"],
       "matched_via": "fuzzy",
       "relevance": 0.92

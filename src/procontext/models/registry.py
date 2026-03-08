@@ -17,6 +17,7 @@ class RegistryEntry(BaseModel):
 
     id: str
     name: str
+    description: str = ""
     docs_url: str | None = None
     repo_url: str | None = None
     languages: list[str] = []
@@ -37,6 +38,7 @@ class LibraryMatch(BaseModel):
 
     library_id: str = Field(description="Unique library identifier.")
     name: str = Field(description="Human-readable library name.")
+    description: str = Field(description="Short description of what the library does.")
     languages: list[str] = Field(description="Programming languages this library supports.")
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"] = Field(
         description="Match method: package_name, library_id, alias, or fuzzy text match."
