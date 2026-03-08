@@ -41,7 +41,7 @@ class TestResolveLibraryHandler:
             "name",
             "description",
             "languages",
-            "llms_txt_url",
+            "index_url",
             "docs_url",
             "readme_url",
             "matched_via",

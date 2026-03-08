@@ -47,14 +47,14 @@ async def resolve_library(
     registered aliases, then fuzzy name matching.
 
     Always call this first to identify a library and obtain its documentation URLs.
-    Then pass the llms_txt_url to read_page to get the documentation index.
+    Then pass the index_url to read_page to get the documentation index.
 
     Response:
       matches        — ranked list of results, sorted by relevance descending
       Each match contains:
         library_id   — canonical library identifier
         name         — human-readable library name
-        llms_txt_url — URL of the documentation index (pass to read_page)
+        index_url    — URL of the documentation index (pass to read_page)
         docs_url     — documentation site URL (may be null)
         readme_url   — README URL (may be null)
         languages    — programming languages the library supports
@@ -101,7 +101,7 @@ async def read_page(
 ) -> ReadPageOutput:
     """Fetch the outline and content of a documentation page.
 
-    Accepts any documentation URL — typically the llms_txt_url from
+    Accepts any documentation URL — typically the index_url from
     resolve_library or a link found within a previously fetched page.
 
     Navigation patterns:

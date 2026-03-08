@@ -41,7 +41,7 @@ class LibraryMatch(BaseModel):
     name: str = Field(description="Human-readable library name.")
     description: str = Field(description="Short description of what the library does.")
     languages: list[str] = Field(description="Programming languages this library supports.")
-    llms_txt_url: str = Field(description="URL of the library's llms.txt documentation index.")
+    index_url: str = Field(description="URL of the library's documentation index (llms.txt).")
     docs_url: str | None = Field(
         default=None, description="URL of the library's documentation site."
     )
