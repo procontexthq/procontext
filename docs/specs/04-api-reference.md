@@ -1,8 +1,8 @@
 # ProContext: API Reference
 
 > **Document**: 04-api-reference.md
-> **Status**: Draft v1
-> **Last Updated**: 2026-03-01
+> **Status**: Draft v2
+> **Last Updated**: 2026-03-08
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -19,12 +19,12 @@
   - [2.2 Output Schema](#22-output-schema)
   - [2.3 Examples](#23-examples)
   - [2.4 Error Cases](#24-error-cases)
-- [3. Tool: get_library_index](#3-tool-get_library_index)
+- [3. Tool: read_page](#3-tool-read_page)
   - [3.1 Input Schema](#31-input-schema)
   - [3.2 Output Schema](#32-output-schema)
   - [3.3 Examples](#33-examples)
   - [3.4 Error Cases](#34-error-cases)
-- [4. Tool: read_page](#4-tool-read_page)
+- [4. Tool: search_page](#4-tool-search_page)
   - [4.1 Input Schema](#41-input-schema)
   - [4.2 Output Schema](#42-output-schema)
   - [4.3 Examples](#43-examples)
@@ -180,7 +180,7 @@ There are two distinct error channels:
     "content": [
       {
         "type": "text",
-        "text": "{\"error\": {\"code\": \"LIBRARY_NOT_FOUND\", \"message\": \"...\", \"suggestion\": \"...\", \"recoverable\": false}}"
+        "text": "{\"error\": {\"code\": \"PAGE_NOT_FOUND\", \"message\": \"...\", \"suggestion\": \"...\", \"recoverable\": false}}"
       }
     ],
     "isError": true
@@ -207,14 +207,14 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 
 ## 2. Tool: resolve_library
 
-**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain a `library_id` for use with `get_library_index`.
+**Purpose**: Resolve a library name or package identifier to a known documentation source. Always call this first to obtain the library's documentation URLs for use with `read_page` and `search_page`.
 
 ### 2.1 Input Schema
 
 ```json
 {
   "name": "resolve_library",
-  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches. Always the first step — establishes the library_id used by subsequent tools.",
+  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches with documentation URLs. Always the first step — provides the llms_txt_url, docs_url, and readme_url used with read_page and search_page.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -256,7 +256,7 @@ All matching is in-memory. No network calls.
         "properties": {
           "library_id": {
             "type": "string",
-            "description": "Stable identifier. Use in all subsequent tool calls.",
+            "description": "Stable identifier for the library.",
             "pattern": "^[a-z0-9][a-z0-9_-]*$"
           },
           "name": {
@@ -271,6 +271,18 @@ All matching is in-memory. No network calls.
             "type": "array",
             "items": { "type": "string" },
             "description": "Languages this library supports, e.g. ['python'], ['javascript', 'typescript']."
+          },
+          "llms_txt_url": {
+            "type": "string",
+            "description": "URL to the library's llms.txt documentation index. Pass to read_page to browse the table of contents, or to search_page to find specific topics."
+          },
+          "docs_url": {
+            "type": ["string", "null"],
+            "description": "URL to the library's documentation website. May be null for some entries."
+          },
+          "readme_url": {
+            "type": ["string", "null"],
+            "description": "URL to the library's README file (typically raw content from GitHub). May be null if not available in the registry."
           },
           "matched_via": {
             "type": "string",
@@ -289,6 +301,9 @@ All matching is in-memory. No network calls.
           "name",
           "description",
           "languages",
+          "llms_txt_url",
+          "docs_url",
+          "readme_url",
           "matched_via",
           "relevance"
         ]
@@ -319,6 +334,9 @@ Result (`text` field, parsed):
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
+      "llms_txt_url": "https://python.langchain.com/llms.txt",
+      "docs_url": "https://python.langchain.com",
+      "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
       "matched_via": "package_name",
       "relevance": 1.0
     }
@@ -331,10 +349,10 @@ Result (`text` field, parsed):
 Request arguments:
 
 ```json
-{ "query": "fastapi" }
+{ "query": "fasapi" }
 ```
 
-Result (typo example — `"fasapi"` → `"fastapi"`):
+Result:
 
 ```json
 {
@@ -344,6 +362,9 @@ Result (typo example — `"fasapi"` → `"fastapi"`):
       "name": "FastAPI",
       "description": "Modern Python web framework for building APIs.",
       "languages": ["python"],
+      "llms_txt_url": "https://docs.fastapi.tiangolo.com/llms.txt",
+      "docs_url": "https://fastapi.tiangolo.com",
+      "readme_url": null,
       "matched_via": "fuzzy",
       "relevance": 0.92
     }
@@ -375,170 +396,22 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ---
 
-## 3. Tool: get_library_index
+## 3. Tool: read_page
 
-**Purpose**: Fetch the table of contents (llms.txt) for a library. Returns the raw markdown content the agent reads to identify documentation pages and their URLs.
+**Purpose**: Fetch any documentation URL — llms.txt indexes, README files, or documentation pages. Returns a structural outline of the full page (H1–H6 headings and fence markers) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned. If the URL does not end with `.md`, the server tries the `.md` variant first; on any failure (404, timeout, network error) it falls back to the original URL. A 200 HTML response from the `.md` probe is accepted as-is. `.md` is never appended to redirect targets.
 
 ### 3.1 Input Schema
 
 ```json
 {
-  "name": "get_library_index",
-  "description": "Fetch the llms.txt table of contents for a library. Returns raw markdown listing documentation sections and page URLs. The agent reads this to decide which pages to fetch with read_page.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "library_id": {
-        "type": "string",
-        "description": "Library identifier from resolve_library.",
-        "pattern": "^[a-z0-9][a-z0-9_-]*$"
-      }
-    },
-    "required": ["library_id"]
-  }
-}
-```
-
-### 3.2 Output Schema
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "library_id": {
-      "type": "string",
-      "description": "The library identifier."
-    },
-    "name": {
-      "type": "string",
-      "description": "Human-readable library name."
-    },
-    "index_url": {
-      "type": "string",
-      "description": "Source URL of the documentation index file. Use as the base URL to resolve any relative links found in content."
-    },
-    "content": {
-      "type": "string",
-      "description": "Raw llms.txt content as markdown. Contains section headings and links to documentation pages. The agent reads this directly to extract page URLs."
-    },
-    "cached": {
-      "type": "boolean",
-      "description": "True if this response was served from cache."
-    },
-    "cached_at": {
-      "type": ["string", "null"],
-      "format": "date-time",
-      "description": "ISO 8601 timestamp of when the content was originally fetched. Null if not cached."
-    },
-    "stale": {
-      "type": "boolean",
-      "description": "True if the cached entry has passed its TTL. Content is still valid but a background refresh has been triggered."
-    }
-  },
-  "required": ["library_id", "name", "index_url", "content", "cached", "cached_at", "stale"]
-}
-```
-
-**Cache behaviour**:
-
-- TTL: 24 hours from fetch time.
-- **Stale-while-revalidate**: An expired entry is served immediately (`stale: true`) while a background refresh runs. The agent never waits for a network fetch on a cache hit.
-- `stale: true` does not indicate an error. The content is accurate as of `cached_at`.
-
-### 3.3 Examples
-
-**Cache miss (first fetch)**:
-
-Request arguments:
-
-```json
-{ "library_id": "langchain" }
-```
-
-Result:
-
-```json
-{
-  "library_id": "langchain",
-  "name": "LangChain",
-  "index_url": "https://python.langchain.com/llms.txt",
-  "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://docs.langchain.com/docs/concepts/chat_models.md): Interface for language models that take messages as input and return messages as output.\n- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated.\n\n## How-to Guides\n\n- [How to return structured data from a model](https://docs.langchain.com/docs/how_to/structured_output.md): ...\n\n## API Reference\n\n- [BaseChatModel](https://api.python.langchain.com/en/latest/language_models/langchain_core.language_models.chat_models.BaseChatModel.md): ...\n",
-  "cached": false,
-  "cached_at": null,
-  "stale": false
-}
-```
-
-**Cache hit (fresh)**:
-
-```json
-{
-  "library_id": "langchain",
-  "name": "LangChain",
-  "index_url": "https://python.langchain.com/llms.txt",
-  "content": "...",
-  "cached": true,
-  "cached_at": "2026-02-23T10:00:00Z",
-  "stale": false
-}
-```
-
-**Cache hit (stale — TTL expired, background refresh running)**:
-
-```json
-{
-  "library_id": "langchain",
-  "name": "LangChain",
-  "index_url": "https://python.langchain.com/llms.txt",
-  "content": "...",
-  "cached": true,
-  "cached_at": "2026-02-22T10:00:00Z",
-  "stale": true
-}
-```
-
-### 3.4 Error Cases
-
-| Condition                             | Error code              | `recoverable` |
-| ------------------------------------- | ----------------------- | ------------- |
-| `library_id` not found in registry    | `LIBRARY_NOT_FOUND`     | `false`       |
-| HTTP 404 fetching llms.txt            | `LLMS_TXT_NOT_FOUND`    | `false`       |
-| Network error fetching llms.txt       | `LLMS_TXT_FETCH_FAILED` | `true`        |
-| HTTP 5xx / timeout fetching llms.txt  | `LLMS_TXT_FETCH_FAILED` | `true`        |
-| Redirect chain exceeding 3 hops fetching llms.txt | `TOO_MANY_REDIRECTS` | `false`       |
-| `library_id` fails pattern validation | `INVALID_INPUT`         | `false`       |
-
-**`LIBRARY_NOT_FOUND` example**:
-
-```json
-{
-  "error": {
-    "code": "LIBRARY_NOT_FOUND",
-    "message": "Library 'langchan' not found in registry.",
-    "suggestion": "Call resolve_library with your query to find the correct library ID.",
-    "recoverable": false
-  }
-}
-```
-
----
-
-## 4. Tool: read_page
-
-**Purpose**: Fetch a documentation page from a URL returned by `get_library_index`. Returns a structural outline of the full page (H1–H6 headings and fence markers) with 1-based line numbers, and optionally a windowed slice of content. The `view` parameter controls what is returned. If the URL does not end with `.md`, the server tries the `.md` variant first; on any failure (404, timeout, network error) it falls back to the original URL. A 200 HTML response from the `.md` probe is accepted as-is. `.md` is never appended to redirect targets.
-
-### 4.1 Input Schema
-
-```json
-{
   "name": "read_page",
-  "description": "Fetch a documentation page from a URL returned by get_library_index. Two views: view=\"full\" (default) returns the outline and a content window; view=\"outline\" returns the outline and total_lines only. The outline lists every H1–H6 heading and fence marker with its 1-based line number. Use view=\"outline\" to scan structure across candidate pages, then call with view=\"full\" and offset=<line number> to jump to the relevant section.",
+  "description": "Fetch a documentation page, llms.txt index, or README from a URL. Two views: view=\"full\" (default) returns the outline and a content window; view=\"outline\" returns the outline and total_lines only. The outline lists every H1–H6 heading and fence marker with its 1-based line number. Use view=\"outline\" to scan structure across candidate pages, then call with view=\"full\" and offset=<line number> to jump to the relevant section. Use search_page to find specific content by keyword.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the documentation page. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure (404, timeout, network error) it falls back to the original URL.",
+        "description": "URL to read. Typically from resolve_library output (llms_txt_url, docs_url, readme_url) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
         "maxLength": 2048
       },
       "view": {
@@ -572,7 +445,7 @@ Result:
 
 For short pages or when you need the full content in one call, omit `view` (defaults to `"full"`).
 
-### 4.2 Output Schema
+### 3.2 Output Schema
 
 ```json
 {
@@ -612,7 +485,33 @@ For short pages or when you need the full content in one call, omit `view` (defa
 
 **Outline**: Always reflects the full page regardless of `view`, `offset`, or `limit`. The outline and full content are cached together so subsequent calls with different views or offsets don't re-fetch.
 
-### 4.3 Examples
+**Cache sharing**: `read_page` and `search_page` share the same `page_cache`. A page fetched by one tool is immediately available to the other without a re-fetch.
+
+### 3.3 Examples
+
+**Reading an llms.txt index** (URL from `resolve_library`):
+
+Request arguments:
+
+```json
+{ "url": "https://python.langchain.com/llms.txt" }
+```
+
+Result:
+
+```json
+{
+  "url": "https://python.langchain.com/llms.txt",
+  "outline": "1: # Docs by LangChain\n3: ## Concepts\n15: ## How-to Guides\n28: ## API Reference",
+  "total_lines": 45,
+  "offset": 1,
+  "limit": 500,
+  "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://docs.langchain.com/docs/concepts/chat_models.md): Interface for language models...\n...",
+  "cached": false,
+  "cached_at": null,
+  "stale": false
+}
+```
 
 **Scan structure only (`view="outline"`)**:
 
@@ -663,19 +562,19 @@ Result:
 
 Note: `outline` is identical across all responses for the same URL — it always covers the full page.
 
-### 4.4 Error Cases
+### 3.4 Error Cases
 
-| Condition                                | Error code          | `recoverable` |
-| ---------------------------------------- | ------------------- | ------------- |
-| URL domain not in allowlist              | `URL_NOT_ALLOWED`   | `false`       |
-| URL scheme not http/https                | `INVALID_INPUT`     | `false`       |
-| HTTP 404 for the URL                     | `PAGE_NOT_FOUND`    | `false`       |
+| Condition                                | Error code           | `recoverable` |
+| ---------------------------------------- | -------------------- | ------------- |
+| URL domain not in allowlist              | `URL_NOT_ALLOWED`    | `false`       |
+| URL scheme not http/https                | `INVALID_INPUT`      | `false`       |
+| HTTP 404 for the URL                     | `PAGE_NOT_FOUND`     | `false`       |
 | Network error or non-200/404 response (excluding redirect exhaustion) | `PAGE_FETCH_FAILED` | `true`        |
-| Redirect chain exceeding 3 hops          | `TOO_MANY_REDIRECTS` | `false`      |
+| Redirect chain exceeding 3 hops         | `TOO_MANY_REDIRECTS` | `false`       |
 | Redirect leads to non-allowlisted domain | `URL_NOT_ALLOWED`   | `false`       |
-| URL over 2048 characters                 | `INVALID_INPUT`     | `false`       |
-| `offset` < 1 or `limit` < 1             | `INVALID_INPUT`     | `false`       |
-| `view` not `"full"` or `"outline"`       | `INVALID_INPUT`     | `false`       |
+| URL over 2048 characters                 | `INVALID_INPUT`      | `false`       |
+| `offset` < 1 or `limit` < 1             | `INVALID_INPUT`      | `false`       |
+| `view` not `"full"` or `"outline"`       | `INVALID_INPUT`      | `false`       |
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -684,11 +583,213 @@ Note: `outline` is identical across all responses for the same URL — it always
   "error": {
     "code": "URL_NOT_ALLOWED",
     "message": "URL 'https://internal.example.com/docs' is not permitted.",
-    "suggestion": "Only URLs from known documentation domains are allowed. Use get_library_index to obtain valid documentation URLs.",
+    "suggestion": "Only URLs from known documentation domains are allowed. Use resolve_library to find valid documentation URLs.",
     "recoverable": false
   }
 }
 ```
+
+---
+
+## 4. Tool: search_page
+
+**Purpose**: Search within a documentation page for lines matching a query. Returns the page outline for structural context and the matching lines with their line numbers. The agent uses the outline and match locations to identify relevant sections, then calls `read_page` with `offset`/`limit` to read the full content.
+
+This tool is the equivalent of `grep` for documentation pages. It supports literal keyword search, regex patterns, smart case sensitivity, and word boundary matching.
+
+### 4.1 Input Schema
+
+```json
+{
+  "name": "search_page",
+  "description": "Search within a documentation page for lines matching a query. Returns the page outline and matching lines with line numbers. Use the outline and match locations to identify relevant sections, then call read_page with the appropriate offset to read the full content. Supports literal and regex search, smart case sensitivity, and word boundary matching.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL of the page to search. Same URLs accepted by read_page — llms.txt indexes, README files, or documentation pages.",
+        "maxLength": 2048
+      },
+      "query": {
+        "type": "string",
+        "description": "Search term or regex pattern.",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["literal", "regex"],
+        "default": "literal",
+        "description": "\"literal\": exact substring match. \"regex\": treat query as a regular expression."
+      },
+      "case_mode": {
+        "type": "string",
+        "enum": ["smart", "insensitive", "sensitive"],
+        "default": "smart",
+        "description": "\"smart\" (default): lowercase query → case-insensitive; mixed/uppercase query → case-sensitive. \"insensitive\": always case-insensitive. \"sensitive\": always case-sensitive."
+      },
+      "whole_word": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, match only at word boundaries. Prevents 'api' from matching 'rapid' or 'capital'."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 1,
+        "description": "1-based line number to start searching from. Use for paginating through results."
+      },
+      "max_results": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 20,
+        "description": "Maximum number of matching lines to return."
+      }
+    },
+    "required": ["url", "query"]
+  }
+}
+```
+
+**Smart case** (default): If the query string is entirely lowercase, matching is case-insensitive. If the query contains any uppercase character, matching is case-sensitive. This mirrors ripgrep's default behaviour — searching `"redis"` finds `"Redis"`, `"REDIS"`, and `"redis"`; searching `"Redis"` finds only `"Redis"`.
+
+### 4.2 Output Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "url": {
+      "type": "string",
+      "description": "The URL that was searched."
+    },
+    "query": {
+      "type": "string",
+      "description": "The search query as provided."
+    },
+    "outline": {
+      "type": "string",
+      "description": "Plain-text structural outline of the full page (identical to read_page outline). Gives the agent structural context for interpreting match locations."
+    },
+    "matches": {
+      "type": "array",
+      "description": "Lines matching the query, in document order.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line_number": {
+            "type": "integer",
+            "description": "1-based line number of the matching line."
+          },
+          "content": {
+            "type": "string",
+            "description": "The full text of the matching line."
+          }
+        },
+        "required": ["line_number", "content"]
+      }
+    },
+    "total_lines": {
+      "type": "integer",
+      "description": "Total number of lines in the page."
+    },
+    "has_more": {
+      "type": "boolean",
+      "description": "True if more matches exist beyond the returned set."
+    },
+    "next_offset": {
+      "type": ["integer", "null"],
+      "description": "Line number to pass as offset for the next search call to continue paginating. Null if no more matches."
+    },
+    "cached": { "type": "boolean" },
+    "cached_at": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "required": ["url", "query", "outline", "matches", "total_lines", "has_more", "next_offset", "cached", "cached_at"]
+}
+```
+
+### 4.3 Examples
+
+**Search an llms.txt index for a topic**:
+
+Request arguments:
+
+```json
+{ "url": "https://python.langchain.com/llms.txt", "query": "streaming" }
+```
+
+Result:
+
+```json
+{
+  "url": "https://python.langchain.com/llms.txt",
+  "query": "streaming",
+  "outline": "1: # Docs by LangChain\n3: ## Concepts\n15: ## How-to Guides\n28: ## API Reference",
+  "matches": [
+    { "line_number": 7, "content": "- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated." },
+    { "line_number": 22, "content": "- [How to stream responses](https://docs.langchain.com/docs/how_to/streaming.md): Step-by-step guide to streaming." }
+  ],
+  "total_lines": 45,
+  "has_more": false,
+  "next_offset": null,
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z"
+}
+```
+
+**Regex search with word boundaries**:
+
+Request arguments:
+
+```json
+{ "url": "https://docs.pydantic.dev/concepts/models.md", "query": "model", "whole_word": true }
+```
+
+Result:
+
+```json
+{
+  "url": "https://docs.pydantic.dev/concepts/models.md",
+  "query": "model",
+  "outline": "1: # Models\n5: ## Defining a Model\n20: ## Model Methods\n35: ## Nested Models\n50: ## Model Configuration",
+  "matches": [
+    { "line_number": 1, "content": "# Models" },
+    { "line_number": 5, "content": "## Defining a Model" },
+    { "line_number": 7, "content": "A Pydantic model is a class that inherits from BaseModel." }
+  ],
+  "total_lines": 65,
+  "has_more": true,
+  "next_offset": 8,
+  "cached": true,
+  "cached_at": "2026-02-23T11:00:00Z"
+}
+```
+
+**Paginated search (continuation)**:
+
+Request arguments:
+
+```json
+{ "url": "https://docs.pydantic.dev/concepts/models.md", "query": "model", "whole_word": true, "offset": 8 }
+```
+
+Result contains the next batch of matches starting from line 8.
+
+### 4.4 Error Cases
+
+| Condition                                | Error code           | `recoverable` |
+| ---------------------------------------- | -------------------- | ------------- |
+| URL domain not in allowlist              | `URL_NOT_ALLOWED`    | `false`       |
+| URL scheme not http/https                | `INVALID_INPUT`      | `false`       |
+| HTTP 404 for the URL                     | `PAGE_NOT_FOUND`     | `false`       |
+| Network error or non-200/404 response    | `PAGE_FETCH_FAILED`  | `true`        |
+| Redirect chain exceeding 3 hops         | `TOO_MANY_REDIRECTS` | `false`       |
+| URL over 2048 characters                 | `INVALID_INPUT`      | `false`       |
+| Empty query                              | `INVALID_INPUT`      | `false`       |
+| Query over 200 characters                | `INVALID_INPUT`      | `false`       |
+| Invalid regex pattern (when `mode="regex"`) | `INVALID_INPUT`   | `false`       |
+| `offset` < 1 or `max_results` < 1       | `INVALID_INPUT`      | `false`       |
 
 ---
 
@@ -839,20 +940,17 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 
 ### 6.2 Error Code Catalogue
 
-| Code                    | Raised by          | Description                                                                                    | `recoverable` |
-| ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------- | ------------- |
-| `LIBRARY_NOT_FOUND`     | `get_library_index` | `library_id` is valid syntax but not present in the registry                                   | `false`       |
-| `LLMS_TXT_NOT_FOUND`    | `get_library_index` | HTTP 404 fetching the llms.txt URL — the URL in the registry is incorrect                      | `false`       |
-| `LLMS_TXT_FETCH_FAILED` | `get_library_index` | Network error, timeout, or server error fetching the llms.txt URL                              | `true`        |
-| `PAGE_NOT_FOUND`        | `read_page`        | HTTP 404 for the requested URL                                                                 | `false`       |
-| `PAGE_FETCH_FAILED`     | `read_page`        | Network error, timeout, or non-200/404 HTTP response (excluding redirect exhaustion)           | `true`        |
-| `TOO_MANY_REDIRECTS`    | `get_library_index`, `read_page` | Redirect chain exceeded the 3-hop safety limit                                       | `false`       |
-| `URL_NOT_ALLOWED`       | `read_page`        | URL domain is not in the SSRF allowlist, or is a private IP range                              | `false`       |
-| `INVALID_INPUT`         | Any tool           | Input failed Pydantic validation (empty query, URL too long, invalid library ID pattern, etc.) | `false`       |
+| Code                    | Raised by                    | Description                                                                                    | `recoverable` |
+| ----------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------- | ------------- |
+| `PAGE_NOT_FOUND`        | `read_page`, `search_page`   | HTTP 404 for the requested URL                                                                 | `false`       |
+| `PAGE_FETCH_FAILED`     | `read_page`, `search_page`   | Network error, timeout, or non-200/404 HTTP response (excluding redirect exhaustion)           | `true`        |
+| `TOO_MANY_REDIRECTS`    | `read_page`, `search_page`   | Redirect chain exceeded the 3-hop safety limit                                                 | `false`       |
+| `URL_NOT_ALLOWED`       | `read_page`, `search_page`   | URL domain is not in the SSRF allowlist, or is a private IP range                              | `false`       |
+| `INVALID_INPUT`         | Any tool                     | Input failed Pydantic validation (empty query, URL too long, invalid regex pattern, etc.)      | `false`       |
 
 **On `recoverable: true`**: The same request may succeed if retried after a brief delay. Network errors and upstream failures are the typical cause. The agent should inform the user rather than retry indefinitely.
 
-**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve_library` to find a valid `library_id`, or check the URL is from a known documentation domain).
+**On `recoverable: false`**: Retrying the identical request will not succeed. The agent must take a different action (e.g. use `resolve_library` to find valid documentation URLs, or check the URL is from a known documentation domain).
 
 ---
 

@@ -1,8 +1,8 @@
 # ProContext: Functional Specification
 
 > **Document**: 01-functional-spec.md
-> **Status**: Draft v1
-> **Last Updated**: 2026-03-01
+> **Status**: Draft v2
+> **Last Updated**: 2026-03-08
 
 ---
 
@@ -13,8 +13,8 @@
 - [3. Non-Goals](#3-non-goals)
 - [4. MCP Tools](#4-mcp-tools)
   - [4.1 resolve_library](#41-resolve_library)
-  - [4.2 get_library_index](#42-get_library_index)
-  - [4.3 read_page](#43-read_page)
+  - [4.2 read_page](#42-read_page)
+  - [4.3 search_page](#43-search_page)
 - [5. Transport Modes](#5-transport-modes)
   - [5.1 stdio Transport](#51-stdio-transport)
   - [5.2 HTTP Transport](#52-http-transport)
@@ -38,7 +38,7 @@ ProContext is an open-source MCP (Model Context Protocol) server that connects A
 
 **Agent-driven navigation.** ProContext does not try to guess which documentation is relevant to an agent's task. It gives the agent the tools to navigate documentation themselves — see what sections exist, fetch the ones that matter.
 
-**Minimal footprint.** The server does three things: resolve library names, serve table-of-contents, and serve page content. Nothing more.
+**Minimal footprint.** The server does three things: resolve library names, fetch documentation pages, and search within pages. Nothing more.
 
 **Quality over features.** Fewer tools done correctly beats many tools done partially. Every code path is tested, every error is actionable, every response is predictable.
 
@@ -48,7 +48,7 @@ ProContext is an open-source MCP (Model Context Protocol) server that connects A
 
 The following are explicitly out of scope for the open-source version:
 
-- **Full-text search across documentation**: No BM25, no FTS index. Agents navigate by structure.
+- **Cross-library full-text search**: No BM25, no FTS index across the documentation corpus. `search_page` performs keyword/regex matching within a single page — it does not search across pages or libraries.
 - **Content chunking and ranking**: No server-side relevance extraction. Content is returned as-is from source.
 - **Advanced API key management**: No RBAC, key rotation, key revocation, or multi-key support. Only an optional shared bearer key in HTTP mode (`auth_enabled` + `auth_key`).
 - **Rate limiting**: No per-client throttling.
@@ -64,7 +64,7 @@ ProContext exposes three MCP tools. All tools are async and return structured JS
 
 ### 4.1 resolve_library
 
-**Purpose**: Resolve a library name or package name to a known documentation source. Always the first step — establishes the `library_id` used by subsequent tools.
+**Purpose**: Resolve a library name or package name to a known documentation source. Always the first step — establishes the library identity and provides URLs the agent can use with `read_page` and `search_page`.
 
 **Input**:
 
@@ -93,6 +93,9 @@ All matching is against in-memory indexes loaded from the registry at startup. N
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
+      "llms_txt_url": "https://python.langchain.com/llms.txt",
+      "docs_url": "https://python.langchain.com",
+      "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
       "matched_via": "package_name",
       "relevance": 1.0
     }
@@ -100,80 +103,38 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 }
 ```
 
-| Field         | Description                                                                     |
-| ------------- | ------------------------------------------------------------------------------- |
-| `library_id`  | Stable identifier used in all subsequent tool calls                             |
-| `name`        | Human-readable display name                                                     |
-| `description` | Short description of what the library does. May be empty for older registry entries |
-| `languages`   | Languages this library supports                                                 |
-| `matched_via` | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`  |
-| `relevance`   | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance |
+| Field          | Description                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `library_id`   | Stable identifier for the library                                                                          |
+| `name`         | Human-readable display name                                                                                |
+| `description`  | Short description of what the library does. May be empty for older registry entries                        |
+| `languages`    | Languages this library supports                                                                            |
+| `llms_txt_url` | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
+| `docs_url`     | URL to the library's documentation website. May be `null` for some entries                                 |
+| `readme_url`   | URL to the library's README file (typically on GitHub). May be `null` if not available in the registry      |
+| `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`                             |
+| `relevance`    | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance                            |
 
 **Notes**:
 
 - `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
+- The agent typically uses `llms_txt_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
 
 ---
 
-### 4.2 get_library_index
+### 4.2 read_page
 
-**Purpose**: Fetch the table of contents for a library's documentation. Returns the raw llms.txt content so the agent can read it directly and decide what to fetch next.
-
-**Input**:
-
-| Parameter    | Type   | Required | Description                               |
-| ------------ | ------ | -------- | ----------------------------------------- |
-| `library_id` | string | Yes      | Library identifier from `resolve_library` |
-
-**Processing**:
-
-1. Look up `library_id` in registry → get `llms_txt_url`
-2. Check SQLite cache for `toc:{library_id}` — if fresh, return cached entry
-3. On cache miss: HTTP GET `llms_txt_url`, store raw content in SQLite cache (TTL: 24 hours)
-4. Return raw content
-
-**Output**:
-
-```json
-{
-  "library_id": "langchain",
-  "name": "LangChain",
-  "index_url": "https://python.langchain.com/llms.txt",
-  "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://...): Interface for language models...\n- [Streaming](https://...): Stream model outputs...\n\n## API Reference\n\n- [Create Deployment](https://...): Create a new deployment.\n",
-  "cached": false,
-  "cached_at": null,
-  "stale": false
-}
-```
-
-| Field       | Description                                                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index_url` | Source URL of the documentation index file. Use as the base URL to resolve any relative links found in `content`                                                                |
-| `content`   | Raw llms.txt content as markdown. The agent reads this directly to understand available documentation and extract URLs to pass to `read_page`                                   |
-| `cached`    | Whether this response was served from cache                                                                                                                                     |
-| `cached_at` | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                                                       |
-| `stale`     | `true` if the content is past its TTL and a background refresh has been triggered. The content is still valid but may be slightly outdated. Always present; defaults to `false` |
-
-**Notes**:
-
-- The llms.txt format is a markdown file with section headings and links — exactly what LLMs read well. No server-side parsing needed.
-- The agent extracts page URLs from the content and passes them to `read_page`.
-
----
-
-### 4.3 read_page
-
-**Purpose**: Fetch the content of a documentation page with line-number navigation. Returns a structural outline of the full page and a windowed slice of the content controlled by `offset` and `limit`.
+**Purpose**: Fetch the content of any documentation URL — llms.txt indexes, README files, or documentation pages — with line-number navigation. Returns a structural outline of the full page and a windowed slice of the content controlled by `offset` and `limit`.
 
 **Input**:
 
-| Parameter | Type    | Required | Default | Description                                                                                     |
-| --------- | ------- | -------- | ------- | ----------------------------------------------------------------------------------------------- |
-| `url`     | string  | Yes      | —       | URL of the documentation page, typically from `get_library_index` sections                       |
-| `offset`  | integer | No       | 1       | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
-| `limit`   | integer | No       | 500     | Maximum number of lines to return from the offset.                                              |
+| Parameter | Type    | Required | Default  | Description                                                                                     |
+| --------- | ------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `url`     | string  | Yes      | —        | URL of the page to read. Typically from `resolve_library` output (`llms_txt_url`, `docs_url`, `readme_url`) or from links found within a documentation index. |
+| `offset`  | integer | No       | 1        | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
+| `limit`   | integer | No       | 500      | Maximum number of lines to return from the offset.                                              |
 | `view`    | string  | No       | `"full"` | `"full"`: returns outline and content window. `"outline"`: returns outline and total_lines only, no content. |
 
 **Processing**:
@@ -185,7 +146,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 5. Slice content to the requested window (`offset`/`limit`)
 6. Return outline, windowed content, and pagination metadata
 
-**Navigation workflow**: Call `read_page` with `view="full"` to get the outline and the first 500 lines. Inspect the outline to find the section you need, then call again with `offset` set to that line number. Alternatively, call with `view="outline"` across multiple candidate pages to compare structure cheaply before committing to a full read.
+**Navigation workflow**: Call `read_page` with `view="full"` to get the outline and the first 500 lines. Inspect the outline to find the section you need, then call again with `offset` set to that line number. Alternatively, call with `view="outline"` across multiple candidate pages to compare structure cheaply before committing to a full read. Use `search_page` when you know what keyword you're looking for and want to jump directly to matching content.
 
 **Output**:
 
@@ -217,7 +178,74 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 **Notes**:
 
 - The full page and outline are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
+- `search_page` shares the same cache — a page fetched by either tool is available to the other without a re-fetch.
 - URLs must be from the allowlist. See Section 8.
+
+---
+
+### 4.3 search_page
+
+**Purpose**: Search within a documentation page for lines matching a query. Returns the page outline for structural context and the matching lines with their line numbers. The agent uses the outline and match locations to identify relevant sections, then calls `read_page` with `offset`/`limit` to read the full content.
+
+This tool is the equivalent of `grep` for documentation pages. It supports literal keyword search, regex patterns, smart case sensitivity, and word boundary matching.
+
+**Input**:
+
+| Parameter        | Type    | Required | Default   | Description                                                                                          |
+| ---------------- | ------- | -------- | --------- | ---------------------------------------------------------------------------------------------------- |
+| `url`            | string  | Yes      | —         | URL of the page to search. Same URLs accepted by `read_page`.                                        |
+| `query`          | string  | Yes      | —         | Search term or regex pattern.                                                                        |
+| `mode`           | string  | No       | `"literal"` | `"literal"`: exact substring match. `"regex"`: treat `query` as a regular expression.              |
+| `case_mode`      | string  | No       | `"smart"` | `"smart"`: lowercase query → case-insensitive; mixed/uppercase → case-sensitive. `"insensitive"`: always case-insensitive. `"sensitive"`: always case-sensitive. |
+| `whole_word`     | boolean | No       | `false`   | When `true`, match only at word boundaries. Prevents `"api"` from matching `"rapid"` or `"capital"`. |
+| `offset`         | integer | No       | 1         | 1-based line number to start searching from. Use for paginating through results.                     |
+| `max_results`    | integer | No       | 20        | Maximum number of matching lines to return.                                                          |
+
+**Processing**:
+
+1. Validate URL against SSRF allowlist
+2. Fetch page: check SQLite cache for `page:{sha256(url)}` — same cache as `read_page`. On cache miss, fetch and cache.
+3. Starting from `offset`, scan each line for a match against `query` (respecting `mode`, `case_mode`, `whole_word`)
+4. Collect up to `max_results` matching lines
+5. Return the page outline, matching lines, and pagination metadata
+
+**Smart case** (default): If the query string is entirely lowercase, matching is case-insensitive. If the query contains any uppercase character, matching is case-sensitive. This mirrors ripgrep's default behaviour — searching `"redis"` finds `"Redis"`, `"REDIS"`, and `"redis"`; searching `"Redis"` finds only `"Redis"`.
+
+**Output**:
+
+```json
+{
+  "url": "https://python.langchain.com/llms.txt",
+  "query": "streaming",
+  "outline": "1: # Docs by LangChain\n3: ## Concepts\n15: ## How-to Guides\n28: ## API Reference",
+  "matches": [
+    { "line_number": 7, "content": "- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated." },
+    { "line_number": 22, "content": "- [How to stream responses](https://docs.langchain.com/docs/how_to/streaming.md): Step-by-step guide to streaming." }
+  ],
+  "total_lines": 45,
+  "has_more": false,
+  "next_offset": null,
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z"
+}
+```
+
+| Field         | Description                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `outline`     | Plain-text structural outline of the full page (identical to `read_page` outline). Gives the agent structural context for interpreting match locations. |
+| `matches`     | List of matching lines. Each entry has `line_number` (1-based) and `content` (the full line text).                        |
+| `total_lines` | Total number of lines in the page.                                                                                        |
+| `has_more`    | `true` if more matches exist beyond the returned set.                                                                     |
+| `next_offset` | Line number to pass as `offset` for the next search call to continue paginating. `null` if no more matches.               |
+| `cached`      | Whether the page content was served from cache.                                                                           |
+| `cached_at`   | ISO 8601 timestamp (UTC) of when the page was originally fetched. `null` if not cached.                                   |
+
+**Notes**:
+
+- Matches are returned in document order (ascending line number).
+- The agent cross-references match line numbers against the outline to determine which section each match belongs to, then uses `read_page` with the appropriate `offset` to read the full section.
+- In `regex` mode, invalid patterns are rejected with `INVALID_INPUT`. Patterns are length-capped to prevent ReDoS.
+- `search_page` shares the same cache and fetch path as `read_page`. A page fetched by one tool is immediately available to the other.
 
 ---
 
@@ -338,10 +366,11 @@ All documentation is fetched via plain HTTP GET. ProContext uses `httpx` with:
 
 A single SQLite database stores all fetched content at `cache.db_path` (default: `platformdirs.user_data_dir("procontext")/cache.db`).
 
-| Table        | Key                  | Content              | TTL      |
-| ------------ | -------------------- | -------------------- | -------- |
-| `toc_cache`  | `toc:{library_id}`   | Raw llms.txt content | 24 hours |
-| `page_cache` | `page:{sha256(url)}` | Full page markdown   | 24 hours |
+| Table        | Key                  | Content                                       | TTL      |
+| ------------ | -------------------- | --------------------------------------------- | -------- |
+| `page_cache` | `page:{sha256(url)}` | Full page markdown (llms.txt, README, or docs) | 24 hours |
+
+All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. Both `read_page` and `search_page` share this cache: a page fetched by one tool is immediately available to the other without a re-fetch.
 
 **Stale-while-revalidate**: When a cached entry is past its TTL, it is served immediately with `cached: true` and `stale: true`, and a background task re-fetches the content. This ensures the agent never waits for a network fetch on a cache hit, even if the content is slightly outdated.
 
@@ -363,10 +392,13 @@ A single SQLite database stores all fetched content at `cache.db_path` (default:
 
 ### SSRF Prevention
 
-`read_page` accepts arbitrary URLs from the agent. To prevent Server-Side Request Forgery:
+`read_page` and `search_page` accept arbitrary URLs from the agent. To prevent Server-Side Request Forgery:
 
 - All URLs are validated against an allowlist of permitted domains before fetching
-- The allowlist is populated at startup from the registry (all `docs_url` and `llms_txt_url` domains)
+- The allowlist is populated at startup from the registry (all `docs_url` and `llms_txt_url` domains) plus any configured `extra_allowed_domains`
+- **Allowlist expansion** is controlled by a two-value setting (`allowlist_expansion`):
+  - `"registry"` (default): allowlist is fixed at startup — only registry domains and `extra_allowed_domains`
+  - `"discovered"`: domains found in any fetched content (llms.txt indexes, documentation pages) are added to the allowlist at runtime. Expansion is monotonic (domains are only added, never removed) and resets to the registry baseline on each registry update.
 - In HTTP long-running mode, when a background registry update is accepted, the allowlist is rebuilt from the new registry and atomically swapped with the new indexes
 - Redirects are followed manually — each redirect target is re-validated before following
 - Private IP ranges (`10.x`, `172.16.x`, `192.168.x`, `127.x`, `::1`, `fc00::/7`) are always blocked, regardless of allowlist
@@ -391,9 +423,9 @@ Every error response follows the same structure:
 ```json
 {
   "error": {
-    "code": "LIBRARY_NOT_FOUND",
-    "message": "No library found matching 'langchan'.",
-    "suggestion": "Did you mean 'langchain'? Call resolve_library to find the correct ID.",
+    "code": "PAGE_NOT_FOUND",
+    "message": "HTTP 404: page not found at 'https://docs.example.com/missing-page.md'.",
+    "suggestion": "Check the URL is correct. Use resolve_library to find valid documentation URLs.",
     "recoverable": false
   }
 }
@@ -410,13 +442,10 @@ Every error response follows the same structure:
 
 | Code                    | Tool                            | `recoverable` | Description                                                                           |
 | ----------------------- | ------------------------------- | ------------- | ------------------------------------------------------------------------------------- |
-| `LIBRARY_NOT_FOUND`     | `get_library_index`              | `false`       | `library_id` not in registry; retrying won't help                                     |
-| `LLMS_TXT_NOT_FOUND`    | `get_library_index`              | `false`       | HTTP 404 fetching llms.txt — the URL in the registry is incorrect                     |
-| `LLMS_TXT_FETCH_FAILED` | `get_library_index`              | `true`        | Transient network error or server error fetching llms.txt; retry may succeed          |
-| `PAGE_NOT_FOUND`        | `read_page`                     | `false`       | HTTP 404 — the page does not exist at that URL                                        |
-| `PAGE_FETCH_FAILED`     | `read_page`                     | `true`        | Transient network error or non-200/404 HTTP response fetching page; retry may succeed |
-| `TOO_MANY_REDIRECTS`    | `get_library_index`, `read_page` | `false`       | Redirect chain exceeded the 3-hop safety limit                                        |
-| `URL_NOT_ALLOWED`       | `read_page`                     | `false`       | URL domain not in SSRF allowlist; only a different URL will succeed                   |
+| `PAGE_NOT_FOUND`        | `read_page`, `search_page`      | `false`       | HTTP 404 — the page does not exist at that URL                                        |
+| `PAGE_FETCH_FAILED`     | `read_page`, `search_page`      | `true`        | Transient network error or non-200/404 HTTP response fetching page; retry may succeed |
+| `TOO_MANY_REDIRECTS`    | `read_page`, `search_page`      | `false`       | Redirect chain exceeded the 3-hop safety limit                                        |
+| `URL_NOT_ALLOWED`       | `read_page`, `search_page`      | `false`       | URL domain not in SSRF allowlist; only a different URL will succeed                   |
 | `INVALID_INPUT`         | Any                             | `false`       | Input validation failed; the request must be corrected before retrying                |
 
 ---
@@ -424,9 +453,9 @@ Every error response follows the same structure:
 ## 10. Design Decisions
 
 **D1: Agent-driven navigation**
-ProContext does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it sees the TOC, picks sections, reads pages. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.
+ProContext does not chunk documents or decide which content is relevant. The agent navigates the documentation structure — it resolves a library, browses its index, searches for keywords, and reads specific sections. This is simpler, more predictable, and gives the agent full visibility into what documentation exists.
 
-_Trade-off_: Agents need 2–3 tool calls to reach content instead of 1. Accepted — the calls are fast (mostly cache hits after the first) and the agent retains full control.
+_Trade-off_: Agents need 2–3 tool calls to reach content instead of 1. Accepted — the calls are fast (mostly cache hits after the first) and the agent retains full control. The `search_page` tool shortens this path when the agent knows what it's looking for.
 
 **D2: Single SQLite cache tier**
 A two-tier cache (memory + SQLite) adds meaningful complexity for marginal latency gain in single-user deployments. SQLite with WAL mode delivers <5ms reads, which is acceptable when the bottleneck is network fetch (100ms–3s). A memory tier can be added in the enterprise version where multi-user throughput justifies it.
@@ -438,7 +467,7 @@ Stdio mode requires no authentication — the MCP client spawns the server, and 
 The registry (`known-libraries.json`) has its own release cadence (weekly) completely decoupled from the MCP server version. Users get updated library coverage without upgrading the server.
 
 **D5: llms.txt as the documentation contract**
-ProContext treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and parsing that format.
+ProContext treats the llms.txt file as the authoritative interface to a library's documentation. It does not scrape HTML, parse Sphinx output, or infer documentation structure. Every library in the registry has a valid llms.txt URL — the MCP server only deals with fetching and serving that format. The llms.txt is fetched via `read_page` like any other page, benefiting from the same caching, pagination, and search capabilities.
 
 **D6: Custom registry as the escape hatch for private documentation**
 Teams with internal libraries or private documentation can point ProContext at a custom registry by setting `registry.metadata_url` in `procontext.yaml`:
@@ -453,6 +482,6 @@ The custom registry must serve:
 - **`known-libraries.json`**: An array of library entries in the same schema as the public registry. Each entry must include a valid `llms_txt_url`.
 - **`registry_metadata.json`**: A JSON object with `version` (string), `download_url` (string), and `checksum` (`"sha256:<hex>"`) fields so the server's background update check works correctly.
 
-**Important**: The SSRF allowlist is built from domains in the loaded registry. Documentation domains in a custom registry entry are automatically permitted by `read_page` — no additional SSRF configuration is needed.
+**Important**: The SSRF allowlist is built from domains in the loaded registry. Documentation domains in a custom registry entry are automatically permitted by `read_page` and `search_page` — no additional SSRF configuration is needed.
 
 _Trade-off_: The custom registry completely replaces the public registry — there is no merging. Teams that want both public and private libraries must include the public entries in their custom registry. This is intentional: a merge strategy introduces ordering and conflict-resolution complexity that is not warranted for the open-source version.

@@ -2,7 +2,7 @@
 
 > **Document**: 03-implementation-guide.md
 > **Status**: Draft v2
-> **Last Updated**: 2026-03-01
+> **Last Updated**: 2026-03-08
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -19,13 +19,13 @@
   - [3.3 AppState and Dependency Injection](#33-appstate-and-dependency-injection)
   - [3.4 Error Handling](#34-error-handling)
   - [3.5 Logging](#35-logging)
-- [4. Implementation Phases](#4-implementation-phases)
-  - [Phase 0: Foundation](#phase-0-foundation)
-  - [Phase 1: Registry & Resolution](#phase-1-registry--resolution)
-  - [Phase 2: Fetcher & Cache](#phase-2-fetcher--cache)
-  - [Phase 3: Page Reading & Parser](#phase-3-page-reading--parser)
-  - [Phase 4: HTTP Transport](#phase-4-http-transport)
-  - [Phase 5: Registry Updates & Polish](#phase-5-registry-updates--polish)
+- [4. Module Acceptance Criteria](#4-module-acceptance-criteria)
+  - [4.1 Resolver](#41-resolver)
+  - [4.2 Fetcher & Cache](#42-fetcher--cache)
+  - [4.3 Parser](#43-parser)
+  - [4.4 Search](#44-search)
+  - [4.5 HTTP Transport](#45-http-transport)
+  - [4.6 Registry Updates](#46-registry-updates)
 - [5. Testing Strategy](#5-testing-strategy)
 - [6. CI/CD](#6-cicd)
   - [Commit Message Convention](#commit-message-convention)
@@ -61,19 +61,21 @@ procontext/
 │       ├── models/
 │       │   ├── __init__.py           # Re-exports all public models
 │       │   ├── registry.py           # RegistryEntry, RegistryPackages, LibraryMatch
-│       │   ├── cache.py              # TocCacheEntry, PageCacheEntry
+│       │   ├── cache.py              # PageCacheEntry
 │       │   └── tools.py              # All tool I/O models (input validation + output serialisation)
 │       ├── tools/
 │       │   ├── __init__.py
 │       │   ├── resolve_library.py    # Business logic for resolve_library
-│       │   ├── get_library_docs.py   # Business logic for get_library_index
-│       │   └── read_page.py          # Business logic for read_page
+│       │   ├── read_page.py          # Business logic for read_page
+│       │   ├── search_page.py        # Business logic for search_page
+│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-refresh)
 │       ├── registry.py               # Registry loading, index building, disk persistence, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
-│       ├── cache.py                  # SQLite cache: toc_cache + page_cache, stale-while-revalidate
+│       ├── cache.py                  # SQLite cache: page_cache, stale-while-revalidate
 │       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
 │       ├── parser.py                 # Outline parser, code block suppression, line number tracking
+│       ├── search.py                 # Pattern compilation (build_matcher) and line scanning (search_lines)
 │       ├── transport.py              # MCPSecurityMiddleware for HTTP mode
 │       └── data/
 │           └── __init__.py           # Package marker (data/ has no runtime-loaded files)
@@ -84,7 +86,8 @@ procontext/
 │   │   ├── test_resolver.py          # resolve_library: normalisation, all 5 steps, edge cases
 │   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
 │   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale-while-revalidate
-│   │   └── test_parser.py            # Heading detection, code block suppression, section extraction
+│   │   ├── test_parser.py            # Heading detection, code block suppression, section extraction
+│   │   └── test_search.py            # Pattern compilation, line scanning, smart case, pagination
 │   └── integration/
 │       ├── conftest.py               # Integration-specific fixtures (full AppState, mocked HTTP)
 │       └── test_tools.py             # Full tool call pipeline: input → output shape
@@ -103,7 +106,7 @@ The structure enforces a strict layering. Violations (e.g., a tool importing fro
 | ------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | **Entrypoint**     | `mcp/server.py`, `mcp/lifespan.py`, `mcp/startup.py` | Tool registrations, resource lifecycle, CLI entry. No business logic.                 |
 | **Tools**          | `tools/*.py`                                         | One file per tool. Receives `AppState`, returns output dict. Raises `ProContextError`. |
-| **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py` | Pure business logic. No MCP imports. Typed against protocols, not concrete classes.    |
+| **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols, not concrete classes.    |
 | **Infrastructure** | `registry.py`, `config.py`, `transport.py`, `schedulers.py` | Setup and wiring. Run once at startup; schedulers run as long-lived background coroutines. |
 | **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`   | No dependencies on other layers. Imported freely.                                      |
 
@@ -223,10 +226,10 @@ Re-verify this table whenever a dependency is added or its major version is bump
 
 ```python
 # Correct
-async def get_toc(self, library_id: str) -> TocCacheEntry | None: ...
+async def get_page(self, url_hash: str) -> PageCacheEntry | None: ...
 
 # Incorrect
-async def get_toc(self, library_id: str) -> Optional[TocCacheEntry]: ...
+async def get_page(self, url_hash: str) -> Optional[PageCacheEntry]: ...
 ```
 
 **Pydantic at all external boundaries.** Tool inputs are validated via Pydantic models before any processing. Registry JSON is parsed into `RegistryEntry` models on load. Never pass raw dicts between modules — use typed models.
@@ -243,19 +246,9 @@ Swappable components (`Cache`, `Fetcher`) are typed against `typing.Protocol` in
 ```python
 # protocols.py
 from typing import Protocol
-from procontext.models import TocCacheEntry, PageCacheEntry
+from procontext.models import PageCacheEntry
 
 class CacheProtocol(Protocol):
-    async def get_toc(self, library_id: str) -> TocCacheEntry | None: ...
-    async def set_toc(
-        self,
-        library_id: str,
-        llms_txt_url: str,
-        content: str,
-        ttl_hours: int,
-        *,
-        discovered_domains: frozenset[str] = frozenset(),
-    ) -> None: ...
     async def get_page(self, url_hash: str) -> PageCacheEntry | None: ...
     async def set_page(
         self,
@@ -267,9 +260,7 @@ class CacheProtocol(Protocol):
         *,
         discovered_domains: frozenset[str] = frozenset(),
     ) -> None: ...
-    async def load_discovered_domains(
-        self, *, include_toc: bool, include_pages: bool
-    ) -> frozenset[str]: ...
+    async def load_discovered_domains(self) -> frozenset[str]: ...
     async def cleanup_if_due(self, interval_hours: int) -> None: ...
     async def cleanup_expired(self) -> None: ...
 
@@ -298,16 +289,16 @@ if TYPE_CHECKING:
 
 @dataclass
 class AppState:
-    # Phase 0
+    # Core
     settings: Settings
 
-    # Phase 1: Registry & Resolution
+    # Registry & Resolution
     indexes: RegistryIndexes
     registry_version: str = ""
     registry_path: Path | None = None           # Path to known-libraries.json on disk
     registry_state_path: Path | None = None     # Path to registry-state.json on disk
 
-    # Phase 2: Fetcher & Cache
+    # Fetcher & Cache
     http_client: httpx.AsyncClient | None = None
     cache: CacheProtocol | None = None          # Typed as protocol, not concrete Cache
     fetcher: FetcherProtocol | None = None      # Typed as protocol, not concrete Fetcher
@@ -349,17 +340,17 @@ async def handle(query: str, state: AppState) -> dict:
 
 ```python
 # Correct
-if not entry:
+if response.status_code == 404:
     raise ProContextError(
-        code=ErrorCode.LIBRARY_NOT_FOUND,
-        message=f"Library '{library_id}' not found in registry.",
-        suggestion="Call resolve_library to find the correct library ID.",
+        code=ErrorCode.PAGE_NOT_FOUND,
+        message=f"Page not found: {url}",
+        suggestion="Check the URL is correct. Use resolve_library to find valid documentation URLs.",
         recoverable=False,
     )
 
 # Incorrect
-if not entry:
-    return {"error": {"code": "LIBRARY_NOT_FOUND", ...}}
+if response.status_code == 404:
+    return {"error": {"code": "PAGE_NOT_FOUND", ...}}
 ```
 
 ### 3.5 Logging
@@ -367,11 +358,12 @@ if not entry:
 **Bind log context at the start of each handler.** Use `structlog.get_logger().bind(...)` to attach the tool name and key inputs to every log line in a handler, without passing a logger argument through every function call.
 
 ```python
-# tools/get_library_docs.py  (file is named get_library_docs.py; tool exposed as get_library_index)
+# tools/search_page.py
 import structlog
 
-async def handle(library_id: str, state: AppState) -> dict:
-    log = structlog.get_logger().bind(tool="get_library_index", library_id=library_id)
+async def handle(url: str, query: str, state: AppState) -> dict:
+    url_hash = sha256_hex(url)
+    log = structlog.get_logger().bind(tool="search_page", url_hash=url_hash)
     log.info("handler_called")
     ...
     log.info("cache_hit")
@@ -411,66 +403,17 @@ except Exception as e:
 
 ---
 
-## 4. Implementation Phases
+## 4. Module Acceptance Criteria
 
-Each phase produces working, tested code. Later phases build on earlier ones without refactoring them.
-
----
-
-### Phase 0: Foundation
-
-**Goal**: A running MCP server that responds to the `initialize` handshake and returns a health status. No tools yet.
-
-**Files to create**:
-
-| File                                | What to implement                                                                        |
-| ----------------------------------- | ---------------------------------------------------------------------------------------- |
-| `pyproject.toml`                    | Full dependency list, `[build-system]`, scripts entry point                              |
-| `src/procontext/__init__.py`        | Export package `__version__` from installed package metadata                             |
-| `src/procontext/py.typed`           | Empty file (PEP 561 marker)                                                              |
-| `src/procontext/errors.py`          | `ErrorCode` (StrEnum), `ProContextError`                                                 |
-| `src/procontext/models/__init__.py` | Empty re-export stub (populated later)                                                   |
-| `src/procontext/models/registry.py` | `RegistryEntry`, `RegistryPackages`                                                      |
-| `src/procontext/config.py`          | `Settings` with all fields and YAML loading                                              |
-| `src/procontext/state.py`           | `AppState` dataclass (fields populated across phases)                                    |
-| `src/procontext/protocols.py`       | `CacheProtocol`, `FetcherProtocol` stubs                                                 |
-| `src/procontext/mcp/server.py`      | `FastMCP("procontext")`, tool registrations                                              |
-| `src/procontext/mcp/lifespan.py`    | lifespan stub, `registry_paths()`                                                        |
-| `src/procontext/mcp/startup.py`     | `main()` entrypoint, registry bootstrap                                                  |
-| `procontext.example.yaml`           | Example config with all fields and comments (committed; `procontext.yaml` is gitignored) |
-
-**Verification**:
-
-```bash
-uv run procontext          # Starts, no crash, awaits stdio input
-echo '{}' | uv run procontext  # Responds without crash
-```
+Each subsection defines the expected behaviours for a module. These serve as the verification checklist for code review and testing — a module is complete when every listed behaviour has a passing test.
 
 ---
 
-### Phase 1: Registry & Resolution
+### 4.1 Resolver
 
-**Goal**: `resolve_library` tool is fully functional. Registry loads from the local disk pair in this phase. Fuzzy matching works.
+**Modules**: `resolver.py`, `registry.py`, `tools/resolve_library.py`
 
-**Phase boundary note**: End-state registry behavior is local-first (`<data_dir>/registry/known-libraries.json`, where `<data_dir>` is resolved by `platformdirs.user_data_dir("procontext")`) with background update checks. That behavior is implemented in **Phase 5** (`check_for_registry_update()`, `save_registry_to_disk()`, background tasks), not Phase 1.
-
-**Files to create/update**:
-
-| File                                       | What to implement                                                |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `src/procontext/registry.py`               | `load_registry()`, `build_indexes()`, `RegistryIndexes`          |
-| `src/procontext/resolver.py`               | `normalise_query()`, `resolve_library()` (all 5 steps)           |
-| `src/procontext/models/registry.py`        | Add `LibraryMatch`                                               |
-| `src/procontext/models/tools.py`           | `ResolveLibraryInput`, `ResolveLibraryOutput`                    |
-| `src/procontext/models/__init__.py`        | Re-export `LibraryMatch`, `ResolveLibrary*`                      |
-| `src/procontext/tools/__init__.py`         | Empty                                                            |
-| `src/procontext/tools/resolve_library.py`  | `handle(query, state) -> dict`                                   |
-| `src/procontext/state.py`                  | Add `indexes`, `registry_version` fields                         |
-| `src/procontext/mcp/server.py`             | Register `resolve_library` tool, initialise registry in lifespan |
-| `src/procontext/data/__init__.py`           | Package marker — the `data/` directory has no runtime-loaded files |
-| `tests/unit/test_resolver.py`              | See testing section                                              |
-
-**Key behaviours to verify**:
+**Expected behaviours**:
 
 - `"langchain-openai"` → resolves via package name to `"langchain"`
 - `"langchain[openai]>=0.3"` → normalised then resolves
@@ -480,27 +423,11 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ---
 
-### Phase 2: Fetcher & Cache
+### 4.2 Fetcher & Cache
 
-**Goal**: `get_library_index` tool is fully functional. SQLite cache works with stale-while-revalidate.
+**Modules**: `fetcher.py`, `cache.py`, `tools/read_page.py`, `tools/_shared.py`
 
-**Files to create/update**:
-
-| File                                       | What to implement                                                                                          |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `src/procontext/fetcher.py`                | `Fetcher` class: `build_http_client()`, `build_allowlist()`, `is_url_allowed()`, `fetch()`, `fetch_text()` |
-| `src/procontext/cache.py`                  | `Cache` class: `init_db()`, `get_toc()`, `set_toc()`, `get_page()`, `set_page()`, `cleanup_expired()`      |
-| `src/procontext/protocols.py`              | Fill out `CacheProtocol` and `FetcherProtocol` with full method signatures                                 |
-| `src/procontext/models/cache.py`           | `TocCacheEntry`, `PageCacheEntry`                                                                          |
-| `src/procontext/models/tools.py`           | Add `GetLibraryIndexInput`, `GetLibraryIndexOutput`                                                          |
-| `src/procontext/models/__init__.py`        | Re-export new models                                                                                       |
-| `src/procontext/tools/get_library_docs.py` | `handle(library_id, state) -> dict` (tool name: `get_library_index`)                                       |
-| `src/procontext/state.py`                  | Add `http_client`, `cache`, `fetcher`, `allowlist` fields                                                  |
-| `src/procontext/mcp/server.py`             | Register `get_library_index` tool, initialise `Cache` and `Fetcher` in lifespan                             |
-| `tests/unit/test_fetcher.py`               | See testing section                                                                                        |
-| `tests/unit/test_cache.py`                 | See testing section                                                                                        |
-
-**Key behaviours to verify**:
+**Expected behaviours**:
 
 - First call fetches from network, stores in cache, returns content
 - Second call returns from cache, no network request made
@@ -509,53 +436,47 @@ echo '{}' | uv run procontext  # Responds without crash
 - Cache write failure (`aiosqlite.Error`): fetched content still returned normally, error logged
 - SSRF: private IP URL raises `URL_NOT_ALLOWED`
 - SSRF: redirect to non-allowlisted domain raises `URL_NOT_ALLOWED`
-- Unknown `libraryId` raises `LIBRARY_NOT_FOUND`
-
----
-
-### Phase 3: Page Reading & Parser
-
-**Goal**: `read_page` tool is fully functional. Heading parser handles code blocks and line number tracking correctly. Offset/limit windowing works for targeted section reads.
-
-**Files to create/update**:
-
-| File                                | What to implement                                                            |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| `src/procontext/parser.py`          | `parse_outline()` — returns plain-text structural outline                    |
-| `src/procontext/tools/read_page.py` | `handle(url, offset, limit, state) -> dict`                                  |
-| `src/procontext/mcp/server.py`      | Register `read_page` tool                                                    |
-| `tests/unit/test_parser.py`         | See testing section                                                          |
-| `tests/integration/test_tools.py`   | End-to-end tool call tests for all three tools                               |
-
-**Note**: `ReadPageInput`, `ReadPageOutput`, and `PageCacheEntry` (with `outline` field) were already added in Phase 2.
-
-**Key behaviours to verify**:
-
-- H1–H6 headings detected with correct 1-based line numbers
-- Blockquote headings (`> ## Section`) are captured
-- Fence opener/closer lines are emitted so the agent knows where code blocks start/end
-- Headings inside code blocks are captured as-is (agent infers context from surrounding fence lines)
-- 4-space indented lines are not treated as fence openers
 - Page is cached on first fetch; subsequent calls with different offsets are served from cache without re-fetch
 - `offset` and `limit` correctly window the content
 - `outline` always reflects the full page regardless of offset/limit or `view`
 
 ---
 
-### Phase 4: HTTP Transport
+### 4.3 Parser
 
-**Goal**: Server runs in HTTP mode with optional bearer key authentication (off by default), Origin validation, and protocol version checking.
+**Module**: `parser.py`
 
-**Files to create/update**:
+**Expected behaviours**:
 
-| File                              | What to implement                                                                                                             |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `src/procontext/transport.py`     | `MCPSecurityMiddleware` (bearer key auth, Origin validation, protocol version check)                                          |
-| `src/procontext/config.py`        | Add `auth_enabled` and `auth_key` fields to `ServerSettings`                                                                  |
-| `src/procontext/mcp/startup.py`   | `run_http_server()`: enforce auth when enabled, auto-generate key when enabled and missing, warn when disabled, start uvicorn |
-| `tests/integration/test_tools.py` | Add HTTP mode transport tests                                                                                                 |
+- H1–H6 headings detected with correct 1-based line numbers
+- Blockquote headings (`> ## Section`) are captured
+- Fence opener/closer lines are emitted so the agent knows where code blocks start/end
+- Headings inside code blocks are captured as-is (agent infers context from surrounding fence lines)
+- 4-space indented lines are not treated as fence openers
 
-**Key behaviours to verify**:
+---
+
+### 4.4 Search
+
+**Modules**: `search.py`, `tools/search_page.py`
+
+**Expected behaviours**:
+
+- Literal search returns correct matching lines with 1-based line numbers
+- Regex search compiles and matches; invalid regex raises `INVALID_INPUT`
+- Smart case: all-lowercase query → case-insensitive; mixed/upper → case-sensitive
+- `whole_word: true` wraps pattern in `\b...\b`
+- Pagination: `offset` skips lines, `max_results` limits output, `has_more`/`next_offset` enable continuation
+- Outline is returned alongside matches for structural context
+- Page fetch uses the shared `fetch_or_cached_page` helper (same cache as `read_page`)
+
+---
+
+### 4.5 HTTP Transport
+
+**Modules**: `transport.py`, `mcp/startup.py`
+
+**Expected behaviours**:
 
 - `auth_enabled=true` + explicit `auth_key` + valid bearer key → 200
 - `auth_enabled=true` + explicit `auth_key` + missing `Authorization` header → 401
@@ -570,23 +491,11 @@ echo '{}' | uv run procontext  # Responds without crash
 
 ---
 
-### Phase 5: Registry Updates & Polish
+### 4.6 Registry Updates
 
-**Goal**: Registry updates automatically in the background. Cleanup job runs. Package is installable via `uvx`. Release pipeline is automated.
+**Modules**: `registry.py`, `schedulers.py`, `mcp/lifespan.py`
 
-**Files to create/update**:
-
-| File                            | What to implement                                                               |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| `src/procontext/registry.py`    | `check_for_registry_update()`, `save_registry_to_disk()` (persist `known-libraries.json` + `registry-state.json`) |
-| `src/procontext/cache.py`       | `cleanup_expired()` called on startup and every 6 hours                         |
-| `src/procontext/mcp/lifespan.py` | Spawn background tasks in lifespan                                             |
-| `CHANGELOG.md`                  | Initial entry for v0.1.0; [Keep a Changelog](https://keepachangelog.com) format |
-| `.github/workflows/ci.yml`      | Full CI pipeline (see Section 6)                                                |
-| `.github/workflows/release.yml` | Release pipeline: version bump, changelog update, PyPI publish (see Section 6)  |
-| `pyproject.toml`                | Add `python-semantic-release` to dev deps, add `[tool.semantic_release]` config |
-
-**Key behaviours to verify**:
+**Expected behaviours**:
 
 - Registry metadata fetch happens at startup (mocked in test)
 - If remote version matches local: no download
@@ -600,8 +509,6 @@ echo '{}' | uv run procontext  # Responds without crash
 - HTTP mode scheduler: transient failures use exponential backoff + jitter (1 minute to 60 minutes cap)
 - HTTP mode scheduler: after 8 consecutive transient failures, counter and backoff reset, cadence returns to 24 hours; next round gets a fresh set of fast-retry attempts
 - HTTP mode scheduler: semantic failures (checksum/metadata/schema) do not fast-retry and return to 24-hour cadence
-- `uvx procontext` installs and runs from PyPI (manual verification)
-- `CHANGELOG.md` is present and follows Keep a Changelog format
 
 ---
 
@@ -757,13 +664,26 @@ async def app_state(indexes, sample_entries):
 - Lines with 7+ hashes not captured
 - BOM (`\ufeff`) on line 1 does not prevent heading detection
 
+`tests/unit/test_search.py`
+
+- Literal search: exact matches found, non-matches excluded
+- Regex search: valid patterns match correctly
+- Regex search: invalid pattern raises `re.error` (caught as `INVALID_INPUT` in handler)
+- Smart case: all-lowercase query is case-insensitive; mixed-case query is case-sensitive
+- `whole_word: true`: matches whole words only, not substrings
+- Offset: lines before offset are skipped
+- Pagination: `max_results` limits matches; `has_more` and `next_offset` are correct
+- Edge case: no matches → empty list, `has_more=False`, `next_offset=None`
+- Edge case: empty content → empty list
+
 `tests/integration/test_tools.py`
 
 - `resolve_library`: full call, correct output shape
-- `get_library_index`: cache miss path (mocked HTTP), cache hit path
-- `get_library_index`: unknown library raises `LIBRARY_NOT_FOUND`
 - `read_page`: cache miss path (mocked HTTP), cache hit path
 - `read_page`: URL not in allowlist raises `URL_NOT_ALLOWED`
+- `search_page`: cache miss path (mocked HTTP), returns matches
+- `search_page`: cache hit path (shared with read_page), returns matches
+- `search_page`: invalid regex raises `INVALID_INPUT`
 - HTTP transport: `auth_enabled=true`, explicit key, missing bearer key → 401
 - HTTP transport: `auth_enabled=true`, explicit key, incorrect bearer key → 401
 - HTTP transport: `auth_enabled=true`, explicit key, valid bearer key → 200
@@ -892,7 +812,7 @@ jobs:
 
 `actions/attest-build-provenance` generates a signed SLSA provenance attestation — a cryptographic record proving which source commit produced which artifact, via which build pipeline. This is attached to the GitHub release and is verifiable via `gh attestation verify`. Enterprise consumers increasingly require provenance before adopting a dependency.
 
-`python-semantic-release` and its `[tool.semantic_release]` config in `pyproject.toml` are added in Phase 5 — the release pipeline is not needed until the project is ready to publish.
+`python-semantic-release` and its `[tool.semantic_release]` config in `pyproject.toml` are added once the release pipeline is needed — not required during initial development.
 
 ```toml
 # Already present in pyproject.toml [dependency-groups].dev:

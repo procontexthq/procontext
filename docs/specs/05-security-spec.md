@@ -1,8 +1,8 @@
 # ProContext: Security Specification
 
 > **Document**: 05-security-spec.md
-> **Status**: Draft v1
-> **Last Updated**: 2026-03-01
+> **Status**: Draft v2
+> **Last Updated**: 2026-03-08
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -22,7 +22,7 @@
 - [5. Known Limitations and Accepted Risks](#5-known-limitations-and-accepted-risks)
 - [6. Data Handling](#6-data-handling)
 - [7. Dependency Vulnerability Management](#7-dependency-vulnerability-management)
-- [8. Security Testing by Phase](#8-security-testing-by-phase)
+- [8. Security Testing by Module](#8-security-testing-by-module)
 
 ---
 
@@ -97,7 +97,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.1 SSRF via Documentation Fetching
 
-**Description**: The `read_page` tool accepts URLs from the AI agent. An attacker who controls the agent's input (e.g., via prompt injection in a previous tool's output) could attempt to fetch internal network resources. Redirect chains from allowlisted domains could bounce to internal targets.
+**Description**: The `read_page` and `search_page` tools accept URLs from the AI agent. An attacker who controls the agent's input (e.g., via prompt injection in a previous tool's output) could attempt to fetch internal network resources. Redirect chains from allowlisted domains could bounce to internal targets.
 
 **Severity**: High
 
@@ -257,8 +257,7 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 
 | Location                                                  | Content                                 | Purpose                                    |
 | --------------------------------------------------------- | --------------------------------------- | ------------------------------------------ |
-| `<db_path>`                                | `toc_cache` table: raw llms.txt content | Avoid re-fetching table of contents        |
-| `<db_path>`                                | `page_cache` table: full page markdown  | Avoid re-fetching documentation pages      |
+| `<db_path>`                                | `page_cache` table: all fetched content (llms.txt, README, docs pages) | Avoid re-fetching documentation content    |
 | `<data_dir>/registry/known-libraries.json` | Library registry                        | Local copy of the registry for offline use |
 | `<data_dir>/registry/registry-state.json`  | Registry metadata (`version`, `checksum`, `updated_at`, `last_checked_at`) | Local version/checksum source for update checks; `last_checked_at` gates startup polling |
 
@@ -289,7 +288,7 @@ ProContext stores no personally identifiable information. The cache contains onl
 
 ### Audit mechanism
 
-Run `pip-audit` (or equivalent) as a CI step to detect known vulnerabilities in the dependency tree. Add to the CI pipeline (03-implementation-guide, Section 6) once Phase 5 CI is implemented.
+Run `pip-audit` (or equivalent) as a CI step to detect known vulnerabilities in the dependency tree. Add to the CI pipeline (03-implementation-guide, Section 6).
 
 ### Automated alerts
 
@@ -312,11 +311,11 @@ Configure Dependabot (or Renovate) on the GitHub repository for automated pull r
 
 ---
 
-## 8. Security Testing by Phase
+## 8. Security Testing by Module
 
-Each implementation phase introduces new attack surface. The following table maps specific security tests to the phase that introduces the relevant code.
+Each module introduces specific attack surface. The following tables map security tests to the module that owns the relevant code. Cross-references use section numbers from `03-implementation-guide.md` Section 4.
 
-### Phase 1: Registry & Resolution
+### 8.1 Resolver (§4.1)
 
 | Test                                           | What it verifies                                 |
 | ---------------------------------------------- | ------------------------------------------------ |
@@ -325,7 +324,7 @@ Each implementation phase introduces new attack surface. The following table map
 | Malformed library ID pattern                   | Pydantic rejects non-`[a-z0-9_-]+` patterns      |
 | Registry entry with missing required fields    | `RegistryEntry` Pydantic model rejects on load   |
 
-### Phase 2: Fetcher & Cache
+### 8.2 Fetcher & Cache (§4.2)
 
 | Test                                                                        | What it verifies                                                               |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -336,20 +335,22 @@ Each implementation phase introduces new attack surface. The following table map
 | Redirect chain exceeding 3 hops                                             | Raises `TOO_MANY_REDIRECTS`                                                    |
 | URL with allowlisted domain but non-HTTPS scheme                            | Rejected by URL validation                                                     |
 | `github.io` subdomain not in registry                                       | Verify shared-hosting limitation is understood (documents behaviour, may pass) |
-| SQL injection via library ID in cache key                                   | Parameterised queries prevent injection (verify no string formatting in SQL)   |
-| SQL injection via URL in cache key                                          | Same as above                                                                  |
+| SQL injection via URL in cache key                                          | Parameterised queries prevent injection (verify no string formatting in SQL)   |
 | Cache read failure (simulated `aiosqlite.Error`)                            | Returns `None`, does not leak error details                                    |
 | Cache write failure (simulated `aiosqlite.Error`)                           | Fetched content still returned, error logged                                   |
 
-### Phase 3: Page Reading & Parser
+### 8.3 Parser & Search (§4.3, §4.4)
 
 | Test                                    | What it verifies                                  |
 | --------------------------------------- | ------------------------------------------------- |
 | Extremely large document (>1MB)         | Server handles without memory exhaustion or crash |
 | Deeply nested code fences (100+ levels) | Parser terminates correctly                       |
 | URL input >2048 chars                   | Pydantic validation rejects with `INVALID_INPUT`  |
+| Regex query >200 chars                  | Pydantic validation rejects with `INVALID_INPUT`  |
+| Catastrophic backtracking regex pattern | Query length cap (200 chars) limits ReDoS surface |
+| Invalid regex pattern                   | Caught at search time, raises `INVALID_INPUT`     |
 
-### Phase 4: HTTP Transport
+### 8.4 HTTP Transport (§4.5)
 
 | Test                                                                                             | What it verifies                                                                          |
 | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
@@ -365,7 +366,7 @@ Each implementation phase introduces new attack surface. The following table map
 | Unknown `MCP-Protocol-Version` header                                                            | Rejected with HTTP 400                                                                    |
 | Error response body                                                                              | No stack traces, internal file paths, or debug info leaked                                |
 
-### Phase 5: Registry Updates & Polish
+### 8.5 Registry Updates (§4.6)
 
 | Test                                          | What it verifies                                              |
 | --------------------------------------------- | ------------------------------------------------------------- |

@@ -1,8 +1,8 @@
 # ProContext: Technical Specification
 
 > **Document**: 02-technical-spec.md
-> **Status**: Draft v1
-> **Last Updated**: 2026-03-01
+> **Status**: Draft v2
+> **Last Updated**: 2026-03-08
 > **Depends on**: 01-functional-spec.md
 
 ---
@@ -32,6 +32,9 @@
   - [6.2 Stale-While-Revalidate](#62-stale-while-revalidate)
 - [7. Outline Parser](#7-outline-parser)
   - [7.1 Algorithm](#71-algorithm)
+- [7A. Search](#7a-search)
+  - [7A.1 Pattern Compilation](#7a1-pattern-compilation)
+  - [7A.2 Line Scanning](#7a2-line-scanning)
 - [8. Transport Layer](#8-transport-layer)
   - [8.1 stdio Transport](#81-stdio-transport)
   - [8.2 HTTP Transport](#82-http-transport)
@@ -66,7 +69,7 @@
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
 │  │  Tools                                       │   │
-│  │  resolve_library │ get_library_index │ read_page│  │
+│  │  resolve_library │ read_page │ search_page  │   │
 │  └────────────────────────┬─────────────────────┘   │
 │                           │                         │
 │  ┌────────────────────────▼─────────────────────┐   │
@@ -95,20 +98,9 @@ resolve_library("langchain-openai>=0.3")
   │
   ├─ Normalise: strip version/extras → "langchain-openai" → lowercase
   ├─ Index 1 (package → ID): "langchain-openai" → "langchain"  ✓
-  └─ Return [{ library_id: "langchain", matched_via: "package_name", relevance: 1.0 }]
+  └─ Return [{ library_id: "langchain", llms_txt_url: "...", matched_via: "package_name", relevance: 1.0 }]
 
-get_library_index("langchain")
-  │
-  ├─ Registry lookup: "langchain" → llms_txt_url
-  ├─ Cache check: toc:langchain
-  │    HIT (fresh)  → return cached content
-  │    HIT (stale)  → return cached content + trigger background refresh
-  │    MISS         → continue
-  ├─ Fetch: HTTP GET llms_txt_url (30s timeout, SSRF validated)
-  ├─ Store: toc_cache (TTL 24h)
-  └─ Return: { content: "<raw llms.txt markdown>" }
-
-read_page("https://docs.langchain.com/concepts/streaming.md")
+read_page("https://python.langchain.com/llms.txt")
   │
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: page:{sha256(url)}
@@ -119,6 +111,16 @@ read_page("https://docs.langchain.com/concepts/streaming.md")
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
   └─ Return: { outline: "...", content: "..." }
+
+search_page("https://python.langchain.com/llms.txt", "streaming")
+  │
+  ├─ SSRF check: domain in allowlist?
+  ├─ Cache check: page:{sha256(url)} — shared cache with read_page
+  │    HIT  → use cached content
+  │    MISS → fetch and cache (same path as read_page)
+  ├─ Build matcher from query + mode + case_mode + whole_word
+  ├─ Scan lines from offset, collect up to max_results matches
+  └─ Return: { outline: "...", matches: [...], has_more: bool }
 ```
 
 ---
@@ -137,7 +139,7 @@ read_page("https://docs.langchain.com/concepts/streaming.md")
 | Logging            | structlog             | ≥24.1   | Structured JSON logs; context binding per request                             |
 | Config             | pydantic-settings     | ≥2.2    | YAML config with env var overrides, validated at startup                      |
 | Config parsing     | pyyaml                | ≥6.0    | YAML parser required by pydantic-settings `YamlConfigSettingsSource`          |
-| ASGI server        | uvicorn               | ≥0.34   | HTTP transport for Phase 4; ASGI lifespan support                             |
+| ASGI server        | uvicorn               | ≥0.34   | HTTP transport; ASGI lifespan support                                         |
 | Linting/formatting | ruff                  | ≥0.11   | Single tool for lint + format, replaces flake8/black/isort                    |
 
 ---
@@ -162,6 +164,7 @@ class RegistryEntry(BaseModel):
     description: str = ""
     docs_url: str | None = None
     repo_url: str | None = None
+    readme_url: str | None = None
     languages: list[str] = []
     packages: RegistryPackages = RegistryPackages()
     aliases: list[str] = []
@@ -181,6 +184,9 @@ class LibraryMatch(BaseModel):
     name: str
     description: str          # Short description of what the library does
     languages: list[str]
+    llms_txt_url: str         # URL to the library's llms.txt documentation index
+    docs_url: str | None      # URL to the library's documentation website
+    readme_url: str | None    # URL to the library's README file
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
     relevance: float          # 0.0–1.0
 ```
@@ -191,25 +197,18 @@ class LibraryMatch(BaseModel):
 from datetime import datetime
 from pydantic import BaseModel
 
-class TocCacheEntry(BaseModel):
-    library_id: str
-    llms_txt_url: str
-    content: str              # Raw llms.txt markdown
-    fetched_at: datetime
-    expires_at: datetime
-    stale: bool = False
-    discovered_domains: frozenset[str] = frozenset()  # Base domains extracted from content URLs
-
 class PageCacheEntry(BaseModel):
     url: str
     url_hash: str             # SHA-256 of url (primary key)
-    content: str              # Full page markdown
+    content: str              # Full page markdown (llms.txt, README, or docs)
     outline: str              # Plain-text structural outline: "<line>: <original line>\n..."
     fetched_at: datetime
     expires_at: datetime
     stale: bool = False
     discovered_domains: frozenset[str] = frozenset()  # Base domains extracted from content URLs
 ```
+
+All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. Both `read_page` and `search_page` share this cache.
 
 ### 3.3 Tool Input/Output Models
 
@@ -229,27 +228,6 @@ class ResolveLibraryInput(BaseModel):
 
 class ResolveLibraryOutput(BaseModel):
     matches: list[LibraryMatch]
-
-class GetLibraryDocsInput(BaseModel):
-    library_id: str
-
-    @field_validator("library_id")
-    @classmethod
-    def validate_library_id(cls, v: str) -> str:
-        import re
-        v = v.strip()
-        if not re.match(r"^[a-z0-9][a-z0-9_-]*$", v):
-            raise ValueError(f"Invalid library ID: {v!r}")
-        return v
-
-class GetLibraryDocsOutput(BaseModel):
-    library_id: str
-    name: str
-    index_url: str            # Source URL of the llms.txt file
-    content: str              # Raw llms.txt markdown
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 class ReadPageInput(BaseModel):
     url: str
@@ -291,6 +269,64 @@ class ReadPageOutput(BaseModel):
     cached: bool
     cached_at: datetime | None
     stale: bool = False
+
+class SearchPageInput(BaseModel):
+    url: str
+    query: str
+    mode: Literal["literal", "regex"] = "literal"
+    case_mode: Literal["smart", "insensitive", "sensitive"] = "smart"
+    whole_word: bool = False
+    offset: int = 1
+    max_results: int = 20
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) > 2048:
+            raise ValueError("url must not exceed 2048 characters")
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("url must use http or https scheme")
+        return v
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("query must not be empty")
+        if len(v) > 200:
+            raise ValueError("query must not exceed 200 characters")
+        return v
+
+    @field_validator("offset")
+    @classmethod
+    def validate_offset(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("offset must be >= 1")
+        return v
+
+    @field_validator("max_results")
+    @classmethod
+    def validate_max_results(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_results must be >= 1")
+        return v
+
+class LineMatch(BaseModel):
+    line_number: int          # 1-based line number
+    content: str              # Full text of the matching line
+
+class SearchPageOutput(BaseModel):
+    url: str
+    query: str
+    outline: str              # Same outline as read_page
+    matches: list[LineMatch]
+    total_lines: int
+    has_more: bool
+    next_offset: int | None   # Line number for next search call; None if no more matches
+    cached: bool
+    cached_at: datetime | None
 ```
 
 ### 3.4 Error Model
@@ -300,9 +336,6 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 class ErrorCode(StrEnum):
-    LIBRARY_NOT_FOUND     = "LIBRARY_NOT_FOUND"
-    LLMS_TXT_NOT_FOUND    = "LLMS_TXT_NOT_FOUND"
-    LLMS_TXT_FETCH_FAILED = "LLMS_TXT_FETCH_FAILED"
     PAGE_NOT_FOUND        = "PAGE_NOT_FOUND"
     PAGE_FETCH_FAILED     = "PAGE_FETCH_FAILED"
     TOO_MANY_REDIRECTS    = "TOO_MANY_REDIRECTS"
@@ -555,20 +588,17 @@ def extract_base_domains_from_content(content: str) -> frozenset[str]:
 def expand_allowlist_from_content(
     content: str,
     state: AppState,
-    *,
-    depth_threshold: int,
 ) -> frozenset[str]:
     """Extract discovered domains from content and optionally expand the live allowlist.
 
     Always returns the full set of discovered domains for cache persistence,
-    regardless of depth configuration. Only mutates ``state.allowlist`` when
-    ``settings.fetcher.allowlist_depth >= depth_threshold``.
+    regardless of expansion configuration. Only mutates ``state.allowlist`` when
+    ``settings.fetcher.allowlist_expansion == "discovered"``.
 
-    Called by get_library_index with depth_threshold=1 (llms.txt content) and by
-    read_page with depth_threshold=2 (page content).
+    Called by both read_page and search_page after any successful fetch.
     """
     discovered_domains = extract_base_domains_from_content(content)
-    if state.settings.fetcher.allowlist_depth >= depth_threshold:
+    if state.settings.fetcher.allowlist_expansion == "discovered":
         new_domains = discovered_domains - state.allowlist
         if new_domains:
             state.allowlist = state.allowlist | new_domains
@@ -603,18 +633,17 @@ def is_url_allowed(
 
 - **`ssrf_private_ip_check`** (default `true`): blocks all requests to private/internal IP ranges. Strongly recommended to keep enabled.
 - **`ssrf_domain_check`** (default `true`): enforces the domain allowlist. When `false`, any public domain is reachable — only appropriate for isolated/air-gapped environments.
-- **`allowlist_depth`** (default `0`): controls how far the allowlist is expanded at runtime beyond the registry (see below).
-- **`extra_allowed_domains`**: manually specified domains always merged into the allowlist at startup, regardless of depth. Ships with `["github.com", "githubusercontent.com"]` as defaults.
+- **`allowlist_expansion`** (default `"registry"`): controls whether the allowlist is expanded at runtime beyond the registry (see below).
+- **`extra_allowed_domains`**: manually specified domains always merged into the allowlist at startup, regardless of expansion setting. Ships with `["github.com", "githubusercontent.com"]` as defaults.
 
 **Runtime allowlist expansion** (reactive, not pre-fetched):
 
-- **Depth 0** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
-- **Depth 1**: after `get_library_index` fetches an `llms.txt`, all URLs in its content have their base domains extracted and merged into `state.allowlist`. Enables `read_page` to follow cross-domain links listed in `llms.txt`.
-- **Depth 2**: additionally, after `read_page` fetches a page, URLs in the page content are also expanded into the allowlist. Enables following cross-references from one documentation page to another on a previously unseen domain.
+- **`"registry"`** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
+- **`"discovered"`**: after `read_page` or `search_page` fetches any content (llms.txt, README, or documentation page), all URLs in the content have their base domains extracted and merged into `state.allowlist`. Enables following cross-domain links found in documentation.
 
-At depth 1 and 2, expansion is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
+When expansion is `"discovered"`, it is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
 
-**Cross-restart persistence**: `discovered_domains` are always extracted from fetched content and written to the SQLite cache — even at depth 0 — so they are available if the operator later enables deeper expansion. At startup, `Cache.load_discovered_domains()` reads all `discovered_domains` from `toc_cache` (depth ≥ 1) and `page_cache` (depth ≥ 2) and merges them into the initial allowlist. This ensures that cached pages from a previous session remain reachable after a server restart, and avoids the performance cost of re-running domain extraction on every server start.
+**Cross-restart persistence**: `discovered_domains` are always extracted from fetched content and written to the SQLite cache — even when expansion is `"registry"` — so they are available if the operator later enables `"discovered"` expansion. At startup, `Cache.load_discovered_domains()` reads all `discovered_domains` from `page_cache` and merges them into the initial allowlist (subject to `allowlist_expansion` setting). This ensures that cached pages from a previous session remain reachable after a server restart, and avoids the performance cost of re-running domain extraction on every server start.
 
 **Known limitation**: Two-label base domain extraction is a simplification of proper eTLD+1 calculation. For shared hosting platforms like `github.io` or `readthedocs.io`, the base domain would be `github.io` or `readthedocs.io` — permitting all projects hosted there, not just the registered library. This is an acceptable trade-off for v1; a future version could adopt the `tldextract` library for accurate Public Suffix List-based matching.
 
@@ -687,56 +716,48 @@ Single database at `cache.db_path` (default: `platformdirs.user_data_dir("procon
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS toc_cache (
-    library_id         TEXT PRIMARY KEY,
-    llms_txt_url       TEXT NOT NULL,
-    content            TEXT NOT NULL,
-    discovered_domains TEXT NOT NULL DEFAULT '', -- Space-separated base domains extracted from content
-    fetched_at         TEXT NOT NULL,            -- ISO 8601
-    expires_at         TEXT NOT NULL             -- ISO 8601
-);
-
 CREATE TABLE IF NOT EXISTS page_cache (
     url_hash           TEXT PRIMARY KEY,             -- SHA-256(url)
     url                TEXT NOT NULL UNIQUE,
     content            TEXT NOT NULL,
     outline            TEXT NOT NULL DEFAULT '',     -- Plain-text structural outline
     discovered_domains TEXT NOT NULL DEFAULT '',     -- Space-separated base domains extracted from content
-    fetched_at         TEXT NOT NULL,
-    expires_at         TEXT NOT NULL
+    fetched_at         TEXT NOT NULL,                -- ISO 8601
+    expires_at         TEXT NOT NULL                 -- ISO 8601
 );
 
-CREATE INDEX IF NOT EXISTS idx_toc_expires   ON toc_cache(expires_at);
 CREATE INDEX IF NOT EXISTS idx_page_expires  ON page_cache(expires_at);
 ```
 
+All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. Both `read_page` and `search_page` share this cache.
+
 **Why TEXT for timestamps**: SQLite has no native datetime type. ISO 8601 strings (`"2026-02-23T10:00:00Z"`) sort lexicographically as datetimes, making range queries on `expires_at` correct without any conversion.
 
-**`discovered_domains` column**: Stores the base domains (`example.com`, `docs.dev`) extracted from fetched content by `extract_base_domains_from_content`. Serialised as a space-separated string (base domains never contain spaces). Written unconditionally on every cache write — regardless of the current `allowlist_depth` config — so the data is always available if the operator later enables deeper allowlist expansion. At startup, `Cache.load_discovered_domains()` reads all non-empty `discovered_domains` values from `toc_cache` and/or `page_cache` and merges them back into the in-memory allowlist (subject to `allowlist_depth`). This restores cross-restart continuity for the runtime-expanded allowlist.
+**`discovered_domains` column**: Stores the base domains (`example.com`, `docs.dev`) extracted from fetched content by `extract_base_domains_from_content`. Serialised as a space-separated string (base domains never contain spaces). Written unconditionally on every cache write — regardless of the current `allowlist_expansion` config — so the data is always available if the operator later enables `"discovered"` expansion. At startup, `Cache.load_discovered_domains()` reads all non-empty `discovered_domains` values from `page_cache` and merges them back into the in-memory allowlist (subject to `allowlist_expansion`). This restores cross-restart continuity for the runtime-expanded allowlist.
 
 **Cleanup**: A periodic task (runs at startup and every 6 hours thereafter) deletes entries where `expires_at < now() - 7 days`. Stale entries are kept up to 7 days to allow stale-while-revalidate to function even if the source is temporarily unreachable.
 
 ### 6.2 Stale-While-Revalidate
 
-`Cache.get_toc()` marks the entry as stale but does **not** launch the background task — that responsibility belongs to the tool handler, which has the full `AppState` (fetcher, allowlist, settings) needed to do the re-fetch.
+`Cache.get_page()` marks the entry as stale but does **not** launch the background task — that responsibility belongs to the tool layer, which has the full `AppState` (fetcher, allowlist, settings) needed to do the re-fetch.
 
 ```python
-# In Cache.get_toc() — marks stale, returns entry; does NOT create a task
-async def get_toc(self, library_id: str) -> TocCacheEntry | None:
-    entry = await self.db.fetch_toc(library_id)
+# In Cache.get_page() — marks stale, returns entry; does NOT create a task
+async def get_page(self, url_hash: str) -> PageCacheEntry | None:
+    entry = await self.db.fetch_page(url_hash)
     if entry is None:
         return None
     if entry.expires_at < datetime.now(UTC):
         entry.stale = True
     return entry
 
-# In tools/get_library_docs.py — handler for get_library_index, launches the background refresh
-toc = await state.cache.get_toc(library_id)
-if toc is not None and toc.stale:
-    asyncio.create_task(_refresh_toc(state, library_id, llms_txt_url))
+# In tools/_shared.py — shared helper used by both read_page and search_page
+page = await state.cache.get_page(url_hash)
+if page is not None and page.stale:
+    asyncio.create_task(_refresh_page(state, url))
 ```
 
-The same pattern applies to `page_cache`. The agent always gets a response immediately — a background `asyncio.create_task` in the tool handler handles the refresh without blocking.
+Both `read_page` and `search_page` use a shared helper (`fetch_or_cached_page`) that encapsulates the full cache-check → fetch → cache-write → stale-refresh flow. The agent always gets a response immediately — a background `asyncio.create_task` handles the refresh without blocking.
 
 **Why `except Exception` and not `except ProContextError`**: Background refresh failures include both expected errors (`ProContextError` — e.g., fetch failed, URL not allowed) and unexpected ones (network timeouts not yet wrapped, `aiosqlite` write failures). Catching only `ProContextError` would let infrastructure exceptions escape and crash the background task silently. `except Exception` with `exc_info=True` ensures all failures are logged and the server continues serving stale content regardless of the failure type.
 
@@ -744,29 +765,29 @@ The same pattern applies to `page_cache`. The agent always gets a response immed
 
 `aiosqlite` exceptions must never escape the `Cache` class boundary. Tool handlers must not need to import or handle `sqlite3`/`aiosqlite` errors directly — this would leak infrastructure details through the abstraction.
 
-**Read failures** (`get_toc`, `get_page`): If the SQLite read raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return `None`. The caller treats `None` as a cache miss and falls back to a network fetch. The agent receives a valid response with `cached: false`.
+**Read failures** (`get_page`): If the SQLite read raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return `None`. The caller treats `None` as a cache miss and falls back to a network fetch. The agent receives a valid response with `cached: false`.
 
-**Write failures** (`set_toc`, `set_page`): If the SQLite write raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return normally. The content was already fetched successfully — failure to persist it is non-fatal. The agent receives the fetched content; the next request will simply be a cache miss again.
+**Write failures** (`set_page`): If the SQLite write raises `aiosqlite.Error`, catch it, log a warning with `exc_info=True`, and return normally. The content was already fetched successfully — failure to persist it is non-fatal. The agent receives the fetched content; the next request will simply be a cache miss again.
 
 **Cleanup failures** (`cleanup_expired`): Catch `aiosqlite.Error`, log a warning, and continue. Cleanup is a background maintenance task — failure to delete expired rows is non-critical.
 
 ```python
 # Example: read failure degrades gracefully to cache miss
-async def get_toc(self, library_id: str) -> TocCacheEntry | None:
+async def get_page(self, url_hash: str) -> PageCacheEntry | None:
     try:
-        entry = await self.db.fetch_toc(library_id)
+        entry = await self.db.fetch_page(url_hash)
         ...
         return entry
     except aiosqlite.Error:
-        log.warning("cache_read_error", key=f"toc:{library_id}", exc_info=True)
+        log.warning("cache_read_error", key=f"page:{url_hash}", exc_info=True)
         return None  # Caller treats as cache miss
 
 # Example: write failure is non-fatal
-async def set_toc(self, library_id: str, ...) -> None:
+async def set_page(self, url: str, url_hash: str, ...) -> None:
     try:
-        await self.db.upsert_toc(...)
+        await self.db.upsert_page(...)
     except aiosqlite.Error:
-        log.warning("cache_write_error", key=f"toc:{library_id}", exc_info=True)
+        log.warning("cache_write_error", key=f"page:{url_hash}", exc_info=True)
         # Return normally — content was fetched successfully
 ```
 
@@ -827,6 +848,82 @@ for lineno, line in enumerate(content.splitlines(), start=1):
 
 ---
 
+## 7A. Search
+
+The search module is used exclusively by `search_page`. It compiles a search pattern from the tool input parameters and scans page content line by line. Defined in `src/procontext/search.py`.
+
+### 7A.1 Pattern Compilation
+
+```python
+import re
+
+def build_matcher(
+    query: str,
+    mode: Literal["literal", "regex"],
+    case_mode: Literal["smart", "insensitive", "sensitive"],
+    whole_word: bool,
+) -> re.Pattern[str]:
+    if mode == "literal":
+        pattern = re.escape(query)
+    else:
+        pattern = query  # raw regex — validated at search time, not input time
+
+    if whole_word:
+        pattern = rf"\b{pattern}\b"
+
+    flags = 0
+    if case_mode == "insensitive":
+        flags = re.IGNORECASE
+    elif case_mode == "smart":
+        if query == query.lower():
+            flags = re.IGNORECASE
+    # case_mode == "sensitive": no flags
+
+    return re.compile(pattern, flags)
+```
+
+**Regex validation**: Invalid regex patterns are caught by `re.compile` raising `re.error`. This is caught at search time (not input validation time) and raised as `ProContextError(code=ErrorCode.INVALID_INPUT)`. This avoids adding latency to input validation by attempting pattern compilation before the page fetch.
+
+**ReDoS protection**: Query length is capped at 200 characters in `SearchPageInput`. This limits the complexity of regex patterns. Catastrophic backtracking patterns typically require longer input.
+
+### 7A.2 Line Scanning
+
+```python
+def search_lines(
+    content: str,
+    matcher: re.Pattern[str],
+    offset: int,
+    max_results: int,
+) -> tuple[list[LineMatch], bool, int | None]:
+    """Scan content lines from offset, return matches, has_more flag, and next_offset.
+
+    Returns:
+        (matches, has_more, next_offset)
+    """
+    lines = content.splitlines()
+    matches: list[LineMatch] = []
+
+    for lineno, line in enumerate(lines, start=1):
+        if lineno < offset:
+            continue
+        if matcher.search(line):
+            matches.append(LineMatch(line_number=lineno, content=line))
+            if len(matches) == max_results:
+                # Check if there are more matches
+                for remaining_lineno, remaining_line in enumerate(
+                    lines[lineno:], start=lineno + 1
+                ):
+                    if matcher.search(remaining_line):
+                        return matches, True, lineno + 1
+                return matches, False, None
+
+    return matches, False, None
+```
+
+Stateless single-pass scan. No index, no pre-processing — the page content is already in memory from the cache read. For typical documentation pages (hundreds to low thousands of lines), a linear scan completes in under 1ms.
+
+---
+
 ## 8. Transport Layer
 
 ### 8.1 stdio Transport
@@ -841,8 +938,8 @@ from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP, Context
 from procontext.state import AppState
 import procontext.tools.resolve_library as t_resolve
-import procontext.tools.get_library_docs as t_get_docs  # tool exposed as get_library_index
 import procontext.tools.read_page as t_read_page
+import procontext.tools.search_page as t_search_page
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
@@ -858,14 +955,14 @@ async def resolve_library(query: str, ctx: Context) -> dict:
     return await t_resolve.handle(query, state)
 
 @mcp.tool()
-async def get_library_index(library_id: str, ctx: Context) -> dict:
-    state: AppState = ctx.request_context.lifespan_context
-    return await t_get_docs.handle(library_id, state)
-
-@mcp.tool()
 async def read_page(url: str, ctx: Context, offset: int = 1, limit: int = 500) -> dict:
     state: AppState = ctx.request_context.lifespan_context
     return await t_read_page.handle(url, offset, limit, state)
+
+@mcp.tool()
+async def search_page(url: str, query: str, ctx: Context) -> dict:
+    state: AppState = ctx.request_context.lifespan_context
+    return await t_search_page.handle(url, query, ctx, state)
 
 def main() -> None:
     mcp.run()   # defaults to stdio; HTTP mode handled via config
@@ -1114,7 +1211,7 @@ When a registry update is applied (step 7 above), three `AppState` attributes ar
 
 Both `RegistryIndexes` and `frozenset` are immutable once constructed. Python's GIL makes the combined attribute assignment effectively atomic at the interpreter level. Any request already in-flight that holds a reference to the old `state.allowlist` or `state.indexes` continues to work against those objects for the duration of that request — the objects themselves never change. New requests arriving after the assignment pick up the fresh data immediately.
 
-The allowlist is always reset to the registry baseline on each successful update. Any domains that were dynamically expanded at runtime (via `allowlist_depth` > 0) are not carried forward into the new allowlist — they will be re-accumulated as pages are fetched under the new registry. Domains stored in the `discovered_domains` cache column are restored at the next server restart via `load_discovered_domains()`.
+The allowlist is always reset to the registry baseline on each successful update. Any domains that were dynamically expanded at runtime (via `allowlist_expansion = "discovered"`) are not carried forward into the new allowlist — they will be re-accumulated as pages are fetched under the new registry. Domains stored in the `discovered_domains` cache column are restored at the next server restart via `load_discovered_domains()`.
 
 ---
 
@@ -1188,7 +1285,7 @@ cache:
 fetcher:
   ssrf_private_ip_check: true # block private/internal IPs; strongly recommended
   ssrf_domain_check: true # enforce domain allowlist; set false only in isolated environments
-  allowlist_depth: 0 # 0=registry only | 1=+llms.txt links | 2=+page links
+  allowlist_expansion: "registry" # "registry" = fixed at startup | "discovered" = expand from fetched content
   extra_allowed_domains: # always trusted, merged at startup regardless of depth
     - github.com
     - githubusercontent.com
@@ -1235,7 +1332,7 @@ class CacheSettings(BaseModel):
 class FetcherSettings(BaseModel):
     ssrf_private_ip_check: bool = True
     ssrf_domain_check: bool = True
-    allowlist_depth: Literal[0, 1, 2] = 0
+    allowlist_expansion: Literal["registry", "discovered"] = "registry"
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
     connect_timeout_seconds: float = 5.0
     request_timeout_seconds: float = 30.0
@@ -1295,20 +1392,22 @@ import structlog
 log = structlog.get_logger()
 
 # Per-request context binding
-async def get_library_index_handler(library_id: str) -> dict:
-    log = structlog.get_logger().bind(tool="get_library_index", library_id=library_id)
+async def search_page_handler(url: str, query: str, state: AppState) -> dict:
+    url_hash = sha256_hex(url)
+    log = structlog.get_logger().bind(tool="search_page", url_hash=url_hash)
 
     log.info("cache_check")
-    entry = await cache.get_toc(library_id)
+    page = await state.cache.get_page(url_hash)
 
-    if entry and not entry.stale:
+    if page is not None and not page.stale:
         log.info("cache_hit")
-        return entry.to_output()
-
-    log.info("cache_miss_fetching")
-    content = await fetcher.fetch_text(llms_txt_url)
-    log.info("fetch_complete", content_length=len(content))
-    ...
+    elif page is not None:
+        log.info("cache_hit_stale")
+    else:
+        log.info("cache_miss_fetching", url=url)
+        content = await state.fetcher.fetch(url, state.allowlist)
+        log.info("fetch_complete", content_length=len(content))
+        ...
 ```
 
 **Key log events and their fields**:
