@@ -58,8 +58,7 @@ async def resolve_library(
         matched_via  — "package_name" | "library_id" | "alias" | "fuzzy"
         relevance    — confidence score 0.0 (low) to 1.0 (high)
 
-    The top match is almost always correct. An empty matches list means the
-    library is not in the registry.
+    An empty matches list means the library is not in the registry.
     """
     state: AppState = ctx.request_context.lifespan_context
     try:
