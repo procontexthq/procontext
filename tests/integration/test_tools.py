@@ -176,6 +176,31 @@ class TestReadPageHandler:
         assert result["limit"] == 3
 
     @respx.mock
+    async def test_has_more_true_when_content_remains(self, app_state: AppState) -> None:
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(_SAMPLE_URL, 1, 5, app_state)
+        assert result["has_more"] is True
+        assert result["next_offset"] == 6
+
+    @respx.mock
+    async def test_has_more_false_when_window_covers_all(self, app_state: AppState) -> None:
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
+        assert result["has_more"] is False
+        assert result["next_offset"] is None
+
+    @respx.mock
+    async def test_has_more_false_at_exact_boundary(self, app_state: AppState) -> None:
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        total = len(_SAMPLE_PAGE.splitlines())
+        result = await read_page_handle(_SAMPLE_URL, 1, total, app_state)
+        assert result["has_more"] is False
+        assert result["next_offset"] is None
+
+    @respx.mock
     async def test_outline_always_full_page(self, app_state: AppState) -> None:
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
@@ -263,6 +288,8 @@ class TestReadPageHandler:
             "offset",
             "limit",
             "content",
+            "has_more",
+            "next_offset",
             "cached",
             "cached_at",
             "stale",

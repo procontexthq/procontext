@@ -214,7 +214,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 ```json
 {
   "name": "resolve_library",
-  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches with documentation URLs. Always the first step — provides the llms_txt_url, docs_url, and readme_url used with read_page and search_page.",
+  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches with documentation URLs. Always the first step — provides the index_url, docs_url, and readme_url used with read_page and search_page.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -272,7 +272,7 @@ All matching is in-memory. No network calls.
             "items": { "type": "string" },
             "description": "Languages this library supports, e.g. ['python'], ['javascript', 'typescript']."
           },
-          "llms_txt_url": {
+          "index_url": {
             "type": "string",
             "description": "URL to the library's llms.txt documentation index. Pass to read_page to browse the table of contents, or to search_page to find specific topics."
           },
@@ -301,7 +301,7 @@ All matching is in-memory. No network calls.
           "name",
           "description",
           "languages",
-          "llms_txt_url",
+          "index_url",
           "docs_url",
           "readme_url",
           "matched_via",
@@ -334,7 +334,7 @@ Result (`text` field, parsed):
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
-      "llms_txt_url": "https://python.langchain.com/llms.txt",
+      "index_url": "https://python.langchain.com/llms.txt",
       "docs_url": "https://python.langchain.com",
       "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
       "matched_via": "package_name",
@@ -362,7 +362,7 @@ Result:
       "name": "FastAPI",
       "description": "Modern Python web framework for building APIs.",
       "languages": ["python"],
-      "llms_txt_url": "https://docs.fastapi.tiangolo.com/llms.txt",
+      "index_url": "https://docs.fastapi.tiangolo.com/llms.txt",
       "docs_url": "https://fastapi.tiangolo.com",
       "readme_url": null,
       "matched_via": "fuzzy",
@@ -411,7 +411,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL to read. Typically from resolve_library output (llms_txt_url, docs_url, readme_url) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
+        "description": "URL to read. Typically from resolve_library output (index_url, docs_url, readme_url) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
         "maxLength": 2048
       },
       "view": {
@@ -461,7 +461,7 @@ For short pages or when you need the full content in one call, omit `view` (defa
     },
     "total_lines": {
       "type": "integer",
-      "description": "Total number of lines in the full page. Always present. If offset + limit < total_lines there is content beyond the current window."
+      "description": "Total number of lines in the full page. Always present."
     },
     "offset": {
       "type": "integer",
@@ -475,11 +475,19 @@ For short pages or when you need the full content in one call, omit `view` (defa
       "type": "string",
       "description": "Page markdown for the requested window (from offset, up to limit lines). Present only when view=\"full\". Absent when view=\"outline\"."
     },
+    "has_more": {
+      "type": "boolean",
+      "description": "True if more content exists beyond the current window."
+    },
+    "next_offset": {
+      "type": ["integer", "null"],
+      "description": "Line number to pass as offset to continue reading. Null if no more content."
+    },
     "cached": { "type": "boolean" },
     "cached_at": { "type": ["string", "null"], "format": "date-time" },
     "stale": { "type": "boolean" }
   },
-  "required": ["url", "outline", "total_lines", "offset", "limit", "cached", "cached_at", "stale"]
+  "required": ["url", "outline", "total_lines", "offset", "limit", "has_more", "next_offset", "cached", "cached_at", "stale"]
 }
 ```
 
@@ -507,6 +515,8 @@ Result:
   "offset": 1,
   "limit": 500,
   "content": "# Docs by LangChain\n\n## Concepts\n\n- [Chat Models](https://docs.langchain.com/docs/concepts/chat_models.md): Interface for language models...\n...",
+  "has_more": false,
+  "next_offset": null,
   "cached": false,
   "cached_at": null,
   "stale": false
@@ -530,6 +540,8 @@ Result:
   "total_lines": 42,
   "offset": 1,
   "limit": 500,
+  "has_more": false,
+  "next_offset": null,
   "cached": false,
   "cached_at": null,
   "stale": false
@@ -554,6 +566,8 @@ Result:
   "offset": 18,
   "limit": 10,
   "content": "### Using .stream()\n\nThe `.stream()` method returns an iterator...\n...",
+  "has_more": true,
+  "next_offset": 28,
   "cached": true,
   "cached_at": "2026-02-23T10:00:00Z",
   "stale": false

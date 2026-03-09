@@ -76,6 +76,10 @@ class ReadPageOutput(BaseModel):
         default=None,
         description="Content window lines. Present when view='full'; absent when view='outline'.",
     )
+    has_more: bool = Field(description="True if more content exists beyond the current window.")
+    next_offset: int | None = Field(
+        description="Line number to pass as offset to continue reading. Null if no more content."
+    )
     cached: bool = Field(description="True if served from cache.")
     cached_at: datetime | None = Field(
         description="When this page was last fetched. Null for fresh network fetches."

@@ -121,13 +121,14 @@ async def read_page(
       offset       — 1-based line number where the content window starts
       limit        — maximum lines in the content window
       content      — the content window (view="full" only; absent for view="outline")
+      has_more     — true if more content exists beyond the current window
+      next_offset  — line number to pass as offset to continue; null if no more
       cached       — true if served from cache
       cached_at    — ISO timestamp of last fetch; null for fresh network responses
       stale        — true if cache entry is expired; background refresh in progress
 
-    If offset + limit < total_lines, there is more content — call again with
-    a higher offset to continue reading. Repeated calls on the same URL are
-    served from cache (sub-100ms).
+    If has_more is true, call again with offset=next_offset to continue
+    reading. Repeated calls on the same URL are served from cache (sub-100ms).
     """
     state: AppState = ctx.request_context.lifespan_context
     try:

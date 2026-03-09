@@ -98,7 +98,7 @@ resolve_library("langchain-openai>=0.3")
   │
   ├─ Normalise: strip version/extras → "langchain-openai" → lowercase
   ├─ Index 1 (package → ID): "langchain-openai" → "langchain"  ✓
-  └─ Return [{ library_id: "langchain", llms_txt_url: "...", matched_via: "package_name", relevance: 1.0 }]
+  └─ Return [{ library_id: "langchain", index_url: "...", matched_via: "package_name", relevance: 1.0 }]
 
 read_page("https://python.langchain.com/llms.txt")
   │
@@ -110,7 +110,7 @@ read_page("https://python.langchain.com/llms.txt")
   ├─ Fetch: HTTP GET url (30s timeout, SSRF validated per redirect)
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
-  └─ Return: { outline: "...", content: "..." }
+  └─ Return: { outline: "...", content: "...", has_more: bool }
 
 search_page("https://python.langchain.com/llms.txt", "streaming")
   │
@@ -184,7 +184,7 @@ class LibraryMatch(BaseModel):
     name: str
     description: str          # Short description of what the library does
     languages: list[str]
-    llms_txt_url: str         # URL to the library's llms.txt documentation index
+    index_url: str             # URL to the library's llms.txt documentation index
     docs_url: str | None      # URL to the library's documentation website
     readme_url: str | None    # URL to the library's README file
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
@@ -266,6 +266,8 @@ class ReadPageOutput(BaseModel):
     offset: int
     limit: int
     content: str | None       # Page markdown for the requested window; None when view="outline"
+    has_more: bool             # True if more content exists beyond the current window
+    next_offset: int | None    # Line number to pass as offset to continue; None if no more
     cached: bool
     cached_at: datetime | None
     stale: bool = False

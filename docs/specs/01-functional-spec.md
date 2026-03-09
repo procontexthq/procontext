@@ -93,7 +93,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
       "languages": ["python"],
-      "llms_txt_url": "https://python.langchain.com/llms.txt",
+      "index_url": "https://python.langchain.com/llms.txt",
       "docs_url": "https://python.langchain.com",
       "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
       "matched_via": "package_name",
@@ -109,7 +109,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `name`         | Human-readable display name                                                                                |
 | `description`  | Short description of what the library does. May be empty for older registry entries                        |
 | `languages`    | Languages this library supports                                                                            |
-| `llms_txt_url` | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
+| `index_url`    | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
 | `docs_url`     | URL to the library's documentation website. May be `null` for some entries                                 |
 | `readme_url`   | URL to the library's README file (typically on GitHub). May be `null` if not available in the registry      |
 | `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`                             |
@@ -120,7 +120,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 - `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
-- The agent typically uses `llms_txt_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
+- The agent typically uses `index_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
 
 ---
 
@@ -132,7 +132,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 | Parameter | Type    | Required | Default  | Description                                                                                     |
 | --------- | ------- | -------- | -------- | ----------------------------------------------------------------------------------------------- |
-| `url`     | string  | Yes      | —        | URL of the page to read. Typically from `resolve_library` output (`llms_txt_url`, `docs_url`, `readme_url`) or from links found within a documentation index. |
+| `url`     | string  | Yes      | —        | URL of the page to read. Typically from `resolve_library` output (`index_url`, `docs_url`, `readme_url`) or from links found within a documentation index. |
 | `offset`  | integer | No       | 1        | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
 | `limit`   | integer | No       | 500      | Maximum number of lines to return from the offset.                                              |
 | `view`    | string  | No       | `"full"` | `"full"`: returns outline and content window. `"outline"`: returns outline and total_lines only, no content. |
@@ -158,6 +158,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
   "offset": 1,
   "limit": 500,
   "content": "# Streaming\n\n## Overview\n...",
+  "has_more": true,
+  "next_offset": 501,
   "cached": false,
   "cached_at": null,
   "stale": false
@@ -171,6 +173,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `offset`      | The 1-based line number the returned content starts from.                                                                                               |
 | `limit`       | The maximum number of lines requested.                                                                                                                  |
 | `content`     | Page markdown for the requested window (from offset, up to limit lines). May be shorter than limit if the page ends before the window fills.            |
+| `has_more`    | `true` if more content exists beyond the current window. When `true`, call again with `offset=next_offset` to continue reading.                         |
+| `next_offset` | Line number to pass as `offset` to continue reading. `null` if no more content.                                                                        |
 | `cached`      | Whether this response was served from cache                                                                                                             |
 | `cached_at`   | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                               |
 | `stale`       | `true` if the content is past its TTL and a background refresh has been triggered. Always present; defaults to `false`                                  |

@@ -81,6 +81,10 @@ def _build_output(
     else:
         windowed_content = None
 
+    end = offset - 1 + limit
+    has_more = end < total_lines
+    next_offset = end + 1 if has_more else None
+
     output = ReadPageOutput(
         url=url,
         outline=outline,
@@ -88,6 +92,8 @@ def _build_output(
         offset=offset,
         limit=limit,
         content=windowed_content,
+        has_more=has_more,
+        next_offset=next_offset,
         cached=cached,
         cached_at=cached_at,
         stale=stale,
