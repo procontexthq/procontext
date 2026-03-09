@@ -24,17 +24,6 @@ from procontext.models.cache import PageCacheEntry
 
 log = structlog.get_logger()
 
-_CREATE_TOC_TABLE = """
-CREATE TABLE IF NOT EXISTS toc_cache (
-    library_id         TEXT PRIMARY KEY,
-    llms_txt_url       TEXT NOT NULL,
-    content            TEXT NOT NULL,
-    discovered_domains TEXT NOT NULL DEFAULT '',
-    fetched_at         TEXT NOT NULL,
-    expires_at         TEXT NOT NULL
-)
-"""
-
 _CREATE_PAGE_TABLE = """
 CREATE TABLE IF NOT EXISTS page_cache (
     url_hash           TEXT PRIMARY KEY,
@@ -47,7 +36,6 @@ CREATE TABLE IF NOT EXISTS page_cache (
 )
 """
 
-_CREATE_TOC_INDEX = "CREATE INDEX IF NOT EXISTS idx_toc_expires ON toc_cache(expires_at)"
 _CREATE_PAGE_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_expires ON page_cache(expires_at)"
 
 _CREATE_METADATA_TABLE = """
@@ -68,9 +56,7 @@ class Cache:
         """Create tables and set WAL mode. Called once at startup."""
         await self._db.execute("PRAGMA journal_mode = WAL")
         await self._db.execute("PRAGMA foreign_keys = ON")
-        await self._db.execute(_CREATE_TOC_TABLE)
         await self._db.execute(_CREATE_PAGE_TABLE)
-        await self._db.execute(_CREATE_TOC_INDEX)
         await self._db.execute(_CREATE_PAGE_INDEX)
         await self._db.execute(_CREATE_METADATA_TABLE)
         await self._db.commit()
@@ -146,19 +132,13 @@ class Cache:
     # ------------------------------------------------------------------
 
     async def load_discovered_domains(self) -> frozenset[str]:
-        """Collect all discovered domains from cached entries.
+        """Collect all discovered domains from cached page entries.
 
-        Reads from both toc_cache and page_cache unconditionally.
         Used at startup to restore the in-memory allowlist from the previous
         session. Non-fatal on database failure — returns empty frozenset.
         """
         try:
             domains: set[str] = set()
-            cursor = await self._db.execute(
-                "SELECT discovered_domains FROM toc_cache WHERE discovered_domains != ''"
-            )
-            for row in await cursor.fetchall():
-                domains.update(row[0].split())
             cursor = await self._db.execute(
                 "SELECT discovered_domains FROM page_cache WHERE discovered_domains != ''"
             )
@@ -209,19 +189,12 @@ class Cache:
         try:
             cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
 
-            cursor = await self._db.execute("DELETE FROM toc_cache WHERE expires_at < ?", (cutoff,))
-            toc_deleted = cursor.rowcount
-
             cursor = await self._db.execute(
                 "DELETE FROM page_cache WHERE expires_at < ?", (cutoff,)
             )
             page_deleted = cursor.rowcount
 
             await self._db.commit()
-            log.info(
-                "cache_cleanup_complete",
-                toc_deleted=toc_deleted,
-                page_deleted=page_deleted,
-            )
+            log.info("cache_cleanup_complete", page_deleted=page_deleted)
         except aiosqlite.Error:
             log.warning("cache_cleanup_error", exc_info=True)

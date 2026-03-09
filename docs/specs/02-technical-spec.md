@@ -728,7 +728,14 @@ CREATE TABLE IF NOT EXISTS page_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_page_expires  ON page_cache(expires_at);
+
+CREATE TABLE IF NOT EXISTS server_metadata (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ```
+
+The `server_metadata` table stores operational state such as the last cleanup timestamp. It is a simple key-value store.
 
 All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. Both `read_page` and `search_page` share this cache.
 

@@ -150,19 +150,6 @@ class TestPageCache:
 # ---------------------------------------------------------------------------
 
 
-async def _insert_expired_toc(cache: Cache, library_id: str, days_ago: int = 8) -> None:
-    """Helper: insert a toc_cache entry whose expires_at is days_ago days in the past."""
-    expiry = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
-    now = datetime.now(UTC).isoformat()
-    await cache._db.execute(
-        "INSERT INTO toc_cache "
-        "(library_id, llms_txt_url, content, discovered_domains, fetched_at, expires_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (library_id, "https://example.com/llms.txt", "Content", "", now, expiry),
-    )
-    await cache._db.commit()
-
-
 async def _insert_expired_page(cache: Cache, url_hash: str, days_ago: int = 8) -> None:
     """Helper: insert a page_cache entry whose expires_at is days_ago days in the past."""
     expiry = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
@@ -177,17 +164,6 @@ async def _insert_expired_page(cache: Cache, url_hash: str, days_ago: int = 8) -
 
 
 class TestCleanupExpired:
-    async def test_cleanup_deletes_old_toc_entries(self, cache: Cache) -> None:
-        """Toc entries expired more than 7 days ago should be deleted."""
-        await _insert_expired_toc(cache, "old")
-
-        await cache.cleanup_expired()
-
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is None
-
     async def test_cleanup_deletes_old_page_entries(self, cache: Cache) -> None:
         """Page entries expired more than 7 days ago should be deleted."""
         await _insert_expired_page(cache, "old-hash")
@@ -199,14 +175,12 @@ class TestCleanupExpired:
 
     async def test_cleanup_preserves_recent_expired(self, cache: Cache) -> None:
         """Entries expired within the 7-day grace period should be kept."""
-        await _insert_expired_toc(cache, "recent", days_ago=2)
+        await _insert_expired_page(cache, "recent-hash", days_ago=2)
 
         await cache.cleanup_expired()
 
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'recent'"
-        )
-        assert await cursor.fetchone() is not None
+        entry = await cache.get_page("recent-hash")
+        assert entry is not None
 
     async def test_cleanup_failure_does_not_raise(self, cache: Cache) -> None:
         """Simulate a database error during cleanup — should not raise."""
@@ -227,28 +201,6 @@ class TestCleanupExpired:
 
 
 class TestLoadDiscoveredDomains:
-    async def test_loads_toc_domains(self, cache: Cache) -> None:
-        now = datetime.now(UTC)
-        future = (now + timedelta(hours=24)).isoformat()
-        await cache._db.execute(
-            "INSERT INTO toc_cache "
-            "(library_id, llms_txt_url, content, discovered_domains, fetched_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "lib",
-                "https://example.com/llms.txt",
-                "Content",
-                "example.com docs.dev",
-                now.isoformat(),
-                future,
-            ),
-        )
-        await cache._db.commit()
-
-        result = await cache.load_discovered_domains()
-        assert "example.com" in result
-        assert "docs.dev" in result
-
     async def test_loads_page_domains(self, cache: Cache) -> None:
         await cache.set_page(
             url="https://example.com/page",
@@ -261,28 +213,26 @@ class TestLoadDiscoveredDomains:
         result = await cache.load_discovered_domains()
         assert "foo.com" in result
 
-    async def test_merges_toc_and_page_domains(self, cache: Cache) -> None:
-        now = datetime.now(UTC)
-        future = (now + timedelta(hours=24)).isoformat()
-        await cache._db.execute(
-            "INSERT INTO toc_cache "
-            "(library_id, llms_txt_url, content, discovered_domains, fetched_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            ("lib", "https://example.com/llms.txt", "Content", "toc.com", now.isoformat(), future),
-        )
-        await cache._db.commit()
-
+    async def test_merges_domains_from_multiple_pages(self, cache: Cache) -> None:
         await cache.set_page(
-            url="https://example.com/page",
+            url="https://example.com/page1",
             url_hash="h1",
-            content="# Page",
+            content="# Page 1",
             outline="",
             ttl_hours=24,
-            discovered_domains=frozenset({"page.io"}),
+            discovered_domains=frozenset({"alpha.com"}),
+        )
+        await cache.set_page(
+            url="https://example.com/page2",
+            url_hash="h2",
+            content="# Page 2",
+            outline="",
+            ttl_hours=24,
+            discovered_domains=frozenset({"beta.io"}),
         )
         result = await cache.load_discovered_domains()
-        assert "toc.com" in result
-        assert "page.io" in result
+        assert "alpha.com" in result
+        assert "beta.io" in result
 
     async def test_empty_tables_returns_empty(self, cache: Cache) -> None:
         result = await cache.load_discovered_domains()
@@ -320,14 +270,12 @@ class TestLoadDiscoveredDomains:
 class TestCleanupIfDue:
     async def test_runs_cleanup_when_no_previous_record(self, cache: Cache) -> None:
         """No last_cleanup_at in DB → cleanup runs and timestamp is written."""
-        await _insert_expired_toc(cache, "old")
+        await _insert_expired_page(cache, "old-hash")
 
         await cache.cleanup_if_due(24)
 
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is None
+        entry = await cache.get_page("old-hash")
+        assert entry is None
         cursor = await cache._db.execute(
             "SELECT value FROM server_metadata WHERE key = 'last_cleanup_at'"
         )
@@ -340,15 +288,13 @@ class TestCleanupIfDue:
             (datetime.now(UTC).isoformat(),),
         )
         await cache._db.commit()
-        await _insert_expired_toc(cache, "old")
+        await _insert_expired_page(cache, "old-hash")
 
         await cache.cleanup_if_due(24)
 
         # Expired entry should still be there — cleanup was skipped.
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is not None
+        entry = await cache.get_page("old-hash")
+        assert entry is not None
 
     async def test_runs_when_interval_elapsed(self, cache: Cache) -> None:
         """Stale last_cleanup_at → cleanup runs and updates the timestamp."""
@@ -358,14 +304,12 @@ class TestCleanupIfDue:
             (stale,),
         )
         await cache._db.commit()
-        await _insert_expired_toc(cache, "old")
+        await _insert_expired_page(cache, "old-hash")
 
         await cache.cleanup_if_due(24)
 
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is None
+        entry = await cache.get_page("old-hash")
+        assert entry is None
         cursor = await cache._db.execute(
             "SELECT value FROM server_metadata WHERE key = 'last_cleanup_at'"
         )
@@ -381,18 +325,16 @@ class TestCleanupIfDue:
             ("not-a-date",),
         )
         await cache._db.commit()
-        await _insert_expired_toc(cache, "old")
+        await _insert_expired_page(cache, "old-hash")
 
         # Should not raise, and should still run cleanup
         await cache.cleanup_if_due(24)
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is None
+        entry = await cache.get_page("old-hash")
+        assert entry is None
 
     async def test_metadata_read_error_falls_through_to_cleanup(self, cache: Cache) -> None:
         """aiosqlite.Error reading last_cleanup_at → cleanup still runs (fall-through)."""
-        await _insert_expired_toc(cache, "old")
+        await _insert_expired_page(cache, "old-hash")
 
         original_execute = cache._db.execute
         call_count = 0
@@ -408,7 +350,5 @@ class TestCleanupIfDue:
         await cache.cleanup_if_due(24)
         cache._db.execute = original_execute  # type: ignore[assignment]
 
-        cursor = await cache._db.execute(
-            "SELECT library_id FROM toc_cache WHERE library_id = 'old'"
-        )
-        assert await cursor.fetchone() is None
+        entry = await cache.get_page("old-hash")
+        assert entry is None

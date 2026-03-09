@@ -96,11 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allowlist depth (0 = registry only, 1 = expand from llms.txt links,
   2 = expand from page links). Extra trusted domains configurable via
   `procontext.yaml`.
-- **SQLite cache** — stale-while-revalidate cache (`toc_cache`, `page_cache`)
-  with a 24-hour TTL. WAL mode. Stores `discovered_domains` per entry for
-  cross-restart allowlist restoration. Periodic cleanup of entries expired more
-  than 7 days ago, gated by a `server_metadata` timestamp to avoid redundant
-  runs on frequent restarts.
+- **SQLite cache** — stale-while-revalidate cache (`page_cache`) with a 24-hour
+  TTL. WAL mode. Stores `discovered_domains` per entry for cross-restart
+  allowlist restoration. Periodic cleanup of entries expired more than 7 days
+  ago, gated by a `server_metadata` timestamp to avoid redundant runs on
+  frequent restarts.
 - **`get_library_docs` tool** — fetches the llms.txt table of contents for a
   resolved library, with stale-while-revalidate background refresh.
 - **Heading parser** — extracts H1–H4 headings with 1-based line numbers from
