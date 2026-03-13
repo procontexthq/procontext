@@ -135,7 +135,7 @@ version = "0.1.0"
 description = "MCP server for accurate, up-to-date library documentation"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "GPL-3.0" }
+license = { text = "MIT" }
 
 dependencies = [
     "mcp>=1.26.0,<2.0.0",                   # FastMCP — official MCP Python SDK
@@ -200,7 +200,7 @@ include = ["src"]
 
 **Dependency footprint**: ProContext has 10 runtime dependencies. Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
 
-**License compatibility**: All runtime dependencies are compatible with GPL-3.0. Verified at last review (2026-02-24):
+**License compatibility**: All runtime dependencies use permissive licenses compatible with MIT. Verified at last review (2026-02-24):
 
 | Package             | License           | Notes                                            |
 | ------------------- | ----------------- | ------------------------------------------------ |
@@ -212,10 +212,10 @@ include = ["src"]
 | `pyyaml`            | MIT               |                                                  |
 | `rapidfuzz`         | MIT               |                                                  |
 | `platformdirs`      | MIT               | Platform-aware config/data directories           |
-| `structlog`         | MIT OR Apache-2.0 | Dual-licensed; either is compatible with GPL-3.0 |
+| `structlog`         | MIT OR Apache-2.0 | Dual-licensed; both permissive                   |
 | `uvicorn`           | BSD-3-Clause      |                                                  |
 
-Re-verify this table whenever a dependency is added or its major version is bumped. MIT and BSD-3-Clause are permissive and always compatible with GPL-3.0. Apache-2.0 is compatible with GPL-3.0 (but not GPL-2.0 — not a concern here).
+Re-verify this table whenever a dependency is added or its major version is bumped. MIT, BSD-3-Clause, and Apache-2.0 are all permissive licenses with no copyleft obligations.
 
 ---
 

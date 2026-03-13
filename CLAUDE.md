@@ -4,7 +4,7 @@ This document contains critical information about working with this codebase. Fo
 
 ## About the Project
 
-ProContext is an open-source MCP (Model Context Protocol) documentation server that provides AI coding agents with accurate, up-to-date library documentation to prevent hallucination of API details. Licensed under GPL-3.0.
+ProContext is an open-source MCP (Model Context Protocol) documentation server that provides AI coding agents with accurate, up-to-date library documentation to prevent hallucination of API details. Licensed under MIT.
 
 ## Project Motivation
 

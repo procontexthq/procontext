@@ -5,7 +5,7 @@
 **Accurate, live library documentation for AI coding agents.**
 
 [![Website][website-badge]][website-url]
-[![License: GPL v3][license-badge]][license-url]
+[![License: MIT][license-badge]][license-url]
 [![Python 3.12+][python-badge]][python-url]
 [![Protocol][protocol-badge]][protocol-url]
 [![Specification][spec-badge]][spec-url]
@@ -31,8 +31,8 @@ ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that 
 
 [website-badge]: https://img.shields.io/badge/website-procontext.dev-blue.svg
 [website-url]: https://procontext.dev
-[license-badge]: https://img.shields.io/badge/License-GPLv3-blue.svg
-[license-url]: https://www.gnu.org/licenses/gpl-3.0
+[license-badge]: https://img.shields.io/badge/License-MIT-blue.svg
+[license-url]: https://opensource.org/licenses/MIT
 [python-badge]: https://img.shields.io/badge/python-3.12%2B-blue.svg
 [python-url]: https://www.python.org/downloads/
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
@@ -289,7 +289,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, development workf
 
 ## License
 
-GPL-3.0 - see [LICENSE](LICENSE) for details. Free to use for individuals, teams, and organizations.
+MIT - see [LICENSE](LICENSE) for details. Free to use for individuals, teams, and organizations.
 
 A managed hosted version and enterprise self-deployable options are coming. If you're interested in early access, visit [procontext.dev](https://procontext.dev).
 
