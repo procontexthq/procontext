@@ -105,7 +105,7 @@ read_page("https://python.langchain.com/llms.txt")
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: page:{sha256(url)}
   │    HIT (fresh)  → return cached content + outline
-  │    HIT (stale)  → return + trigger background refresh
+  │    HIT (stale)  → sync re-fetch; on failure → return stale
   │    MISS         → continue
   ├─ Fetch: HTTP GET url (30s timeout, SSRF validated per redirect)
   ├─ Store: page_cache (TTL 24h)
@@ -770,14 +770,14 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 
 **`discovered_domains` column**: Stores the base domains (`example.com`, `docs.dev`) extracted from fetched content by `extract_base_domains_from_content`. Serialised as a space-separated string (base domains never contain spaces). Written unconditionally on every cache write — regardless of the current `allowlist_expansion` config — so the data is always available if the operator later enables `"discovered"` expansion. At startup, `Cache.load_discovered_domains()` reads all non-empty `discovered_domains` values from `page_cache` and merges them back into the in-memory allowlist (subject to `allowlist_expansion`). This restores cross-restart continuity for the runtime-expanded allowlist.
 
-**Cleanup**: A periodic task (runs at startup and every 6 hours thereafter) deletes entries where `expires_at < now() - 7 days`. Stale entries are kept up to 7 days to allow stale-while-revalidate to function even if the source is temporarily unreachable.
+**Cleanup**: A periodic task (runs at startup and every 6 hours thereafter) deletes entries where `expires_at < now() - 7 days`. Stale entries are kept up to 7 days to serve as fallback when the source is temporarily unreachable.
 
-### 6.2 Stale-While-Revalidate
+### 6.2 Stale Cache Handling
 
-`Cache.get_page()` marks the entry as stale but does **not** launch the background task — that responsibility belongs to the tool layer, which has the full `AppState` (fetcher, allowlist, settings) needed to do the re-fetch.
+`Cache.get_page()` marks the entry as stale but does **not** handle the re-fetch — that responsibility belongs to the tool layer, which has the full `AppState` (fetcher, allowlist, settings) needed to do the re-fetch.
 
 ```python
-# In Cache.get_page() — marks stale, returns entry; does NOT create a task
+# In Cache.get_page() — marks stale, returns entry
 async def get_page(self, url_hash: str) -> PageCacheEntry | None:
     entry = await self.db.fetch_page(url_hash)
     if entry is None:
@@ -786,15 +786,20 @@ async def get_page(self, url_hash: str) -> PageCacheEntry | None:
         entry.stale = True
     return entry
 
-# In tools/_shared.py — shared helper used by both read_page and search_page
+# In tools/_shared.py — shared helper used by read_page, search_page, read_outline
 page = await state.cache.get_page(url_hash)
 if page is not None and page.stale:
-    asyncio.create_task(_refresh_page(state, url))
+    try:
+        return await _fetch_and_cache(url, url_hash, state)  # sync re-fetch
+    except Exception:
+        return FetchResult(..., stale=True)  # fallback to stale content
 ```
 
-Both `read_page` and `search_page` use a shared helper (`fetch_or_cached_page`) that encapsulates the full cache-check → fetch → cache-write → stale-refresh flow. The agent always gets a response immediately — a background `asyncio.create_task` handles the refresh without blocking.
+All page tools use a shared helper (`fetch_or_cached_page`) that encapsulates the full cache-check → fetch → cache-write flow. When a cached entry has expired, the helper attempts a **synchronous re-fetch**. If the re-fetch succeeds, the cache is updated and fresh content is returned. If the re-fetch fails (network error, source unavailable), the stale cached content is returned as a fallback.
 
-**Why `except Exception` and not `except ProContextError`**: Background refresh failures include both expected errors (`ProContextError` — e.g., fetch failed, URL not allowed) and unexpected ones (network timeouts not yet wrapped, `aiosqlite` write failures). Catching only `ProContextError` would let infrastructure exceptions escape and crash the background task silently. `except Exception` with `exc_info=True` ensures all failures are logged and the server continues serving stale content regardless of the failure type.
+**Why synchronous instead of background refresh**: A background `asyncio.create_task` refresh introduces a race condition with paginated reads. If the agent reads lines 1–500, the background refresh completes and updates the cache, and then the agent reads lines 501+, the second response contains different content — outline line numbers from the first response no longer correspond to the correct locations. Synchronous re-fetch eliminates this class of inconsistency entirely. The cost is one fetch delay per TTL cycle (typically 1–3 seconds once every 24 hours) — a negligible tradeoff for guaranteed pagination consistency.
+
+**`stale: true` semantics**: The `stale` field in the response means the source was unreachable and the agent is receiving cached content that is past its TTL. Under normal conditions (source reachable), expired entries are transparently refreshed and `stale` remains `false`.
 
 ### 6.3 Cache Error Handling
 
@@ -1531,8 +1536,7 @@ async def search_page_handler(url: str, query: str, state: AppState) -> dict:
 | `fetch_complete`              | `url`, `status_code`, `content_length`                                               |
 | `fetch_failed`                | `url`, `error`, `status_code`                                                        |
 | `ssrf_blocked`                | `url`, `reason`                                                                      |
-| `stale_refresh_started`       | `key`                                                                                |
-| `stale_refresh_complete`      | `key`                                                                                |
-| `stale_refresh_failed`        | `key`, `error`                                                                       |
+| `cache_stale_refetching`      | `url`                                                                                |
+| `stale_refetch_failed_serving_cached` | `url`, `error`                                                               |
 | `cache_read_error`            | `key`                                                                                |
 | `cache_write_error`           | `key`                                                                                |

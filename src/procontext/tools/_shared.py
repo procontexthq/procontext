@@ -1,13 +1,12 @@
 """Shared fetch logic for page-based tools (read_page, search_page).
 
-Encapsulates the full cache-check → fetch → cache-write → stale-refresh
-flow. Tool handlers call ``fetch_or_cached_page`` and then apply their
-own output formatting on the result.
+Encapsulates the full cache-check → fetch → cache-write flow. Tool handlers
+call ``fetch_or_cached_page`` and then apply their own output formatting on
+the result.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from dataclasses import dataclass
 from os.path import splitext
@@ -44,7 +43,9 @@ async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
     """Cache-check → network fetch → cache-write for a single page URL.
 
     Handles SSRF validation, cache lookup, .md probing, outline parsing,
-    allowlist expansion, cache write, and stale background refresh.
+    allowlist expansion, and cache write. When a cached entry has expired,
+    a synchronous re-fetch is attempted; on failure the stale content is
+    returned as a fallback.
 
     Raises:
         RuntimeError: if cache or fetcher are not initialised.
@@ -86,20 +87,33 @@ async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
         )
 
     if cached_entry is not None and cached_entry.stale:
-        log.info("cache_hit", stale=True, url=url)
-        asyncio.create_task(
-            _background_refresh(url=cached_entry.url, url_hash=url_hash, state=state)
-        )
-        return FetchResult(
-            url=cached_entry.url,
-            content=cached_entry.content,
-            outline=cached_entry.outline,
-            cached=True,
-            cached_at=cached_entry.fetched_at,
-            stale=True,
-        )
+        log.info("cache_stale_refetching", url=url)
+        try:
+            return await _fetch_and_cache(url, url_hash, state)
+        except Exception:
+            log.warning("stale_refetch_failed_serving_cached", url=url, exc_info=True)
+            return FetchResult(
+                url=cached_entry.url,
+                content=cached_entry.content,
+                outline=cached_entry.outline,
+                cached=True,
+                cached_at=cached_entry.fetched_at,
+                stale=True,
+            )
 
     # Cache miss — fetch from network.
+    return await _fetch_and_cache(url, url_hash, state)
+
+
+# ------------------------------------------------------------------
+# Internal helpers
+# ------------------------------------------------------------------
+
+
+async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchResult:
+    """Fetch a page from the network, cache it, and return a FetchResult."""
+    assert state.cache is not None
+
     content = await _fetch_with_md_probe(url, state)
     outline = parse_outline(content)
 
@@ -124,11 +138,6 @@ async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
         cached_at=None,
         stale=False,
     )
-
-
-# ------------------------------------------------------------------
-# Internal helpers
-# ------------------------------------------------------------------
 
 
 async def _fetch_with_md_probe(url: str, state: AppState) -> str:
@@ -177,36 +186,3 @@ def _should_probe_md(url: str) -> bool:
         return False
     _, ext = splitext(last_segment)
     return not (bool(ext) and ext[1:].isalpha())
-
-
-async def _background_refresh(
-    url: str,
-    url_hash: str,
-    state: AppState,
-) -> None:
-    """Re-fetch a page in the background for stale cache entries.
-
-    Fire-and-forget — all exceptions are caught and logged.
-    """
-    log.info("stale_refresh_started", url=url, key=f"page:{url_hash}")
-    try:
-        if state.fetcher is None or state.cache is None:
-            log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
-            return
-
-        content = await _fetch_with_md_probe(url, state)
-        outline = parse_outline(content)
-
-        discovered_domains = expand_allowlist_from_content(content, state)
-
-        await state.cache.set_page(
-            url=url,
-            url_hash=url_hash,
-            content=content,
-            outline=outline,
-            ttl_hours=state.settings.cache.ttl_hours,
-            discovered_domains=discovered_domains,
-        )
-        log.info("stale_refresh_complete", key=f"page:{url_hash}")
-    except Exception:
-        log.warning("stale_refresh_failed", key=f"page:{url_hash}", exc_info=True)

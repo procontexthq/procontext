@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Parser captures full outline** — H5–H6 headings, single-level blockquote
   headings (`> ## ...`), and fenced code block markers are now included in
   page outlines, giving agents complete structural information.
+- **Stale cache handling** — expired cache entries now trigger a synchronous
+  re-fetch instead of a background refresh. This guarantees pagination
+  consistency (no content shift between paginated reads). If the source is
+  unreachable, stale content is served as fallback with `stale: true`.
 - **`allowlist_depth` replaced with `allowlist_expansion`** — the three-level
   integer setting (`0`, `1`, `2`) is replaced by a two-value string enum:
   `"registry"` (default, strictest) or `"discovered"` (registry + domains

@@ -70,11 +70,11 @@ procontext/
 │       │   ├── read_page.py          # Business logic for read_page
 │       │   ├── search_page.py        # Business logic for search_page
 │       │   ├── read_outline.py       # Business logic for read_outline
-│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-refresh)
+│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-fallback)
 │       ├── registry.py               # Registry loading, index building, disk persistence, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
-│       ├── cache.py                  # SQLite cache: page_cache, stale-while-revalidate
+│       ├── cache.py                  # SQLite cache: page_cache, stale fallback on fetch failure
 │       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
 │       ├── parser.py                 # Outline parser, code block suppression, line number tracking
 │       ├── outline.py                # Outline structuring, compaction, match-range trimming, formatting
@@ -88,7 +88,7 @@ procontext/
 │   │   ├── conftest.py               # Unit-specific fixtures (no I/O)
 │   │   ├── test_resolver.py          # resolve_library: normalisation, all 5 steps, edge cases
 │   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
-│   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale-while-revalidate
+│   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale marking
 │   │   ├── test_parser.py            # Heading detection, code block suppression, section extraction
 │   │   └── test_search.py            # Pattern compilation, line scanning, smart case, pagination
 │   └── integration/
@@ -382,7 +382,7 @@ Mandatory log points:
 - Cache outcome: hit, stale hit, or miss (one line each; avoid logging on every cache read)
 - Network fetch start and completion (URL, status code, response size)
 - Any `ProContextError` raised — log before raising with `WARNING` level and the error code
-- Background task outcomes: registry update (new version or already current), stale refresh (success or failure), cache cleanup (rows deleted)
+- Background task outcomes: registry update (new version or already current), cache cleanup (rows deleted)
 
 Do not log:
 
@@ -395,11 +395,11 @@ Do not log:
 ```python
 # Correct — full traceback in the log
 except Exception:
-    log.warning("stale_refresh_failed", key=cache_key, exc_info=True)
+    log.warning("stale_refetch_failed_serving_cached", url=url, exc_info=True)
 
 # Incorrect — traceback is lost
 except Exception as e:
-    log.warning("stale_refresh_failed", key=cache_key, error=str(e))
+    log.warning("stale_refetch_failed_serving_cached", url=url, error=str(e))
 ```
 
 `ProContextError` raised in tool handlers does not need `exc_info=True` — these are expected, handled errors. Reserve `exc_info=True` for unexpected exceptions that are caught and suppressed.
@@ -434,7 +434,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 - First call fetches from network, stores in cache, returns content
 - Second call returns from cache, no network request made
-- Stale entry (TTL expired) is returned immediately, background refresh triggered
+- Stale entry (TTL expired) triggers synchronous re-fetch; on success returns fresh content; on failure returns stale content as fallback
 - Cache read failure (`aiosqlite.Error`): treated as cache miss, falls back to network fetch, returns content with `cached: false`
 - Cache write failure (`aiosqlite.Error`): fetched content still returned normally, error logged
 - SSRF: private IP URL raises `URL_NOT_ALLOWED`

@@ -137,16 +137,15 @@ class TestReadPageHandler:
         assert respx.calls.call_count == 1
 
     @respx.mock
-    async def test_stale_cache_returns_stale_true(self, app_state: AppState) -> None:
+    async def test_stale_cache_refetches_synchronously(self, app_state: AppState) -> None:
+        """Expired cache triggers a synchronous re-fetch, returning fresh content."""
+        updated_page = "# Updated\n\nNew content."
         respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
 
         # First call to populate cache
         await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
 
-        # Artificially expire the cached entry to simulate stale-while-revalidate.
-        # Accesses Cache._db directly because the public API has no way to set a
-        # past expiry. This couples the test to the SQLite implementation — acceptable
-        # here since Cache's own unit tests cover the backend contract independently.
+        # Artificially expire the cached entry.
         from datetime import UTC, datetime, timedelta
 
         past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -157,7 +156,38 @@ class TestReadPageHandler:
         )
         await app_state.cache._db.commit()  # pyright: ignore[reportPrivateUsage]
 
-        # Second call — stale hit
+        # Mock returns updated content for the re-fetch
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=updated_page))
+
+        # Second call — stale entry triggers sync re-fetch, returns fresh content
+        result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
+        assert result["cached"] is False
+        assert result["stale"] is False
+        assert "# Updated" in result["content"]
+
+    @respx.mock
+    async def test_stale_cache_fallback_on_fetch_error(self, app_state: AppState) -> None:
+        """When re-fetch fails on stale entry, stale content is served as fallback."""
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+
+        # First call to populate cache
+        await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
+
+        # Artificially expire the cached entry.
+        from datetime import UTC, datetime, timedelta
+
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        assert isinstance(app_state.cache, Cache)
+        await app_state.cache._db.execute(  # pyright: ignore[reportPrivateUsage]
+            "UPDATE page_cache SET expires_at = ? WHERE url = ?",
+            (past, _SAMPLE_URL),
+        )
+        await app_state.cache._db.commit()  # pyright: ignore[reportPrivateUsage]
+
+        # Mock returns an error for the re-fetch
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(500))
+
+        # Second call — re-fetch fails, falls back to stale content
         result = await read_page_handle(_SAMPLE_URL, 1, 500, app_state)
         assert result["cached"] is True
         assert result["stale"] is True

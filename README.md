@@ -145,8 +145,8 @@ Library lookups complete in under 10ms from an in-memory index built at startup.
 **llms.txt native**
 Purpose-built for the [llms.txt standard](https://llmstxt.org) - the AI-optimized documentation format. Fetches tables of contents and individual pages on demand.
 
-**Efficient cache with stale-while-revalidate**
-First query: under 5 seconds (fetch + parse + cache). Repeat queries: under 100ms from SQLite. When cache expires, stale content is returned immediately while a background refresh runs - the agent never waits.
+**Efficient cache with stale fallback**
+First query: under 5 seconds (fetch + parse + cache). Repeat queries: under 100ms from SQLite. When cache expires, a synchronous re-fetch updates the content transparently. If the source is unreachable, stale content is served as fallback - the agent always gets a response.
 
 **SSRF protection**
 The server only fetches from a domain allowlist derived from the registry at startup. Private IP ranges are blocked unconditionally, including on redirect hops.

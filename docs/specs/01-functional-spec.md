@@ -175,7 +175,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `next_offset` | Line number to pass as `offset` to continue reading. `null` if no more content.                                                                        |
 | `cached`      | Whether this response was served from cache                                                                                                             |
 | `cached_at`   | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                               |
-| `stale`       | `true` if the content is past its TTL and a background refresh has been triggered. Always present; defaults to `false`                                  |
+| `stale`       | `true` if the source was unreachable and cached content past its TTL is being served as fallback. Always present; defaults to `false`.                   |
 
 **Notes**:
 
@@ -295,7 +295,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 | `next_offset`   | Entry index to pass as `offset` to continue paginating. `null` if no more entries.                   |
 | `cached`        | Whether served from cache.                                                                           |
 | `cached_at`     | ISO 8601 timestamp (UTC) of when the page was originally fetched. `null` if not cached.              |
-| `stale`         | `true` if the cache entry is expired and a background refresh has been triggered. Defaults to `false`. |
+| `stale`         | `true` if the source was unreachable and cached content past its TTL is being served as fallback. Defaults to `false`. |
 
 **Notes**:
 
@@ -429,7 +429,7 @@ A single SQLite database stores all fetched content at `cache.db_path` (default:
 
 All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. Both `read_page` and `search_page` share this cache: a page fetched by one tool is immediately available to the other without a re-fetch.
 
-**Stale-while-revalidate**: When a cached entry is past its TTL, it is served immediately with `cached: true` and `stale: true`, and a background task re-fetches the content. This ensures the agent never waits for a network fetch on a cache hit, even if the content is slightly outdated.
+**Stale fallback**: When a cached entry is past its TTL, the server attempts a synchronous re-fetch. If the re-fetch succeeds, the cache is updated and fresh content is returned (`stale: false`). If the re-fetch fails (network error, source unavailable), the stale cached content is served as a fallback with `cached: true` and `stale: true`. This ensures pagination consistency — the agent always reads from a single version of the page within a session — while still providing content when the source is unreachable.
 
 **No memory tier**: SQLite reads are fast enough (<5ms) for this use case. A memory cache adds complexity without meaningful latency benefit for single-user deployments.
 
