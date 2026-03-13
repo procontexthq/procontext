@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   word boundary matching, and paginated results. Shares the same page cache
   as `read_page` — a page fetched by one tool is immediately available to
   the other without a re-fetch.
+- **`read_outline` tool** — browse the full structural outline of a
+  documentation page with entry-index pagination. Use when `read_page`
+  returns a compaction status message for very large pages, or to explore
+  page structure without fetching content.
+- **`read_page` pagination metadata** — `has_more` and `next_offset` fields
+  indicate whether more content exists beyond the current window and the
+  line number to continue from.
+- **`.md` URL probing** — `read_page` automatically tries appending `.md` to
+  URLs before falling back to the original, improving compatibility with
+  documentation sites that serve markdown at `.md` paths.
+- **`resolve_library` includes descriptions** — each match now includes a
+  `description` field summarising the library.
 - **`procontext setup` command** — one-time CLI command that downloads and
   persists the registry to the platform data directory. Run this after
   installing before starting the server for the first time.
@@ -32,17 +44,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`resolve_library` now returns documentation URLs** — each match includes
-  `index_url`, `docs_url`, and `readme_url`. The agent passes `index_url`
-  directly to `read_page` to browse the documentation index, eliminating
-  the previous `get_library_index` intermediate step.
+  `index_url` and `readme_url`. The agent passes `index_url` directly to
+  `read_page` to browse the documentation index, eliminating the previous
+  `get_library_index` intermediate step.
 - **`get_library_index` tool removed** — its functionality is absorbed by
   `resolve_library` (which now provides the index URL) combined with
   `read_page` (which fetches any documentation page including llms.txt indexes).
+- **Outline compaction** — `read_page` and `search_page` return compacted
+  outlines (≤50 entries via progressive depth reduction) instead of the full
+  outline. Pages with irreducibly large outlines show a status message
+  directing the agent to `read_outline` for paginated access.
+- **`view` parameter removed from `read_page`** — content is always returned
+  alongside the compacted outline. Use `read_outline` for outline-only
+  browsing.
+- **Compact wire format** — outline entries use `line_number:content` format
+  (no space after colon). `search_page` matches use the same format as a
+  newline-separated string instead of a JSON array.
+- **Parser captures full outline** — H5–H6 headings, single-level blockquote
+  headings (`> ## ...`), and fenced code block markers are now included in
+  page outlines, giving agents complete structural information.
 - **`allowlist_depth` replaced with `allowlist_expansion`** — the three-level
   integer setting (`0`, `1`, `2`) is replaced by a two-value string enum:
   `"registry"` (default, strictest) or `"discovered"` (registry + domains
   found in fetched content).
-
 - **Bundled registry snapshot removed** — the server no longer ships with an
   embedded registry. Use `procontext setup` to initialise the registry before
   first use (or let the auto-setup fallback handle it on the first run).
@@ -66,10 +90,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line 1 of pages served with a UTF-8 BOM are now correctly detected. The
   parser also supports CommonMark-compliant indented headings (up to 3 leading
   spaces), improving compatibility with a wider range of documentation pages.
-
 - **Config typos now fail loudly at startup** — unknown fields in
   `procontext.yaml` are rejected with a clear, human-readable error message
   rather than being silently ignored.
+- **IPv6 loopback origins accepted in HTTP transport** — the security
+  middleware now recognises `[::1]` origins alongside `127.0.0.1`, fixing
+  connection failures on systems that default to IPv6.
 
 ### Security
 
