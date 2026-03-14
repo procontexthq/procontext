@@ -125,7 +125,7 @@ search_page("https://python.langchain.com/llms.txt", "streaming")
   ├─ Compact trimmed outline (progressive depth reduction → ≤50 entries)
   └─ Return: { outline: "...", matches: [...], has_more: bool }
 
-read_outline("https://python.langchain.com/llms.txt", offset=1, limit=200)
+read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
   │
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: page:{sha256(url)} — shared cache with read_page/search_page
@@ -341,10 +341,10 @@ class SearchPageOutput(BaseModel):
 class ReadOutlineInput(BaseModel):
     url: str
     offset: int = 1           # 1-based outline entry index
-    limit: int = 200          # Max entries to return (1–500)
+    limit: int = 1000         # Max entries to return
 
     # Same url validator as ReadPageInput
-    # offset >= 1, 1 <= limit <= 500
+    # offset >= 1, limit >= 1
 
 class ReadOutlineOutput(BaseModel):
     url: str

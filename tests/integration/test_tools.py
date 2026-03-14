@@ -716,10 +716,11 @@ class TestReadOutlineHandler:
             await read_outline_handle(evil_url, 1, 200, app_state)
         assert exc_info.value.code == ErrorCode.URL_NOT_ALLOWED
 
-    async def test_limit_over_500_raises(self, app_state: AppState) -> None:
-        with pytest.raises(ProContextError) as exc_info:
-            await read_outline_handle(_SAMPLE_URL, 1, 501, app_state)
-        assert exc_info.value.code == ErrorCode.INVALID_INPUT
+    @respx.mock
+    async def test_large_limit_accepted(self, app_state: AppState) -> None:
+        respx.get(_SAMPLE_URL).mock(return_value=httpx.Response(200, text=_SAMPLE_PAGE))
+        result = await read_outline_handle(_SAMPLE_URL, 1, 5000, app_state)
+        assert result["url"] == _SAMPLE_URL
 
 
 class TestReadPageCompaction:

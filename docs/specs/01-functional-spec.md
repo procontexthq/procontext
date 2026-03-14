@@ -261,11 +261,11 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 | --------- | ------- | -------- | ------- | ---------------------------------------------------- |
 | `url`     | string  | Yes      | —       | URL of the page. Same URLs accepted by `read_page`.  |
 | `offset`  | integer | No       | 1       | 1-based outline entry index to start from.           |
-| `limit`   | integer | No       | 200     | Maximum number of outline entries to return (1–500). |
+| `limit`   | integer | No       | 1000    | Maximum number of outline entries to return.         |
 
 **Processing**:
 
-1. Validate URL against SSRF allowlist; validate `offset` >= 1, 1 <= `limit` <= 500
+1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1
 2. Check SQLite cache / fetch (same shared path as `read_page`)
 3. Parse cached outline string into structured entries
 4. Strip empty fence pairs (fence opener + closer with no headings between them)

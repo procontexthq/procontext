@@ -61,6 +61,7 @@ async def resolve_library(
       Each match contains:
         library_id   — canonical library identifier
         name         — human-readable library name
+        description  — brief description of the library
         index_url    — URL of the documentation index (pass to read_page)
         readme_url   — README URL (may be null)
         languages    — programming languages the library supports
@@ -146,8 +147,8 @@ async def read_outline(
     ] = 1,
     limit: Annotated[
         int,
-        Field(description="Maximum number of outline entries to return.", ge=1, le=500),
-    ] = 200,
+        Field(description="Maximum number of outline entries to return.", ge=1),
+    ] = 1000,
 ) -> ReadOutlineOutput:
     """Browse the full outline of a documentation page with pagination.
 

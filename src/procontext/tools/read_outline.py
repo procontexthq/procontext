@@ -37,8 +37,7 @@ async def handle(
             code=ErrorCode.INVALID_INPUT,
             message=str(exc),
             suggestion=(
-                "Provide a valid URL (http/https, max 2048 chars), "
-                "offset >= 1, limit between 1 and 500."
+                "Provide a valid URL (http/https, max 2048 chars), offset >= 1, limit >= 1."
             ),
             recoverable=False,
         ) from exc

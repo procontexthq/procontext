@@ -777,8 +777,7 @@ Result contains the next batch of matches starting from line 8.
       "limit": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 500,
-        "default": 200,
+        "default": 1000,
         "description": "Maximum number of outline entries to return."
       }
     },
@@ -839,7 +838,7 @@ Result:
   "outline": "1:# API Reference\n5:## Authentication\n12:### API Keys\n28:### OAuth\n45:## Endpoints\n...",
   "total_entries": 847,
   "has_more": true,
-  "next_offset": 201,
+  "next_offset": 1001,
   "cached": true,
   "cached_at": "2026-02-23T10:00:00Z",
   "stale": false
@@ -851,10 +850,10 @@ Result:
 Request arguments:
 
 ```json
-{ "url": "https://docs.langchain.com/docs/api_reference.md", "offset": 201, "limit": 200 }
+{ "url": "https://docs.langchain.com/docs/api_reference.md", "offset": 1001 }
 ```
 
-Result contains entries 201–400 with `has_more: true` and `next_offset: 401`.
+Result contains entries 1001+ with pagination metadata.
 
 ### 5.4 Error Cases
 
@@ -866,8 +865,7 @@ Result contains entries 201–400 with `has_more: true` and `next_offset: 401`.
 | Network error or non-200/404 response    | `PAGE_FETCH_FAILED`  | `true`        |
 | Redirect chain exceeding 3 hops         | `TOO_MANY_REDIRECTS` | `false`       |
 | URL over 2048 characters                 | `INVALID_INPUT`      | `false`       |
-| `offset` < 1                             | `INVALID_INPUT`      | `false`       |
-| `limit` < 1 or `limit` > 500            | `INVALID_INPUT`      | `false`       |
+| `offset` < 1 or `limit` < 1             | `INVALID_INPUT`      | `false`       |
 
 ---
 

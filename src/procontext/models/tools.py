@@ -87,7 +87,7 @@ class ReadPageOutput(BaseModel):
 class ReadOutlineInput(BaseModel):
     url: str
     offset: int = 1
-    limit: int = 200
+    limit: int = 1000
 
     @field_validator("url")
     @classmethod
@@ -111,8 +111,6 @@ class ReadOutlineInput(BaseModel):
     def validate_limit(cls, v: int) -> int:
         if v < 1:
             raise ValueError("limit must be >= 1")
-        if v > 500:
-            raise ValueError("limit must be <= 500")
         return v
 
 

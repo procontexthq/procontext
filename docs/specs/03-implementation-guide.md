@@ -529,7 +529,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - `compact_outline()` returns `None` if the outline cannot be reduced to ≤ 50 entries after all compaction stages
 - `trim_outline_to_range()` filters entries to those between a start and end line number (inclusive); used by `search_page` to trim to match range
 - `format_outline()` converts structured entries back to the formatted string (`"line_number:content\nline_number2:content2..."`)
-- `read_outline` tool returns paginated outline entries (offset = 1-based entry index, limit = max entries, default 200, max 500) with empty fences pre-stripped
+- `read_outline` tool returns paginated outline entries (offset = 1-based entry index, limit = max entries, default 1000) with empty fences pre-stripped
 - `read_outline` with offset beyond total entries returns empty outline with correct metadata, not an error
 - `read_page` compacted outline replaces full outline in output; if irreducible, output contains status string `"[Outline too large (N entries). Use read_outline for paginated access.]"`
 - `search_page` outline is trimmed to match range then compacted; zero matches → empty string
