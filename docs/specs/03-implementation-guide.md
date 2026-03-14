@@ -49,13 +49,19 @@ procontext/
 │   └── procontext/
 │       ├── __init__.py               # package __version__ (resolved from installed metadata)
 │       ├── py.typed                  # PEP 561 marker — declares this package is typed
+│       ├── cli/                      # CLI entrypoint and subcommands
+│       │   ├── __init__.py
+│       │   ├── main.py              # argparse dispatcher — thin routing to cmd_* modules
+│       │   ├── cmd_serve.py         # Default command: registry bootstrap + MCP server start
+│       │   ├── cmd_setup.py         # `procontext setup` — download and persist registry
+│       │   └── cmd_doctor.py        # `procontext doctor` — health checks and --fix auto-repair
 │       ├── mcp/                      # MCP server wiring
 │       │   ├── __init__.py
 │       │   ├── server.py             # FastMCP instance and tool registrations
-│       │   ├── lifespan.py           # asynccontextmanager: resource creation/teardown, registry_paths()
-│       │   └── startup.py            # main(), CLI entry point, registry bootstrap
+│       │   ├── lifespan.py           # asynccontextmanager: resource creation/teardown, stdout guard
+│       │   └── startup.py            # Legacy shim — delegates to cli.main for backward compat
 │       ├── state.py                  # AppState dataclass
-│       ├── config.py                 # Settings via pydantic-settings + YAML
+│       ├── config.py                 # Settings via pydantic-settings + YAML, registry_paths()
 │       ├── errors.py                 # ErrorCode, ProContextError
 │       ├── protocols.py              # CacheProtocol, FetcherProtocol (typing.Protocol)
 │       ├── logging_config.py         # structlog processor chain configuration
@@ -79,9 +85,7 @@ procontext/
 │       ├── parser.py                 # Outline parser, code block suppression, line number tracking
 │       ├── outline.py                # Outline structuring, compaction, match-range trimming, formatting
 │       ├── search.py                 # Pattern compilation (build_matcher) and line scanning (search_lines)
-│       ├── transport.py              # MCPSecurityMiddleware for HTTP mode
-│       └── data/
-│           └── __init__.py           # Package marker (data/ has no runtime-loaded files)
+│       └── transport.py              # MCPSecurityMiddleware for HTTP mode
 ├── tests/
 │   ├── conftest.py                   # Top-level fixtures shared across all tests
 │   ├── unit/
@@ -90,10 +94,12 @@ procontext/
 │   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
 │   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale marking
 │   │   ├── test_parser.py            # Heading detection, code block suppression, section extraction
-│   │   └── test_search.py            # Pattern compilation, line scanning, smart case, pagination
+│   │   ├── test_search.py            # Pattern compilation, line scanning, smart case, pagination
+│   │   └── test_cli_doctor.py        # Doctor command: all checks, --fix, schema validation
 │   └── integration/
 │       ├── conftest.py               # Integration-specific fixtures (full AppState, mocked HTTP)
-│       └── test_tools.py             # Full tool call pipeline: input → output shape
+│       ├── test_tools.py             # Full tool call pipeline: input → output shape
+│       └── test_cli.py               # CLI subprocess tests: help, doctor, setup, --fix
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml
@@ -107,7 +113,7 @@ The structure enforces a strict layering. Violations (e.g., a tool importing fro
 
 | Layer              | Modules                                              | Rule                                                                                   |
 | ------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Entrypoint**     | `mcp/server.py`, `mcp/lifespan.py`, `mcp/startup.py` | Tool registrations, resource lifecycle, CLI entry. No business logic.                 |
+| **Entrypoint**     | `cli/main.py`, `cli/cmd_serve.py`, `cli/cmd_setup.py`, `cli/cmd_doctor.py`, `mcp/server.py`, `mcp/lifespan.py` | CLI dispatcher, subcommands, tool registrations, resource lifecycle. No business logic. |
 | **Tools**          | `tools/*.py`                                         | One file per tool. Receives `AppState`, returns output dict. Raises `ProContextError`. |
 | **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols, not concrete classes.    |
 | **Infrastructure** | `registry.py`, `config.py`, `transport.py`, `schedulers.py` | Setup and wiring. Run once at startup; schedulers run as long-lived background coroutines. |
@@ -141,6 +147,7 @@ dependencies = [
     "mcp>=1.26.0,<2.0.0",                   # FastMCP — official MCP Python SDK
     "httpx>=0.28.0,<1.0.0",                  # Async HTTP client
     "aiosqlite>=0.19.0,<1.0.0",              # Async SQLite
+    "anyio>=4.0.0,<5.0.0",                  # Structured concurrency
     "pydantic>=2.5.0,<3.0.0",               # Data validation
     "pydantic-settings>=2.2.0,<3.0.0",      # YAML config + env var overrides
     "pyyaml>=6.0.1,<7.0.0",                 # YAML parser (required by pydantic-settings)
@@ -151,7 +158,7 @@ dependencies = [
 ]
 
 [project.scripts]
-procontext = "procontext.mcp.startup:main"
+procontext = "procontext.cli.main:main"
 
 [dependency-groups]
 dev = [
@@ -198,7 +205,7 @@ include = ["src"]
 
 **Version floors**: Since this is a new project with no legacy consumers, version floors should track reasonably close to the latest stable release at the time of writing. There is no reason to support old versions that nobody is using yet. Review and bump floors at the start of each implementation phase — stale floors accumulate silently and can mask behavioural differences between the version you test against and the version the floor permits.
 
-**Dependency footprint**: ProContext has 10 runtime dependencies. Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
+**Dependency footprint**: ProContext has 11 runtime dependencies. Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
 
 **License compatibility**: All runtime dependencies use permissive licenses compatible with MIT. Verified at last review (2026-02-24):
 
@@ -207,6 +214,7 @@ include = ["src"]
 | `mcp`               | MIT               | Official MCP Python SDK by Anthropic             |
 | `httpx`             | BSD-3-Clause      |                                                  |
 | `aiosqlite`         | MIT               |                                                  |
+| `anyio`             | MIT               | Structured concurrency (used by MCP SDK and tests) |
 | `pydantic`          | MIT               |                                                  |
 | `pydantic-settings` | MIT               |                                                  |
 | `pyyaml`            | MIT               |                                                  |

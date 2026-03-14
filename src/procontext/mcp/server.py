@@ -118,7 +118,7 @@ async def read_page(
       next_offset  — line number to pass as offset to continue; null if no more
       cached       — true if served from cache
       cached_at    — ISO timestamp of last fetch; null for fresh network responses
-      stale        — true if cache entry is expired; background refresh in progress
+      stale        — true if cache entry expired and re-fetch failed; content is stale
 
     If has_more is true, call again with offset=next_offset to continue
     reading. Repeated calls on the same URL are served from cache (sub-100ms).
@@ -167,7 +167,7 @@ async def read_outline(
       next_offset   — entry index to pass as offset to continue; null if no more
       cached        — true if served from cache
       cached_at     — ISO timestamp of last fetch; null for fresh network responses
-      stale         — true if cache entry is expired; background refresh in progress
+      stale         — true if cache entry expired and re-fetch failed; content is stale
     """
     state: AppState = ctx.request_context.lifespan_context
     try:

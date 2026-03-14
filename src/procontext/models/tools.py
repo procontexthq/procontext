@@ -80,7 +80,10 @@ class ReadPageOutput(BaseModel):
     )
     stale: bool = Field(
         default=False,
-        description="True if cache entry is expired; a background refresh is already in progress.",
+        description=(
+            "True if the cache entry has expired and the re-fetch failed."
+            " Content is stale but usable."
+        ),
     )
 
 
@@ -130,7 +133,10 @@ class ReadOutlineOutput(BaseModel):
     )
     stale: bool = Field(
         default=False,
-        description="True if cache entry is expired; a background refresh is already in progress.",
+        description=(
+            "True if the cache entry has expired and the re-fetch failed."
+            " Content is stale but usable."
+        ),
     )
 
 

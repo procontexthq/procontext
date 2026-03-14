@@ -188,7 +188,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.6 Dependency Supply Chain
 
-**Description**: ProContext has 10 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
+**Description**: ProContext has 11 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
 
 **Severity**: Medium
 

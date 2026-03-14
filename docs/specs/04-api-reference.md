@@ -477,7 +477,7 @@ For pages where the outline is replaced by a status message (very large pages), 
     },
     "cached": { "type": "boolean" },
     "cached_at": { "type": ["string", "null"], "format": "date-time" },
-    "stale": { "type": "boolean" }
+    "stale": { "type": "boolean", "description": "True if the cache entry has expired and the re-fetch failed. Content is stale but usable." }
   },
   "required": ["url", "outline", "total_lines", "offset", "limit", "content", "has_more", "next_offset", "cached", "cached_at", "stale"]
 }
@@ -814,7 +814,7 @@ Result contains the next batch of matches starting from line 8.
     },
     "cached": { "type": "boolean" },
     "cached_at": { "type": ["string", "null"], "format": "date-time" },
-    "stale": { "type": "boolean" }
+    "stale": { "type": "boolean", "description": "True if the cache entry has expired and the re-fetch failed. Content is stale but usable." }
   },
   "required": ["url", "outline", "total_entries", "has_more", "next_offset", "cached", "cached_at", "stale"]
 }

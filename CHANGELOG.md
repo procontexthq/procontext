@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`procontext doctor` command** — validates system health (data directory
+  permissions, registry integrity, cache database schema, network connectivity)
+  with actionable fix instructions. Use `--fix` to auto-repair detected issues
+  like missing directories, corrupt cache databases, or missing registry files.
+- **Stdout guard in stdio mode** — accidental writes to stdout from application
+  code are now intercepted and logged to stderr, preventing corruption of the
+  MCP JSON-RPC stream.
 - **`search_page` tool** — grep-like search within a documentation page.
   Supports literal and regex modes, smart case sensitivity (ripgrep-style),
   word boundary matching, and paginated results. Shares the same page cache
@@ -43,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **License changed from GPL-3.0 to MIT** — the project is now available under
+  the more permissive MIT license.
+- **`read_outline` default limit increased to 1,000** — the upper bound has been
+  removed, allowing agents to request arbitrarily large outlines in a single
+  call.
 - **`resolve_library` now returns documentation URLs** — each match includes
   `index_url` and `readme_url`. The agent passes `index_url` directly to
   `read_page` to browse the documentation index, eliminating the previous

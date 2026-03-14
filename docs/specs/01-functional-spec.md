@@ -463,7 +463,7 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 ### Input Validation
 
 - All tool inputs are validated with Pydantic before processing
-- String inputs are trimmed and length-capped (query: 500 chars, URL: 2048 chars)
+- String inputs are trimmed and length-capped (resolve_library query: 500 chars, search_page query: 200 chars, URL: 2048 chars)
 - Library IDs are validated against a strict pattern (`[a-z0-9_-]+`)
 
 ### Content Sanitization

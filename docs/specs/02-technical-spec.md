@@ -38,6 +38,9 @@
 - [8. Transport Layer](#8-transport-layer)
   - [8.1 stdio Transport](#81-stdio-transport)
   - [8.2 HTTP Transport](#82-http-transport)
+- [8A. CLI](#8a-cli)
+  - [8A.1 Dispatcher](#8a1-dispatcher)
+  - [8A.2 Doctor Command](#8a2-doctor-command)
 - [9. Registry Updates](#9-registry-updates)
   - [9.1 Registry Files](#91-registry-files)
   - [9.2 procontext setup](#92-procontext-setup)
@@ -1172,6 +1175,60 @@ def run_http_server(mcp: FastMCP, settings: Settings) -> None:
         log_config=None,         # Disable uvicorn's default logging; structlog handles it
     )
 ```
+
+---
+
+## 8A. CLI
+
+The CLI is a thin `argparse` dispatcher in `cli/main.py` that routes to per-command modules. Each command module is self-contained — one public function, one file. The MCP server is not imported unless the default (serve) command is selected.
+
+### 8A.1 Dispatcher
+
+```python
+# cli/main.py — simplified
+parser = argparse.ArgumentParser(prog="procontext")
+sub = parser.add_subparsers(dest="command")
+sub.add_parser("setup")
+doctor_parser = sub.add_parser("doctor")
+doctor_parser.add_argument("--fix", action="store_true")
+
+if args.command == "setup":
+    from procontext.cli.cmd_setup import run_setup
+    asyncio.run(run_setup(settings))
+elif args.command == "doctor":
+    from procontext.cli.cmd_doctor import run_doctor
+    asyncio.run(run_doctor(settings, fix=args.fix))
+else:
+    from procontext.cli.cmd_serve import run_server
+    run_server(settings)
+```
+
+Command modules are imported inside the `if/elif/else` branches to avoid loading unnecessary dependencies. `procontext doctor` does not import the MCP SDK; `procontext setup` does not import `aiosqlite`. CLI commands use `print()` for user-facing output (stdout) and `structlog` for operational logs (stderr).
+
+| Command | Module | Dependencies loaded |
+|---------|--------|---------------------|
+| _(default)_ | `cmd_serve.py` | MCP SDK, FastMCP, uvicorn, full server stack |
+| `setup` | `cmd_setup.py` | httpx, registry |
+| `doctor` | `cmd_doctor.py` | aiosqlite, httpx (only with `--fix`) |
+
+**Legacy shim**: `mcp/startup.py` delegates to `cli.main:main` for backward compatibility with `python -m procontext.mcp.startup`.
+
+### 8A.2 Doctor Command
+
+`procontext doctor` runs four sequential health checks and reports results. Each check is an independent async function with signature `async def check_*(settings, *, fix=False) -> CheckResult`.
+
+**Checks (in order)**:
+
+1. **Data directory** — existence, read/write/execute permissions, registry subdirectory
+2. **Registry** — files present, JSON parseable, checksum matches state file
+3. **Cache database** — parent directory writable, SQLite openable, WAL mode, schema matches expected
+4. **Network** — HEAD request to registry metadata URL
+
+**`--fix` behavior**: When a check fails and is fixable, the check attempts repair before returning. Fixable: missing directories (`mkdir`), missing/corrupt registry (re-download), corrupt/outdated cache DB (delete and recreate via `Cache.init_db()`). Not fixable: permission errors (reports `chmod` command), network failures.
+
+**Auto-derived schema validation**: The cache schema check creates an in-memory SQLite database, runs `Cache.init_db()`, and compares the resulting `PRAGMA table_info` against the on-disk database. This stays in sync with `cache.py` automatically — no separate schema definition to maintain.
+
+See [docs/cli/doctor.md](../cli/doctor.md) for the full design document.
 
 ---
 
