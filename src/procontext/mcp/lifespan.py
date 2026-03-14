@@ -84,6 +84,13 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
         )
 
     entries, version = registry
+    log.info(
+        "registry_loaded",
+        source="disk",
+        entries=len(entries),
+        version=version,
+        path=str(registry_path),
+    )
     indexes = build_indexes(entries)
 
     http_client = build_http_client(settings.fetcher)

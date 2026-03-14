@@ -94,13 +94,6 @@ def _load_local_registry_pair(
             )
             return None
 
-        log.info(
-            "registry_loaded",
-            source="disk",
-            entries=len(entries),
-            version=version,
-            path=str(local_registry_path),
-        )
         return entries, version
     except Exception:
         log.warning(
