@@ -7,6 +7,9 @@ import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 import httpx
 
 from procontext.config import Settings
@@ -14,12 +17,19 @@ from procontext.fetcher import build_allowlist
 from procontext.registry import check_for_registry_update, fetch_registry_for_setup
 from procontext.state import AppState
 
-if TYPE_CHECKING:
-    from pathlib import Path
+_METADATA_URL = "https://registry.example/registry_metadata.json"
 
 
 def _sha256_prefixed(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _build_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        data_dir=str(tmp_path),
+        cache={"db_path": str(tmp_path / "cache.db")},
+        registry={"metadata_url": _METADATA_URL},
+    )
 
 
 def _build_state(
@@ -30,12 +40,8 @@ def _build_state(
     sample_entries,
     registry_version: str = "unknown",
 ) -> AppState:
-    settings = Settings(
-        cache={"db_path": str(tmp_path / "cache.db")},
-        registry={"metadata_url": "https://registry.example/registry_metadata.json"},
-    )
     return AppState(
-        settings=settings,
+        settings=_build_settings(tmp_path),
         indexes=indexes,
         registry_version=registry_version,
         registry_path=tmp_path / "registry" / "known-libraries.json",
@@ -279,17 +285,15 @@ class TestFetchRegistryForSetup:
                 return httpx.Response(200, content=registry_bytes)
             return httpx.Response(404)
 
+        settings = _build_settings(tmp_path)
+        with patch(
+            "procontext.registry.build_http_client",
+            return_value=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        ):
+            result = await fetch_registry_for_setup(settings)
+
         registry_path = tmp_path / "registry" / "known-libraries.json"
         state_path = tmp_path / "registry" / "registry-state.json"
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            result = await fetch_registry_for_setup(
-                http_client=client,
-                metadata_url="https://registry.example/registry_metadata.json",
-                registry_path=registry_path,
-                registry_state_path=state_path,
-            )
-
         assert result is True
         assert registry_path.read_bytes() == registry_bytes
         state_data = json.loads(state_path.read_text(encoding="utf-8"))
@@ -302,20 +306,16 @@ class TestFetchRegistryForSetup:
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(503)
 
-        registry_path = tmp_path / "registry" / "known-libraries.json"
-        state_path = tmp_path / "registry" / "registry-state.json"
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            result = await fetch_registry_for_setup(
-                http_client=client,
-                metadata_url="https://registry.example/registry_metadata.json",
-                registry_path=registry_path,
-                registry_state_path=state_path,
-            )
+        settings = _build_settings(tmp_path)
+        with patch(
+            "procontext.registry.build_http_client",
+            return_value=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        ):
+            result = await fetch_registry_for_setup(settings)
 
         assert result is False
-        assert not registry_path.exists()
-        assert not state_path.exists()
+        assert not (tmp_path / "registry" / "known-libraries.json").exists()
+        assert not (tmp_path / "registry" / "registry-state.json").exists()
 
     async def test_checksum_mismatch_returns_false(self, tmp_path: Path) -> None:
         """Metadata checksum doesn't match registry body → returns False, no files written."""
@@ -336,20 +336,16 @@ class TestFetchRegistryForSetup:
                 return httpx.Response(200, content=registry_bytes)
             return httpx.Response(404)
 
-        registry_path = tmp_path / "registry" / "known-libraries.json"
-        state_path = tmp_path / "registry" / "registry-state.json"
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            result = await fetch_registry_for_setup(
-                http_client=client,
-                metadata_url="https://registry.example/registry_metadata.json",
-                registry_path=registry_path,
-                registry_state_path=state_path,
-            )
+        settings = _build_settings(tmp_path)
+        with patch(
+            "procontext.registry.build_http_client",
+            return_value=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        ):
+            result = await fetch_registry_for_setup(settings)
 
         assert result is False
-        assert not registry_path.exists()
-        assert not state_path.exists()
+        assert not (tmp_path / "registry" / "known-libraries.json").exists()
+        assert not (tmp_path / "registry" / "registry-state.json").exists()
 
     async def test_persist_failure_returns_false(self, tmp_path: Path) -> None:
         """Download succeeds but save_registry_to_disk raises → returns False."""
@@ -371,19 +367,17 @@ class TestFetchRegistryForSetup:
                 return httpx.Response(200, content=registry_bytes)
             return httpx.Response(404)
 
-        registry_path = tmp_path / "registry" / "known-libraries.json"
-        state_path = tmp_path / "registry" / "registry-state.json"
-
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            with patch(
+        settings = _build_settings(tmp_path)
+        with (
+            patch(
+                "procontext.registry.build_http_client",
+                return_value=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            ),
+            patch(
                 "procontext.registry.save_registry_to_disk",
                 side_effect=OSError("disk full"),
-            ):
-                result = await fetch_registry_for_setup(
-                    http_client=client,
-                    metadata_url="https://registry.example/registry_metadata.json",
-                    registry_path=registry_path,
-                    registry_state_path=state_path,
-                )
+            ),
+        ):
+            result = await fetch_registry_for_setup(settings)
 
         assert result is False

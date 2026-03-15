@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import httpx
-
-from procontext.fetcher import build_allowlist
+from procontext.fetcher import build_allowlist, build_http_client
 
 from . import storage as registry_storage
 from . import update as registry_update
@@ -21,11 +19,8 @@ from .update import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
+    from procontext.config import Settings
     from procontext.state import AppState
-
-_DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=5.0)
 
 __all__ = [
     "REGISTRY_INITIAL_BACKOFF_SECONDS",
@@ -42,12 +37,7 @@ __all__ = [
 ]
 
 
-async def check_for_registry_update(
-    state: AppState,
-    *,
-    metadata_timeout: float | httpx.Timeout = _DEFAULT_TIMEOUT,
-    registry_timeout: float | httpx.Timeout = _DEFAULT_TIMEOUT,
-) -> RegistryUpdateOutcome:
+async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
     """Check remote metadata and apply a registry update when available."""
     return await registry_update.check_for_registry_update(
         state,
@@ -55,23 +45,26 @@ async def check_for_registry_update(
         build_allowlist_fn=build_allowlist,
         save_registry_to_disk_fn=save_registry_to_disk,
         write_last_checked_at_fn=registry_storage.write_last_checked_at,
-        metadata_timeout=metadata_timeout,
-        registry_timeout=registry_timeout,
     )
 
 
-async def fetch_registry_for_setup(
-    *,
-    http_client: httpx.AsyncClient,
-    metadata_url: str,
-    registry_path: Path,
-    registry_state_path: Path,
-) -> bool:
-    """Fetch and persist the registry for initial bootstrap."""
-    return await registry_update.fetch_registry_for_setup(
-        http_client=http_client,
-        metadata_url=metadata_url,
-        registry_path=registry_path,
-        registry_state_path=registry_state_path,
-        save_registry_to_disk_fn=save_registry_to_disk,
-    )
+async def fetch_registry_for_setup(settings: Settings) -> bool:
+    """Fetch and persist the registry for initial bootstrap.
+
+    Builds an HTTP client internally and closes it when done — callers
+    do not need to manage transport-level resources.
+    """
+    from procontext.config import registry_paths  # avoid circular import
+
+    registry_path, registry_state_path = registry_paths(settings)
+    http_client = build_http_client(settings.fetcher)
+    try:
+        return await registry_update.fetch_registry_for_setup(
+            http_client=http_client,
+            metadata_url=settings.registry.metadata_url,
+            registry_path=registry_path,
+            registry_state_path=registry_state_path,
+            save_registry_to_disk_fn=save_registry_to_disk,
+        )
+    finally:
+        await http_client.aclose()
