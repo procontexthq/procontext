@@ -69,9 +69,10 @@ ProContext exposes four MCP tools. All tools are async and return structured JSO
 
 **Input**:
 
-| Parameter | Type   | Required | Description                                                                                                                    |
-| --------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `query`   | string | Yes      | Library name, package name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"langchain[openai]>=0.3"`, `"LangChain"` |
+| Parameter  | Type   | Required | Description                                                                                                                    |
+| ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `query`    | string | Yes      | Library name, package name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"langchain[openai]>=0.3"`, `"LangChain"` |
+| `language` | string | No       | Optional language preference (e.g., `"python"`, `"javascript"`). When provided, results are sorted so libraries matching the preferred language appear first. Does not filter — all matches are still returned. |
 
 **Processing**:
 
@@ -93,9 +94,16 @@ All matching is against in-memory indexes loaded from the registry at startup. N
       "library_id": "langchain",
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
-      "languages": ["python"],
       "index_url": "https://python.langchain.com/llms.txt",
-      "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
+      "packages": [
+        {
+          "ecosystem": "pypi",
+          "languages": ["python"],
+          "package_names": ["langchain", "langchain-core", "langchain-openai"],
+          "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
+          "repo_url": "https://github.com/langchain-ai/langchain"
+        }
+      ],
       "matched_via": "package_name",
       "relevance": 1.0
     }
@@ -108,15 +116,15 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `library_id`   | Stable identifier for the library                                                                          |
 | `name`         | Human-readable display name                                                                                |
 | `description`  | Short description of what the library does. May be empty for older registry entries                        |
-| `languages`    | Languages this library supports                                                                            |
 | `index_url`    | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
-| `readme_url`   | URL to the library's README file (typically on GitHub). May be `null` if not available in the registry      |
+| `packages`     | List of package ecosystem entries. Each entry contains `ecosystem`, `languages`, `package_names`, `readme_url`, and `repo_url`. Languages, README URLs, and repository URLs live here — not at the top level of the match. |
 | `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`                             |
 | `relevance`    | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance                            |
 
 **Notes**:
 
 - `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
+- When `language` is provided, results are additionally sorted so libraries with a matching language in their `packages` entries appear first. The `language` parameter sorts but never filters — all matches are still returned.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
 - The agent typically uses `index_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
@@ -131,7 +139,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 
 | Parameter | Type    | Required | Default | Description                                                                                     |
 | --------- | ------- | -------- | ------- | ----------------------------------------------------------------------------------------------- |
-| `url`     | string  | Yes      | —       | URL of the page to read. Typically from `resolve_library` output (`index_url`, `readme_url`) or from links found within a documentation index. |
+| `url`     | string  | Yes      | —       | URL of the page to read. Typically from `resolve_library` output (`index_url`, or `readme_url` from a `packages` entry) or from links found within a documentation index. |
 | `offset`  | integer | No       | 1       | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
 | `limit`   | integer | No       | 500     | Maximum number of lines to return from the offset.                                              |
 
@@ -460,7 +468,7 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 `read_page` and `search_page` accept arbitrary URLs from the agent. To prevent Server-Side Request Forgery:
 
 - All URLs are validated against an allowlist of permitted domains before fetching
-- The allowlist is populated at startup from the registry (all `docs_url` and `llms_txt_url` domains) plus any configured `extra_allowed_domains`
+- The allowlist is populated at startup from the registry (all `llms_txt_url` domains) plus any configured `extra_allowed_domains`
 - **Allowlist expansion** is controlled by a two-value setting (`allowlist_expansion`):
   - `"registry"` (default): allowlist is fixed at startup — only registry domains and `extra_allowed_domains`
   - `"discovered"`: domains found in any fetched content (llms.txt indexes, documentation pages) are added to the allowlist at runtime. Expansion is monotonic (domains are only added, never removed) and resets to the registry baseline on each registry update.

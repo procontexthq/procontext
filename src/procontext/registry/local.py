@@ -87,9 +87,10 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
         by_id[entry.id] = entry
         fuzzy_corpus.append((entry.id, entry.id))
 
-        for pkg in entry.packages.pypi + entry.packages.npm:
-            by_package[pkg.lower()] = entry.id
-            fuzzy_corpus.append((pkg.lower(), entry.id))
+        for pkg_entry in entry.packages:
+            for name in pkg_entry.package_names:
+                by_package[name.lower()] = entry.id
+                fuzzy_corpus.append((name.lower(), entry.id))
 
         for alias in entry.aliases:
             by_alias[alias.lower()] = entry.id

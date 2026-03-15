@@ -10,6 +10,7 @@ from procontext.models.registry import LibraryMatch
 
 class ResolveLibraryInput(BaseModel):
     query: str
+    language: str | None = None
 
     @field_validator("query")
     @classmethod
@@ -19,6 +20,18 @@ class ResolveLibraryInput(BaseModel):
             raise ValueError("query must not be empty")
         if len(v) > 500:
             raise ValueError("query must not exceed 500 characters")
+        return v
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if not v:
+            return None
+        if len(v) > 50:
+            raise ValueError("language must not exceed 50 characters")
         return v
 
 

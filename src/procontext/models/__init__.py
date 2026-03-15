@@ -3,9 +3,9 @@ from __future__ import annotations
 from procontext.models.cache import PageCacheEntry
 from procontext.models.registry import (
     LibraryMatch,
+    PackageEntry,
     RegistryEntry,
     RegistryIndexes,
-    RegistryPackages,
 )
 from procontext.models.tools import (
     ReadOutlineInput,
@@ -21,7 +21,7 @@ from procontext.models.tools import (
 __all__ = [
     # registry
     "RegistryEntry",
-    "RegistryPackages",
+    "PackageEntry",
     "RegistryIndexes",
     "LibraryMatch",
     # cache

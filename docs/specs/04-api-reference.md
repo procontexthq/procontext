@@ -219,7 +219,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 ```json
 {
   "name": "resolve_library",
-  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches with documentation URLs. Always the first step — provides the index_url and readme_url used with read_page and search_page.",
+  "description": "Resolve a library name, package name, or alias to a known documentation source. Returns zero or more matches with documentation URLs. Always the first step — provides the index_url used with read_page and search_page, and packages entries with readme_url and repo_url.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -228,6 +228,11 @@ Tool authors and MCP client implementors need to handle both. The agent should o
         "description": "Library name, package name, or alias. Accepts pip-style specifiers: 'langchain', 'langchain-openai', 'langchain[openai]>=0.3', 'LangChain'.",
         "minLength": 1,
         "maxLength": 500
+      },
+      "language": {
+        "type": ["string", "null"],
+        "default": null,
+        "description": "Optional language preference (e.g. 'python', 'javascript'). When provided, results are sorted so libraries matching the preferred language appear first. Does not filter — all matches are still returned."
       }
     },
     "required": ["query"]
@@ -239,7 +244,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 
 **Matching order** (first hit wins):
 
-1. Exact match against known package names (PyPI, npm)
+1. Exact match against known package names (across all ecosystems: PyPI, npm, conda, jsr)
 2. Exact match against library IDs
 3. Exact match against known aliases
 4. Levenshtein fuzzy match (score threshold: 70%)
@@ -272,18 +277,42 @@ All matching is in-memory. No network calls.
             "type": "string",
             "description": "Short description of what the library does. May be empty for older registry entries."
           },
-          "languages": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Languages this library supports, e.g. ['python'], ['javascript', 'typescript']."
-          },
           "index_url": {
             "type": "string",
             "description": "URL to the library's llms.txt documentation index. Pass to read_page to browse the table of contents, or to search_page to find specific topics."
           },
-          "readme_url": {
-            "type": ["string", "null"],
-            "description": "URL to the library's README file (typically raw content from GitHub). May be null if not available in the registry."
+          "packages": {
+            "type": "array",
+            "description": "Package ecosystem entries. Languages, README URLs, and repository URLs live here.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ecosystem": {
+                  "type": "string",
+                  "enum": ["pypi", "npm", "conda", "jsr"],
+                  "description": "Package ecosystem."
+                },
+                "languages": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Languages for this package ecosystem entry, e.g. ['python']."
+                },
+                "package_names": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Package names in this ecosystem, e.g. ['langchain', 'langchain-core']."
+                },
+                "readme_url": {
+                  "type": ["string", "null"],
+                  "description": "URL to the library's README file (typically raw content from GitHub). May be null."
+                },
+                "repo_url": {
+                  "type": ["string", "null"],
+                  "description": "URL to the source repository. May be null."
+                }
+              },
+              "required": ["ecosystem", "languages", "package_names", "readme_url", "repo_url"]
+            }
           },
           "matched_via": {
             "type": "string",
@@ -301,9 +330,8 @@ All matching is in-memory. No network calls.
           "library_id",
           "name",
           "description",
-          "languages",
           "index_url",
-          "readme_url",
+          "packages",
           "matched_via",
           "relevance"
         ]
@@ -333,9 +361,16 @@ Result (`text` field, parsed):
       "library_id": "langchain",
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
-      "languages": ["python"],
       "index_url": "https://python.langchain.com/llms.txt",
-      "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
+      "packages": [
+        {
+          "ecosystem": "pypi",
+          "languages": ["python"],
+          "package_names": ["langchain", "langchain-core", "langchain-openai"],
+          "readme_url": "https://raw.githubusercontent.com/langchain-ai/langchain/master/README.md",
+          "repo_url": "https://github.com/langchain-ai/langchain"
+        }
+      ],
       "matched_via": "package_name",
       "relevance": 1.0
     }
@@ -360,9 +395,16 @@ Result:
       "library_id": "fastapi",
       "name": "FastAPI",
       "description": "Modern Python web framework for building APIs.",
-      "languages": ["python"],
       "index_url": "https://docs.fastapi.tiangolo.com/llms.txt",
-      "readme_url": null,
+      "packages": [
+        {
+          "ecosystem": "pypi",
+          "languages": ["python"],
+          "package_names": ["fastapi"],
+          "readme_url": null,
+          "repo_url": null
+        }
+      ],
       "matched_via": "fuzzy",
       "relevance": 0.92
     }
@@ -409,7 +451,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL to read. Typically from resolve_library output (index_url, readme_url) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
+        "description": "URL to read. Typically from resolve_library output (index_url, or readme_url from a packages entry) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
         "maxLength": 2048
       },
       "offset": {

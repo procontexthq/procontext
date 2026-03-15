@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode, the startup check is skipped if this timestamp is within the configured
   `poll_interval_hours`, avoiding redundant metadata fetches on frequent
   restarts.
+- **`content_hash` field in tool responses** — `read_page`, `read_outline`, and
+  `search_page` now include a truncated SHA-256 hash of the page content,
+  allowing agents to detect when content changes between paginated calls.
+- **Anonymous client identity** — a random UUID is generated on first run and
+  persisted to the data directory. No hardware fingerprinting or PII — just a
+  stable identifier for future use in optional feedback and telemetry features.
 
 ### Changed
 
@@ -75,10 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Parser captures full outline** — H5–H6 headings, single-level blockquote
   headings (`> ## ...`), and fenced code block markers are now included in
   page outlines, giving agents complete structural information.
-- **Stale cache handling** — expired cache entries now trigger a synchronous
-  re-fetch instead of a background refresh. This guarantees pagination
-  consistency (no content shift between paginated reads). If the source is
-  unreachable, stale content is served as fallback with `stale: true`.
+- **Stale cache handling** — expired cache entries are served immediately while
+  a background refresh runs asynchronously. If the refresh fails, the stale
+  content remains available with `stale: true`. Duplicate refresh tasks for the
+  same URL are deduplicated, and a 15-minute cooldown prevents retrying recently
+  checked URLs.
 - **`allowlist_depth` replaced with `allowlist_expansion`** — the three-level
   integer setting (`0`, `1`, `2`) is replaced by a two-value string enum:
   `"registry"` (default, strictest) or `"discovered"` (registry + domains
@@ -89,6 +96,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTTP requests use split connect/read timeouts** — network requests now apply
   separate connect and read timeouts instead of a single wall-clock timeout,
   giving more predictable behaviour on slow or unreliable connections.
+- **Startup errors suggest `procontext doctor --fix`** — when the server fails
+  to start due to a missing or corrupt registry, the error message now includes
+  a suggestion to run `procontext doctor --fix` for automated repair.
+- **Registry package model redesigned** — `RegistryPackages` (flat
+  `{pypi: [], npm: []}`) replaced by a list of `PackageEntry` objects, each
+  with `ecosystem`, `languages`, `package_names`, `readme_url`, and `repo_url`.
+  This allows multi-language SDKs (e.g., OpenAI Python + JS) to share a single
+  library ID while retaining per-language metadata. `resolve_library` now
+  returns all package entries in the response and accepts an optional `language`
+  parameter that sorts matching-language packages to the top without filtering.
+  Library-level `docs_url`, `readme_url`, `repo_url`, and `languages` fields
+  have been removed from the registry schema and response.
 
 ### Fixed
 
@@ -112,6 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IPv6 loopback origins accepted in HTTP transport** — the security
   middleware now recognises `[::1]` origins alongside `127.0.0.1`, fixing
   connection failures on systems that default to IPv6.
+- **`search_page` outline preserved for small pages** — pages with few outline
+  entries no longer had their outline incorrectly truncated in search results.
 
 ### Security
 
@@ -122,6 +143,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PROCONTEXT__SERVER__HOST=0.0.0.0`.
 - **SLSA provenance attestation on releases** — release artifacts are now signed
   with SLSA provenance attestations, enabling build provenance verification.
+- **PyJWT pinned to ≥2.12.0** — resolves CVE-2026-32597. Users on older
+  versions of PyJWT should upgrade.
 
 ## [0.1.0] - 2026-02-28
 

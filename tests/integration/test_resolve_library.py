@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import aiosqlite
+import httpx
 import pytest
 
+from procontext.cache import Cache
+from procontext.config import Settings
 from procontext.errors import ErrorCode, ProContextError
+from procontext.fetcher import Fetcher, build_allowlist
+from procontext.models.registry import PackageEntry, RegistryEntry
+from procontext.registry import build_indexes
+from procontext.state import AppState
 from procontext.tools.resolve_library import handle
-
-if TYPE_CHECKING:
-    from procontext.state import AppState
 
 
 class TestResolveLibraryHandler:
@@ -32,9 +35,8 @@ class TestResolveLibraryHandler:
             "library_id",
             "name",
             "description",
-            "languages",
             "index_url",
-            "readme_url",
+            "packages",
             "matched_via",
             "relevance",
         }
@@ -63,3 +65,97 @@ class TestResolveLibraryHandler:
     async def test_pip_specifier_resolves_correctly(self, app_state: AppState) -> None:
         result = await handle("langchain-openai>=0.3", app_state)
         assert result["matches"][0]["library_id"] == "langchain"
+
+    async def test_packages_in_response(self, app_state: AppState) -> None:
+        result = await handle("langchain", app_state)
+        packages = result["matches"][0]["packages"]
+        assert len(packages) == 1
+        pkg = packages[0]
+        assert pkg["ecosystem"] == "pypi"
+        assert "python" in pkg["languages"]
+        assert "langchain" in pkg["package_names"]
+
+
+@pytest.fixture()
+async def multilang_state() -> AppState:
+    """AppState with a multi-language library for language sorting tests."""
+    entries = [
+        RegistryEntry(
+            id="openai",
+            name="OpenAI",
+            description="OpenAI API client.",
+            packages=[
+                PackageEntry(
+                    ecosystem="npm",
+                    languages=["javascript", "typescript"],
+                    package_names=["openai"],
+                ),
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["openai"],
+                ),
+            ],
+            llms_txt_url="https://platform.openai.com/llms.txt",
+        ),
+        RegistryEntry(
+            id="numpy",
+            name="NumPy",
+            description="Numerical computing library.",
+            packages=[
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["numpy"],
+                ),
+            ],
+            llms_txt_url="https://numpy.org/llms.txt",
+        ),
+    ]
+    indexes = build_indexes(entries)
+    async with aiosqlite.connect(":memory:") as db:
+        cache = Cache(db)
+        await cache.init_db()
+        async with httpx.AsyncClient() as client:
+            fetcher = Fetcher(client)
+            allowlist = build_allowlist(entries)
+            state = AppState(
+                settings=Settings(),
+                indexes=indexes,
+                registry_version="test",
+                http_client=client,
+                cache=cache,
+                fetcher=fetcher,
+                allowlist=allowlist,
+            )
+            yield state
+
+
+class TestLanguageSorting:
+    """Tests for the optional language sorting parameter."""
+
+    async def test_language_sorts_packages_within_match(self, multilang_state: AppState) -> None:
+        result = await handle("openai", multilang_state, language="python")
+        packages = result["matches"][0]["packages"]
+        # Python package entry should sort to front
+        assert packages[0]["languages"] == ["python"]
+        assert packages[1]["languages"] == ["javascript", "typescript"]
+
+    async def test_language_none_preserves_original_order(self, multilang_state: AppState) -> None:
+        result = await handle("openai", multilang_state)
+        packages = result["matches"][0]["packages"]
+        # Original order: npm first, then pypi (as defined in fixture)
+        assert packages[0]["ecosystem"] == "npm"
+        assert packages[1]["ecosystem"] == "pypi"
+
+    async def test_language_no_match_returns_all_unchanged(self, multilang_state: AppState) -> None:
+        result = await handle("openai", multilang_state, language="rust")
+        packages = result["matches"][0]["packages"]
+        # No rust packages — order unchanged, nothing omitted
+        assert len(packages) == 2
+
+    async def test_language_empty_string_treated_as_none(self, multilang_state: AppState) -> None:
+        result = await handle("openai", multilang_state, language="  ")
+        packages = result["matches"][0]["packages"]
+        # Whitespace-only → None, original order preserved
+        assert packages[0]["ecosystem"] == "npm"

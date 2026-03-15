@@ -7,7 +7,7 @@ import sys
 import pytest
 import structlog
 
-from procontext.models.registry import RegistryEntry, RegistryIndexes, RegistryPackages
+from procontext.models.registry import PackageEntry, RegistryEntry, RegistryIndexes
 from procontext.registry import build_indexes
 
 # Configure structlog to write to stderr, matching production behavior.
@@ -26,13 +26,14 @@ def sample_entries() -> list[RegistryEntry]:
             id="langchain",
             name="LangChain",
             description="Framework for building LLM-powered applications.",
-            docs_url="https://python.langchain.com/docs/",
-            repo_url="https://github.com/langchain-ai/langchain",
-            languages=["python"],
-            packages=RegistryPackages(
-                pypi=["langchain", "langchain-openai", "langchain-core"],
-                npm=[],
-            ),
+            packages=[
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["langchain", "langchain-openai", "langchain-core"],
+                    repo_url="https://github.com/langchain-ai/langchain",
+                ),
+            ],
             aliases=["lang-chain"],
             llms_txt_url="https://python.langchain.com/llms.txt",
         ),
@@ -40,13 +41,14 @@ def sample_entries() -> list[RegistryEntry]:
             id="pydantic",
             name="Pydantic",
             description="Data validation using Python type annotations.",
-            docs_url="https://docs.pydantic.dev/latest/",
-            repo_url="https://github.com/pydantic/pydantic",
-            languages=["python"],
-            packages=RegistryPackages(
-                pypi=["pydantic", "pydantic-settings"],
-                npm=[],
-            ),
+            packages=[
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["pydantic", "pydantic-settings"],
+                    repo_url="https://github.com/pydantic/pydantic",
+                ),
+            ],
             aliases=[],
             llms_txt_url="https://docs.pydantic.dev/llms.txt",
         ),

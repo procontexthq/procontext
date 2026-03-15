@@ -46,6 +46,15 @@ async def resolve_library(
         ),
     ],
     ctx: Context,
+    language: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional language hint (e.g. 'python', 'javascript'). "
+                "Sorts matching-language packages to the top; does not filter results."
+            )
+        ),
+    ] = None,
 ) -> ResolveLibraryOutput:
     """Resolve a library name to its documentation source.
 
@@ -63,8 +72,12 @@ async def resolve_library(
         name         — human-readable library name
         description  — brief description of the library
         index_url    — URL of the documentation index (pass to read_page)
-        readme_url   — README URL (may be null)
-        languages    — programming languages the library supports
+        packages     — list of package groups, each with:
+          ecosystem    — "pypi" | "npm" | "conda" | "jsr"
+          languages    — e.g. ["python"] or ["javascript", "typescript"]
+          package_names — package names in this ecosystem
+          readme_url   — README URL for this package group (may be null)
+          repo_url     — source repository URL (may be null)
         matched_via  — "package_name" | "library_id" | "alias" | "fuzzy"
         relevance    — confidence score 0.0 (low) to 1.0 (high)
 
@@ -72,7 +85,9 @@ async def resolve_library(
     """
     state: AppState = ctx.request_context.lifespan_context
     try:
-        return ResolveLibraryOutput.model_validate(await t_resolve.handle(query, state))
+        return ResolveLibraryOutput.model_validate(
+            await t_resolve.handle(query, state, language=language)
+        )
     except ProContextError as exc:
         log.warning("tool_error", tool="resolve_library", code=exc.code, message=exc.message)
         raise

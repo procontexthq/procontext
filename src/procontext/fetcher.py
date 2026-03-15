@@ -64,16 +64,14 @@ def build_allowlist(
 ) -> frozenset[str]:
     """Build the SSRF domain allowlist from registry entries and optional extra domains.
 
-    Extracts base domains from all ``docs_url`` and ``llms_txt_url`` fields, then
-    merges any manually specified ``extra_domains``.
+    Extracts base domains from all ``llms_txt_url`` fields, then merges any
+    manually specified ``extra_domains``.
     """
     base_domains: set[str] = set()
     for entry in entries:
-        for url in [entry.llms_txt_url, entry.docs_url]:
-            if url:
-                hostname = urlparse(url).hostname or ""
-                if hostname:
-                    base_domains.add(_base_domain(hostname))
+        hostname = urlparse(entry.llms_txt_url).hostname or ""
+        if hostname:
+            base_domains.add(_base_domain(hostname))
     for domain in extra_domains or []:
         domain = domain.strip().lower()
         if domain:

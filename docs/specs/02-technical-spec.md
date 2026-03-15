@@ -170,20 +170,20 @@ All models use pydantic v2. Models are defined in the `src/procontext/models/` p
 ```python
 from pydantic import BaseModel, field_validator
 
-class RegistryPackages(BaseModel):
-    pypi: list[str] = []
-    npm: list[str] = []
+class PackageEntry(BaseModel):
+    """A single package ecosystem entry within a registry library."""
+    ecosystem: Literal["pypi", "npm", "conda", "jsr"]
+    languages: list[str]           # e.g. ["python"], ["javascript", "typescript"]
+    package_names: list[str]       # e.g. ["langchain", "langchain-core", "langchain-openai"]
+    readme_url: str | None = None  # URL to the library's README (typically raw content from GitHub)
+    repo_url: str | None = None    # URL to the source repository
 
 class RegistryEntry(BaseModel):
     """Single entry in known-libraries.json"""
     id: str
     name: str
     description: str = ""
-    docs_url: str | None = None
-    repo_url: str | None = None
-    readme_url: str | None = None
-    languages: list[str] = []
-    packages: RegistryPackages = RegistryPackages()
+    packages: list[PackageEntry] = []
     aliases: list[str] = []
     llms_txt_url: str
 
@@ -199,12 +199,11 @@ class LibraryMatch(BaseModel):
     """Single result from resolve_library"""
     library_id: str
     name: str
-    description: str          # Short description of what the library does
-    languages: list[str]
-    index_url: str             # URL to the library's llms.txt documentation index
-    readme_url: str | None    # URL to the library's README file (typically raw content from GitHub)
+    description: str               # Short description of what the library does
+    index_url: str                  # URL to the library's llms.txt documentation index
+    packages: list[PackageEntry]    # Package ecosystem entries (languages, readme, repo live here)
     matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
-    relevance: float          # 0.0–1.0
+    relevance: float               # 0.0–1.0
 ```
 
 ### 3.2 Cache Models
@@ -232,6 +231,7 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 ```python
 class ResolveLibraryInput(BaseModel):
     query: str
+    language: str | None = None   # Optional language preference; sorts (not filters) results
 
     @field_validator("query")
     @classmethod
@@ -434,9 +434,10 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
         by_id[entry.id] = entry
         fuzzy_corpus.append((entry.id, entry.id))
 
-        for pkg in entry.packages.pypi + entry.packages.npm:
-            by_package[pkg.lower()] = entry.id
-            fuzzy_corpus.append((pkg.lower(), entry.id))
+        for pkg_entry in entry.packages:
+            for pkg_name in pkg_entry.package_names:
+                by_package[pkg_name.lower()] = entry.id
+                fuzzy_corpus.append((pkg_name.lower(), entry.id))
 
         for alias in entry.aliases:
             by_alias[alias.lower()] = entry.id
@@ -597,11 +598,10 @@ def build_allowlist(
     """Build the SSRF domain allowlist from registry entries and optional extra domains."""
     base_domains: set[str] = set()
     for entry in entries:
-        for url in [entry.llms_txt_url, entry.docs_url]:
-            if url:
-                hostname = urlparse(url).hostname or ""
-                if hostname:
-                    base_domains.add(_base_domain(hostname))
+        if entry.llms_txt_url:
+            hostname = urlparse(entry.llms_txt_url).hostname or ""
+            if hostname:
+                base_domains.add(_base_domain(hostname))
     for domain in extra_domains or []:
         domain = domain.strip().lower()
         if domain:

@@ -66,7 +66,6 @@ async def test_check_for_registry_update_success_updates_state(
             "id": "newlib",
             "name": "NewLib",
             "llms_txt_url": "https://docs.newlib.dev/llms.txt",
-            "docs_url": "https://docs.newlib.dev",
         }
     ]
     registry_bytes = json.dumps(updated_entries).encode("utf-8")

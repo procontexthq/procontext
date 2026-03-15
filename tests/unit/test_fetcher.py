@@ -58,23 +58,18 @@ class TestBuildAllowlist:
             RegistryEntry(
                 id="lib1",
                 name="Lib1",
-                docs_url="https://docs.example.com",
                 llms_txt_url="https://api.example.com/llms.txt",
-                languages=["python"],
             ),
         ]
         allowlist = build_allowlist(entries)
-        # Both URLs have base domain "example.com"
         assert allowlist == frozenset({"example.com"})
 
-    def test_skips_none_docs_url(self) -> None:
+    def test_entries_without_packages(self) -> None:
         entries = [
             RegistryEntry(
                 id="lib1",
                 name="Lib1",
-                docs_url=None,
                 llms_txt_url="https://example.com/llms.txt",
-                languages=["python"],
             ),
         ]
         allowlist = build_allowlist(entries)

@@ -260,8 +260,9 @@ class TestMatchStructure:
         assert match.library_id == "langchain"
         assert match.name == "LangChain"
         assert match.description == "Framework for building LLM-powered applications."
-        assert "python" in match.languages
         assert match.index_url == "https://python.langchain.com/llms.txt"
-        assert match.readme_url is None
+        assert len(match.packages) == 1
+        assert match.packages[0].ecosystem == "pypi"
+        assert "python" in match.packages[0].languages
         assert match.matched_via == "package_name"
         assert match.relevance == 1.0

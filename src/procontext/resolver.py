@@ -93,9 +93,8 @@ def _match_from_entry(
         library_id=entry.id,
         name=entry.name,
         description=entry.description,
-        languages=entry.languages,
         index_url=entry.llms_txt_url,
-        readme_url=entry.readme_url,
+        packages=entry.packages,
         matched_via=matched_via,
         relevance=relevance,
     )
