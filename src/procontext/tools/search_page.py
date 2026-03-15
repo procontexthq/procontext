@@ -116,13 +116,18 @@ async def handle(
 
 
 def _compact_search_outline(raw_outline: str, first_line: int | None, last_line: int | None) -> str:
-    """Trim outline to match range and compact for search_page output."""
+    """Trim and compact only oversized outlines for search_page output."""
     if first_line is None or last_line is None:
         return ""
 
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
+
+    # Small outlines fit inline already — preserve the full structure instead of
+    # trimming to the match span, which can drop useful parent headings.
+    if total_entries <= 50:
+        return format_outline(entries)
 
     # Trim to match range
     trimmed = trim_outline_to_range(entries, first_line, last_line)

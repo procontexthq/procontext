@@ -6,16 +6,18 @@
 
 ## Where we are — v0.1.0
 
-v0.1.0 ships a complete, production-ready MCP server. The core loop works: an agent resolves a library name, fetches its llms.txt table of contents, and reads specific documentation pages — all from a curated, pre-validated registry with SSRF protection and a stale-while-revalidate cache.
+v0.1.0 ships a complete MCP server with the core documentation workflow in place. An agent can resolve a library name, fetch its llms.txt table of contents, search within pages, browse full outlines when needed, and read specific sections — all from a curated registry with SSRF protection and a SQLite cache.
 
 - **`resolve_library`** — resolves a library name or pip specifier to a known documentation source via fuzzy matching against a curated registry; returns documentation URLs for use with `read_page` and `search_page`
-- **`read_page`** — fetches a documentation page (including llms.txt indexes) with offset/limit windowing and a full heading map for section navigation
+- **`read_page`** — fetches a documentation page (including llms.txt indexes) with offset/limit windowing and a compacted outline for section navigation
 - **`search_page`** — grep-like search within a documentation page; supports literal and regex modes, smart case sensitivity, word boundary matching, and paginated results
+- **`read_outline`** — returns the full paginated outline of a page for cases where the inline outline is too large to fit comfortably in `read_page`
 - **stdio transport** — default; process lifecycle managed by the MCP client
 - **HTTP transport** — MCP Streamable HTTP (spec 2025-11-25) with security middleware (bearer auth, origin validation, protocol version checks)
-- **SQLite cache** — 24-hour TTL, WAL mode, stale-while-revalidate, background refresh
-- **SSRF protection** — domain allowlist derived from the registry, private IP blocking on every redirect hop
-- **Background registry updates** — checks for registry updates at startup and (HTTP mode) on a 24-hour interval
+- **CLI commands** — `procontext setup` for one-time registry bootstrap and `procontext doctor` for environment, registry, cache, and network diagnostics
+- **SQLite cache** — 24-hour TTL, WAL mode, synchronous refresh on stale entries, and stale fallback when the source is unavailable
+- **SSRF protection** — domain allowlist derived from the registry, optional runtime allowlist expansion, and private IP blocking
+- **Background registry updates** — startup checks in stdio mode and scheduled checks in long-running HTTP mode
 - **Cross-platform** — config and data paths resolve automatically on Linux, macOS, and Windows
 
 ---
@@ -36,6 +38,7 @@ The value of ProContext scales directly with the breadth and quality of the regi
 ### Tool quality
 
 - **Additional documentation formats** — as the ecosystem evolves, the server should serve documentation from formats that emerge alongside or complement llms.txt
+- **Outline quality improvements** — there are known opportunities around setext headings, indented heading-like lines, and large-outline summarisation. These are intentionally deferred for now: the current outline pipeline is useful and stable, and any changes here need to earn their added complexity against real documentation examples rather than theory alone.
 
 ### Performance
 
