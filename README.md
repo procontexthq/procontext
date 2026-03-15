@@ -44,14 +44,14 @@ ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that 
 
 ## Quick Start
 
-> We are not yet on PyPI. Use the installer scripts below until then.
-
 Install ProContext:
 
+### macOS and Linux
 ```bash
 curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
 ```
 
+### Windows
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex"
 ```
@@ -171,10 +171,12 @@ The supported installer entrypoints are the repository-root scripts [install.sh]
 
 Quick install:
 
+### macOS and Linux
 ```bash
 curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
 ```
 
+### Windows
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex"
 ```
