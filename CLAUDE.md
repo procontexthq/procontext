@@ -119,6 +119,7 @@ See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
   - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
   - Exception: `sleep()` is appropriate when testing time-based features (e.g., timeouts)
 - Wrap indefinite waits (`event.wait()`, `stream.receive()`) in `anyio.fail_after(5)` to prevent hangs
+- **Failing tests are signals, not obstacles.** When a code change causes existing tests to fail, do not modify the test to make it pass without first understanding *why* it failed. A failing test may indicate a real bug in the change, an unintended behavioral shift, or a violated contract. Investigate the root cause, explain it to the user, and agree on the right fix before proceeding. Only update a test without consulting the user when the change is unambiguously correct (e.g., the test asserts on a renamed field that you just renamed).
 
 ## Updates to CLAUDE.md
 
