@@ -71,7 +71,7 @@ def registry_check_is_due(state_path: Path | None, poll_interval_hours: float) -
             return True
         last_checked = datetime.fromisoformat(last_checked_raw)
         return datetime.now(tz=UTC) - last_checked >= timedelta(hours=poll_interval_hours)
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError, KeyError):
         log.debug("registry_check_is_due_parse_failed", path=str(state_path), exc_info=True)
         return True
 

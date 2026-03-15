@@ -239,7 +239,9 @@ async def _fetch_with_md_probe(url: str, state: AppState) -> str:
             log.info("cache_miss_fetching", url=md_url)
             return await state.fetcher.fetch(md_url, state.allowlist)
         except Exception:
-            log.info("md_probe_failed_falling_back", md_url=md_url, fallback_url=url)
+            log.debug(
+                "md_probe_failed_falling_back", md_url=md_url, fallback_url=url, exc_info=True
+            )
 
     log.info("cache_miss_fetching", url=url)
     return await state.fetcher.fetch(url, state.allowlist)
