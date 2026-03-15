@@ -45,12 +45,12 @@ async def run_cache_cleanup_scheduler(state: AppState) -> None:
 
 async def run_registry_startup_check(state: AppState) -> None:
     """stdio mode: check for a registry update once at startup if one is due."""
-    poll_interval = state.settings.registry.poll_interval_hours
-    if registry_check_is_due(state.registry_state_path, poll_interval):
-        try:
+    try:
+        poll_interval = state.settings.registry.poll_interval_hours
+        if registry_check_is_due(state.registry_state_path, poll_interval):
             await check_for_registry_update(state)
-        except Exception:
-            log.warning("registry_update_scheduler_error", mode="startup_once", exc_info=True)
+    except Exception:
+        log.warning("registry_update_scheduler_error", mode="startup_once", exc_info=True)
 
 
 async def run_registry_update_scheduler(state: AppState) -> None:
@@ -63,7 +63,12 @@ async def run_registry_update_scheduler(state: AppState) -> None:
     # Delay the first poll if the registry was checked recently (e.g. auto-setup just
     # ran). registry_check_is_due uses last_checked_at, which save_registry_to_disk
     # always writes, so this naturally avoids a redundant fetch on first run.
-    if not registry_check_is_due(state.registry_state_path, poll_interval):
+    try:
+        skip_first = not registry_check_is_due(state.registry_state_path, poll_interval)
+    except Exception:
+        log.warning("registry_update_scheduler_error", mode="http_loop", exc_info=True)
+        skip_first = False
+    if skip_first:
         await anyio.sleep(poll_interval_seconds)
 
     while True:
