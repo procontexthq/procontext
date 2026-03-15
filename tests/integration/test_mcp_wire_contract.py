@@ -62,7 +62,7 @@ def _run_mcp_exchange(env: dict[str, str], messages: list[dict]) -> list[dict]:
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 9999, "method": "shutdown"}) + "\n")
         proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "exit"}) + "\n")
     except OSError:
-        pass  # server already exited
+        pass  # server already exited; write to closed pipe is expected
     proc.stdin.close()
 
     proc.stderr.read()  # drain for reliable process shutdown

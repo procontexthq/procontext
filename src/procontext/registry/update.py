@@ -220,12 +220,12 @@ async def _safe_get(
 ) -> httpx.Response | None:
     try:
         return await http_client.get(url, timeout=timeout)
-    except httpx.HTTPError as exc:
+    except httpx.HTTPError:
         log.warning(
             "registry_update_transient_failure",
             reason="network_error",
             url=url,
-            error=str(exc),
+            exc_info=True,
         )
         return None
 
