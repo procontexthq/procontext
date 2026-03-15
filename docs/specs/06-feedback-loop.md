@@ -470,7 +470,6 @@ Two new protocols in `protocols.py`:
 
 - **No PII collected.** Annotations and feedback contain only documentation URLs and user-authored text. No session IDs, user identifiers, or machine fingerprints.
 - **All local.** Nothing leaves the machine. ProContext's security spec (Section 6) states "No telemetry or analytics." The feedback system maintains this guarantee.
-- **No anonymous IDs.** Unlike context-hub, ProContext does not generate machine-based client IDs. Without an upstream endpoint, there is nothing to correlate.
 - **Deletable.** Users can delete all feedback data by deleting the SQLite database, same as the existing cache.
 
 ---

@@ -76,11 +76,11 @@ procontext/
 │       │   ├── read_page.py          # Business logic for read_page
 │       │   ├── search_page.py        # Business logic for search_page
 │       │   ├── read_outline.py       # Business logic for read_outline
-│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-fallback)
+│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-refresh)
 │       ├── registry.py               # Registry loading, index building, disk persistence, update check
 │       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
-│       ├── cache.py                  # SQLite cache: page_cache, stale fallback on fetch failure
+│       ├── cache.py                  # SQLite cache: page_cache, stale-while-revalidate metadata, cleanup
 │       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
 │       ├── parser.py                 # Outline parser, code block suppression, line number tracking
 │       ├── outline.py                # Outline structuring, compaction, match-range trimming, formatting
@@ -403,11 +403,11 @@ Do not log:
 ```python
 # Correct — full traceback in the log
 except Exception:
-    log.warning("stale_refetch_failed_serving_cached", url=url, exc_info=True)
+    log.warning("stale_refresh_failed", url=url, exc_info=True)
 
 # Incorrect — traceback is lost
 except Exception as e:
-    log.warning("stale_refetch_failed_serving_cached", url=url, error=str(e))
+    log.warning("stale_refresh_failed", url=url, error=str(e))
 ```
 
 `ProContextError` raised in tool handlers does not need `exc_info=True` — these are expected, handled errors. Reserve `exc_info=True` for unexpected exceptions that are caught and suppressed.
@@ -442,12 +442,15 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 - First call fetches from network, stores in cache, returns content
 - Second call returns from cache, no network request made
-- Stale entry (TTL expired) triggers synchronous re-fetch; on success returns fresh content; on failure returns stale content as fallback
+- Stale entry (TTL expired) returns stale content immediately with `stale: true` and spawns a background refresh
+- After the background refresh completes, a subsequent call returns fresh content with `stale: false`
+- Concurrent calls to the same stale URL do not spawn duplicate refresh tasks, and recently checked stale entries respect the cooldown window
 - Cache read failure (`aiosqlite.Error`): treated as cache miss, falls back to network fetch, returns content with `cached: false`
 - Cache write failure (`aiosqlite.Error`): fetched content still returned normally, error logged
 - SSRF: private IP URL raises `URL_NOT_ALLOWED`
 - SSRF: redirect to non-allowlisted domain raises `URL_NOT_ALLOWED`
 - Page is cached on first fetch; subsequent calls with different offsets are served from cache without re-fetch
+- `content_hash` is stable while content is unchanged and changes when the underlying cached content changes
 - `offset` and `limit` correctly window the content
 - `outline` returned by `read_page` is compacted to ≤ 50 entries; if irreducible, replaced by a status message directing the agent to `read_outline`
 
