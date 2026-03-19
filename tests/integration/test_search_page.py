@@ -11,7 +11,13 @@ import respx
 from procontext.errors import ErrorCode, ProContextError
 from procontext.tools.read_page import handle as read_page_handle
 from procontext.tools.search_page import handle as search_page_handle
-from tests.integration.tool_test_support import SAMPLE_PAGE, SAMPLE_URL
+from tests.integration.tool_test_support import (
+    SAMPLE_PAGE,
+    SAMPLE_URL,
+    SETEXT_PAGE,
+    SETEXT_URL,
+    build_large_setext_page,
+)
 
 if TYPE_CHECKING:
     from procontext.state import AppState
@@ -120,3 +126,40 @@ class TestSearchPageHandler:
         assert result["matches"] != ""
         outline = result["outline"]
         assert "# Streaming" in outline
+
+    @respx.mock
+    async def test_search_small_outline_preserves_normalized_setext_context(
+        self, app_state: AppState
+    ) -> None:
+        respx.get(SETEXT_URL).mock(return_value=httpx.Response(200, text=SETEXT_PAGE))
+
+        result = await search_page_handle(SETEXT_URL, "Body content", app_state)
+
+        assert result["matches"] != ""
+        assert "1:# Main Title" in result["outline"]
+        assert "4:## Section Title" in result["outline"]
+
+    @respx.mock
+    async def test_search_large_outline_trims_with_setext_heading(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/setext-large.md"
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_large_setext_page()))
+
+        result = await search_page_handle(url, "Match Section", app_state)
+
+        assert result["matches"] != ""
+        assert "3:## Match Section" in result["outline"]
+        assert "### Detail 0" not in result["outline"]
+
+    @respx.mock
+    async def test_search_match_on_setext_underline_does_not_pull_unrelated_headings(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/setext-boundary.md"
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_large_setext_page()))
+
+        result = await search_page_handle(url, "-------------", app_state)
+
+        assert result["matches"].startswith("4:-------------")
+        assert result["outline"] == ""

@@ -16,6 +16,8 @@ from procontext.tools.read_page import handle as read_page_handle
 from tests.integration.tool_test_support import (
     SAMPLE_PAGE,
     SAMPLE_URL,
+    SETEXT_PAGE,
+    SETEXT_URL,
     expire_cached_page,
     hashed_url,
     update_cached_page_content,
@@ -369,3 +371,13 @@ class TestReadPageHandler:
         assert result["content"] == ""
         assert result["total_lines"] == 21
         assert result["outline"] != ""
+
+    @respx.mock
+    async def test_setext_headings_are_normalized_in_outline(self, app_state: AppState) -> None:
+        respx.get(SETEXT_URL).mock(return_value=httpx.Response(200, text=SETEXT_PAGE))
+
+        result = await read_page_handle(SETEXT_URL, 1, 500, app_state)
+
+        assert "1:# Main Title" in result["outline"]
+        assert "4:## Section Title" in result["outline"]
+        assert "## Tail" in result["outline"]

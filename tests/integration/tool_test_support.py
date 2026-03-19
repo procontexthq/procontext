@@ -37,6 +37,39 @@ Chain streaming details."""
 
 SAMPLE_URL = "https://python.langchain.com/docs/concepts/streaming.md"
 
+SETEXT_PAGE = """\
+Main Title
+==========
+
+Section Title
+-------------
+
+Body content for the setext section.
+
+## Tail
+
+Tail details."""
+
+SETEXT_URL = "https://python.langchain.com/docs/concepts/setext.md"
+
+
+def build_large_setext_page(extra_sections: int = 60) -> str:
+    """Build a page whose full outline exceeds 50 entries."""
+    lines = [
+        "# Top",
+        "",
+        "Match Section",
+        "-------------",
+        "",
+        "needle before details",
+        "",
+    ]
+    for index in range(extra_sections):
+        lines.append(f"### Detail {index}")
+        lines.append(f"Detail body {index} with needle {index}.")
+        lines.append("")
+    return "\n".join(lines)
+
 
 async def expire_cached_page(
     app_state: AppState,

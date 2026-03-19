@@ -11,6 +11,7 @@ from procontext.outline import (
     strip_empty_fences,
     trim_outline_to_range,
 )
+from procontext.parser import parse_outline
 
 # ---------------------------------------------------------------------------
 # parse_outline_entries
@@ -125,6 +126,13 @@ class TestParseOutlineEntries:
         entries = parse_outline_entries(outline)
         assert entries[0].text == "## Section with `code` and **bold**"
         assert entries[0].line_number == 42
+
+    def test_normalized_setext_output_parses_like_atx(self) -> None:
+        outline = parse_outline("Title\n=====\n\nSection\n-----")
+        entries = parse_outline_entries(outline)
+        assert [entry.line_number for entry in entries] == [1, 4]
+        assert [entry.depth for entry in entries] == [1, 2]
+        assert [entry.text for entry in entries] == ["# Title", "## Section"]
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +308,18 @@ class TestCompactOutline:
         assert result is not None
         assert len(result) == 45
 
+    def test_normalized_setext_entries_survive_same_compaction_rules(self) -> None:
+        entries = [
+            OutlineEntry(1, "# Title", 1, False, False),
+            OutlineEntry(4, "## Section", 2, False, False),
+            *self._make_entries(55, 3),
+        ]
+        result = compact_outline(entries)
+        assert result is not None
+        assert result[0].text == "# Title"
+        assert result[1].text == "## Section"
+        assert all(entry.depth in {1, 2} for entry in result)
+
     def test_custom_max_entries(self) -> None:
         entries = self._make_entries(30, 2)
         result = compact_outline(entries, max_entries=20)
@@ -332,6 +352,18 @@ class TestTrimOutlineToRange:
         result = trim_outline_to_range(entries, 50, 60)
         assert result == []
 
+    def test_includes_normalized_setext_when_title_line_is_in_range(self) -> None:
+        entries = parse_outline_entries(parse_outline("Title\n=====\n\nSection\n-----"))
+        result = trim_outline_to_range(entries, 4, 4)
+        assert len(result) == 1
+        assert result[0].line_number == 4
+        assert result[0].text == "## Section"
+
+    def test_underline_line_boundary_does_not_include_unrelated_entries(self) -> None:
+        entries = parse_outline_entries(parse_outline("Title\n=====\n\n## Later"))
+        result = trim_outline_to_range(entries, 2, 2)
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # format_outline
@@ -354,6 +386,11 @@ class TestFormatOutline:
             OutlineEntry(8, "```", None, True, False),
         ]
         assert format_outline(entries) == "1:# Title\n5:```python\n8:```"
+
+    def test_setext_normalized_output_round_trips_as_atx(self) -> None:
+        original = parse_outline("Title\n=====\n\nSection\n-----")
+        entries = parse_outline_entries(original)
+        assert format_outline(entries) == "1:# Title\n4:## Section"
 
 
 # ---------------------------------------------------------------------------

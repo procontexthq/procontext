@@ -463,6 +463,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 **Expected behaviours**:
 
 - H1–H6 headings detected with correct 1-based line numbers
+- Plain setext headings are detected outside fenced code blocks and normalized to synthetic `#` / `##` entries at the title line number
 - Blockquote headings (`> ## Section`) are captured
 - Fence opener/closer lines are emitted so the agent knows where code blocks start/end
 - Headings inside code blocks are captured as-is (agent infers context from surrounding fence lines)
@@ -691,6 +692,7 @@ async def app_state(indexes, sample_entries):
 `tests/unit/test_parser.py`
 
 - H1–H6 headings detected with correct 1-based line numbers
+- Plain setext headings normalized to synthetic `#` / `##` entries; blockquote setext remains unsupported
 - Blockquote headings (`> ## Section`) are captured; deeply nested (`>> ##`) are not
 - Fence opener/closer lines emitted as-is
 - Headings inside code blocks captured with original indentation

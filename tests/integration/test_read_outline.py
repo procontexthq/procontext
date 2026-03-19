@@ -11,7 +11,7 @@ import respx
 from procontext.errors import ErrorCode, ProContextError
 from procontext.tools.read_outline import handle as read_outline_handle
 from procontext.tools.read_page import handle as read_page_handle
-from tests.integration.tool_test_support import SAMPLE_PAGE, SAMPLE_URL
+from tests.integration.tool_test_support import SAMPLE_PAGE, SAMPLE_URL, SETEXT_PAGE, SETEXT_URL
 
 if TYPE_CHECKING:
     from procontext.state import AppState
@@ -94,3 +94,16 @@ class TestReadOutlineHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
         result = await read_outline_handle(SAMPLE_URL, 1, 5000, app_state)
         assert result["url"] == SAMPLE_URL
+
+    @respx.mock
+    async def test_setext_headings_paginate_as_normalized_entries(
+        self, app_state: AppState
+    ) -> None:
+        respx.get(SETEXT_URL).mock(return_value=httpx.Response(200, text=SETEXT_PAGE))
+
+        first = await read_outline_handle(SETEXT_URL, 1, 1, app_state)
+        second = await read_outline_handle(SETEXT_URL, 2, 1, app_state)
+
+        assert first["outline"] == "1:# Main Title"
+        assert first["has_more"] is True
+        assert second["outline"] == "4:## Section Title"

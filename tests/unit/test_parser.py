@@ -52,6 +52,55 @@ class TestHeadingDetection:
         assert parse_outline("####### Not a heading") == ""
 
 
+class TestSetextHeadings:
+    """Plain setext headings are normalized to synthetic ATX entries."""
+
+    def test_h1_setext_normalized_to_atx(self) -> None:
+        assert parse_outline("Title\n=====") == "1:# Title"
+
+    def test_h2_setext_normalized_to_atx(self) -> None:
+        assert parse_outline("Section\n-----") == "1:## Section"
+
+    def test_setext_uses_title_line_number(self) -> None:
+        content = "\nTitle\n-----\n## After"
+        result = parse_outline(content)
+        assert result == "2:## Title\n4:## After"
+
+    def test_setext_without_trailing_newline(self) -> None:
+        assert parse_outline("Title\n===") == "1:# Title"
+
+    def test_setext_trims_surrounding_whitespace(self) -> None:
+        assert parse_outline("  Title  \n  ===  ") == "1:# Title"
+
+    def test_mixed_atx_and_setext_headings(self) -> None:
+        content = "# Top\n\nSection\n-----\n\nSubsection\n=====\n\n## Tail"
+        result = parse_outline(content)
+        assert result == "1:# Top\n3:## Section\n6:# Subsection\n9:## Tail"
+
+    def test_setext_before_and_after_fenced_block(self) -> None:
+        content = "Before Fence\n-----\n```python\nvalue = 1\n```\nAfter Fence\n====="
+        result = parse_outline(content)
+        assert result == "1:## Before Fence\n3:```python\n5:```\n6:# After Fence"
+
+    def test_setext_inside_fence_not_detected(self) -> None:
+        content = "```\nTitle\n-----\n```\n# After"
+        result = parse_outline(content)
+        assert result == "1:```\n4:```\n5:# After"
+
+    def test_blockquote_setext_not_detected(self) -> None:
+        content = "> Title\n> -----\n# After"
+        result = parse_outline(content)
+        assert result == "3:# After"
+
+    def test_blank_title_line_not_detected(self) -> None:
+        content = "\n-----\n# After"
+        result = parse_outline(content)
+        assert result == "3:# After"
+
+    def test_underline_only_lines_ignored(self) -> None:
+        assert parse_outline("-----\n=====") == ""
+
+
 class TestBlockquoteHeadings:
     """Headings prefixed with a blockquote marker are captured."""
 
@@ -418,7 +467,13 @@ class TestFalsePositives:
         content = "---\ntitle: My Page\n---\n\n# Real Heading"
         result = parse_outline(content)
         assert "5:# Real Heading" in result
+        assert "title: My Page" not in result
         assert "---" not in result  # dash lines are invisible to the parser
+
+    def test_thematic_rule_after_blank_line_not_captured(self) -> None:
+        content = "Paragraph\n\n---\n\n# Real Heading"
+        result = parse_outline(content)
+        assert result == "5:# Real Heading"
 
     def test_unclosed_fence_does_not_suppress_subsequent_headings(self) -> None:
         # Stateless design: an unclosed fence has no effect on later headings
@@ -469,6 +524,29 @@ class TestEdgeCases:
         result = parse_outline(content)
         result_lines = result.split("\n")
         assert len(result_lines) == num_lines // 100
+
+    def test_large_document_with_sparse_setext_headings(self) -> None:
+        section_count = 80
+        body_line = "Line " + ("x" * 120)
+        lines = []
+
+        for index in range(section_count):
+            if index % 2 == 0:
+                lines.append(f"## Section {index}")
+            else:
+                lines.append(f"Section {index}")
+                lines.append("-----")
+
+            lines.extend(body_line for _ in range(120))
+
+        content = "\n".join(lines)
+        assert len(content.encode("utf-8")) > 1_048_576
+
+        result = parse_outline(content)
+        result_lines = result.split("\n")
+        assert len(result_lines) == section_count
+        assert result_lines[0] == "1:## Section 0"
+        assert any(line.endswith("## Section 1") for line in result_lines)
 
     def test_heading_at_last_line_no_trailing_newline(self) -> None:
         content = "Some text\n## Final heading"

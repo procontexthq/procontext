@@ -511,7 +511,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ## 3. Tool: read_page
 
-**Purpose**: Fetch any documentation URL — llms.txt indexes, README files, or documentation pages. Returns a compacted structural outline (≤50 entries) and a windowed slice of content. If the URL does not end with `.md`, the server tries the `.md` variant first; on any failure (404, timeout, network error) it falls back to the original URL. A 200 HTML response from the `.md` probe is accepted as-is. `.md` is never appended to redirect targets.
+**Purpose**: Fetch any documentation URL — llms.txt indexes, README files, or documentation pages. Returns a compacted structural outline (≤50 entries) and a windowed slice of content. Before fetch and cache lookup, the server applies minimal URL normalization: trim outer whitespace, lowercase scheme and host, and remove default ports while preserving path, query string, fragment, and trailing slash. If the URL does not end with `.md`, the server tries the `.md` variant first; on any failure (404, timeout, network error) it falls back to the normalized URL. A 200 HTML response from the `.md` probe is accepted as-is. `.md` is never appended to redirect targets.
 
 ### 3.1 Input Schema
 
@@ -524,7 +524,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL to read. Typically from resolve_library output (index_url, or readme_url from a packages entry) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the original URL.",
+      "description": "URL to read. Typically from resolve_library output (index_url, or readme_url from a packages entry) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. Before fetch and cache lookup, the server applies minimal normalization: trim outer whitespace, lowercase scheme and host, and remove default ports. Path, query string, fragment, and trailing slash are preserved. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the normalized URL.",
         "maxLength": 2048
       },
       "offset": {
@@ -560,11 +560,11 @@ For pages where the outline is replaced by a status message (very large pages), 
   "properties": {
     "url": {
       "type": "string",
-      "description": "The URL requested by the client and used as the cache key."
+      "description": "The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved, so '/page' and '/page/' remain distinct."
     },
     "outline": {
       "type": "string",
-      "description": "Compacted structural outline of the page (target ≤50 entries). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<original line>'."
+      "description": "Compacted structural outline of the page (target ≤50 entries). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries."
     },
     "total_lines": {
       "type": "integer",
@@ -707,7 +707,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the page to search. Same URLs accepted by read_page — llms.txt indexes, README files, or documentation pages.",
+      "description": "URL of the page to search. Same URLs accepted by read_page — llms.txt indexes, README files, or documentation pages. The same minimal URL normalization as read_page is applied before fetch and cache lookup.",
         "maxLength": 2048
       },
       "query": {
@@ -761,7 +761,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
   "properties": {
     "url": {
       "type": "string",
-      "description": "The URL that was searched."
+      "description": "The normalized URL that was searched."
     },
     "query": {
       "type": "string",
@@ -892,7 +892,7 @@ Result contains the next batch of matches starting from line 8.
     "properties": {
       "url": {
         "type": "string",
-        "description": "URL of the page. Same URLs accepted by read_page.",
+      "description": "URL of the page. Same URLs accepted by read_page. The same minimal URL normalization as read_page is applied before fetch and cache lookup.",
         "maxLength": 2048
       },
       "offset": {
@@ -921,11 +921,11 @@ Result contains the next batch of matches starting from line 8.
   "properties": {
     "url": {
       "type": "string",
-      "description": "The URL of the page."
+      "description": "The normalized URL of the page."
     },
     "outline": {
       "type": "string",
-      "description": "Paginated outline entries in '<line_number>:<original line>' format, joined by newlines."
+      "description": "Paginated outline entries in '<line_number>:<emitted outline text>' format, joined by newlines. ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries."
     },
     "total_entries": {
       "type": "integer",
