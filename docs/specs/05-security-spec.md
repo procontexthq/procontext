@@ -105,12 +105,12 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 **Controls** (implementation details in referenced sections — not duplicated here):
 
-- Domain allowlist built from registry at startup; in HTTP long-running mode it is refreshed when a background registry update is accepted. Only domains present in the active registry entries are permitted. (02-technical-spec, Section 5.2)
+- Domain allowlist built from registry at startup; in HTTP long-running mode it is refreshed when a background registry update is accepted. The initial documentation URL must be allowlisted. (02-technical-spec, Section 5.2)
 - Private IP ranges unconditionally blocked: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `::1/128`, `fc00::/7`. (02-technical-spec, Section 5.2)
-- Per-hop redirect validation — each redirect target is re-checked against the allowlist before following. Maximum 3 redirect hops. (02-technical-spec, Section 5.3)
+- Redirect hops are capped at 3 and continue to enforce the private-IP guard. Redirect hops are not re-checked against the domain allowlist. (02-technical-spec, Section 5.3)
 - URL input validation via Pydantic: max 2048 chars, must start with `http://` or `https://`. (02-technical-spec, Section 3.3)
 
-**Residual risk**: DNS rebinding at the IP level is not blocked — httpx resolves DNS internally and the server does not inspect the resolved IP before connecting. This is accepted for v0.1 because the allowlist already limits requests to known documentation domains, making DNS rebinding to internal IPs impractical without first compromising a documentation domain's DNS records.
+**Residual risk**: DNS rebinding at the IP level is not blocked — httpx resolves DNS internally and the server does not inspect the resolved IP before connecting. In addition, an allowlisted documentation URL can redirect to a different public domain because the domain allowlist is only enforced on the initial hop. This is accepted in the current implementation because the security boundary being enforced is "no internal/private network access", not "every hop remains registry-pinned".
 
 ---
 
@@ -188,7 +188,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 ### 3.6 Dependency Supply Chain
 
-**Description**: ProContext has 11 runtime dependencies. A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
+**Description**: ProContext keeps a small runtime dependency set (currently 12 packages declared in `pyproject.toml`). A compromised dependency update could introduce malicious code that runs with the server's permissions (which are the user's permissions).
 
 **Severity**: Medium
 
@@ -330,7 +330,7 @@ Each module introduces specific attack surface. The following tables map securit
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Fetch URL targeting private IPv4 (`10.x`, `172.16.x`, `192.168.x`, `127.x`) | Blocked by private IP check                                                    |
 | Fetch URL targeting private IPv6 (`::1`, `fc00::`)                          | Blocked by private IP check                                                    |
-| Redirect chain to non-allowlisted domain                                    | Blocked at redirect hop                                                        |
+| Redirect chain to another public domain                                     | Follows the redirect after the initial allowlisted hop; documents the current limitation |
 | Redirect chain to private IP                                                | Blocked at redirect hop                                                        |
 | Redirect chain exceeding 3 hops                                             | Raises `TOO_MANY_REDIRECTS`                                                    |
 | URL with allowlisted domain but non-HTTPS scheme                            | Rejected by URL validation                                                     |

@@ -160,7 +160,7 @@ Purpose-built for the [llms.txt standard](https://llmstxt.org) - the AI-optimize
 First query: under 5 seconds (fetch + parse + cache). Repeat queries: under 100ms from SQLite. When cache expires, a synchronous re-fetch updates the content transparently. If the source is unreachable, stale content is served as fallback - the agent always gets a response.
 
 **SSRF protection**
-The server only fetches from a domain allowlist derived from the registry at startup. Private IP ranges are blocked unconditionally, including on redirect hops.
+Initial documentation URLs must come from a domain allowlist derived from the registry. Private IP ranges are blocked unconditionally, including on redirect hops.
 
 **HTTP transport**
 Implements MCP Streamable HTTP (spec 2025-11-25) for shared or remote deployments. `MCPSecurityMiddleware` enforces origin validation (DNS rebinding protection), optional bearer key authentication, and protocol version checks.

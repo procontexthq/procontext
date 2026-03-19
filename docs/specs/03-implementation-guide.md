@@ -40,84 +40,51 @@
 
 ### 1.1 Source Layout
 
-```
+The repository layout should be read as a pattern, not a frozen snapshot. Exact filenames may move as a domain grows from a single module into a package, but the responsibilities below should remain stable.
+
+```text
 procontext/
 ├── pyproject.toml
-├── CHANGELOG.md                      # Keep a Changelog format; updated on every release
-├── procontext.example.yaml          # Example config (committed); copy to procontext.yaml for local use
-├── src/
-│   └── procontext/
-│       ├── __init__.py               # package __version__ (resolved from installed metadata)
-│       ├── py.typed                  # PEP 561 marker — declares this package is typed
-│       ├── cli/                      # CLI entrypoint and subcommands
-│       │   ├── __init__.py
-│       │   ├── main.py              # argparse dispatcher — thin routing to cmd_* modules
-│       │   ├── cmd_serve.py         # Default command: registry bootstrap + MCP server start
-│       │   ├── cmd_setup.py         # `procontext setup` — download and persist registry
-│       │   └── cmd_doctor.py        # `procontext doctor` — health checks and --fix auto-repair
-│       ├── mcp/                      # MCP server wiring
-│       │   ├── __init__.py
-│       │   ├── server.py             # FastMCP instance and tool registrations
-│       │   ├── lifespan.py           # asynccontextmanager: resource creation/teardown, stdout guard
-│       │   └── startup.py            # Legacy shim — delegates to cli.main for backward compat
-│       ├── state.py                  # AppState dataclass
-│       ├── config.py                 # Settings via pydantic-settings + YAML, registry_paths()
-│       ├── errors.py                 # ErrorCode, ProContextError
-│       ├── protocols.py              # CacheProtocol, FetcherProtocol (typing.Protocol)
-│       ├── logging_config.py         # structlog processor chain configuration
-│       ├── models/
-│       │   ├── __init__.py           # Re-exports all public models
-│       │   ├── registry.py           # RegistryEntry, RegistryPackages, LibraryMatch
-│       │   ├── cache.py              # PageCacheEntry
-│       │   └── tools.py              # All tool I/O models (input validation + output serialisation)
-│       ├── tools/
-│       │   ├── __init__.py
-│       │   ├── resolve_library.py    # Business logic for resolve_library
-│       │   ├── read_page.py          # Business logic for read_page
-│       │   ├── search_page.py        # Business logic for search_page
-│       │   ├── read_outline.py       # Business logic for read_outline
-│       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-refresh)
-│       ├── registry.py               # Registry loading, index building, disk persistence, update check
-│       ├── resolver.py               # Plain-name resolution tiers, unsupported-query detection, fuzzy matching
-│       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
-│       ├── cache.py                  # SQLite cache: page_cache, stale-while-revalidate metadata, cleanup
-│       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
-│       ├── parser.py                 # Outline parser, code block suppression, line number tracking
-│       ├── outline.py                # Outline structuring, compaction, match-range trimming, formatting
-│       ├── search.py                 # Pattern compilation (build_matcher) and line scanning (search_lines)
-│       └── transport.py              # MCPSecurityMiddleware for HTTP mode
+├── README.md
+├── procontext.example.yaml
+├── docs/
+│   ├── specs/                        # Functional, technical, security, and API contracts
+│   └── cli/                          # CLI-facing operator and maintainer docs
+├── src/procontext/
+│   ├── __init__.py
+│   ├── py.typed
+│   ├── cli/
+│   │   ├── main.py                   # argparse dispatcher
+│   │   ├── cmd_*.py                  # top-level CLI workflows
+│   │   └── <command packages>/       # helpers when a command outgrows one file
+│   ├── mcp/
+│   │   ├── server.py                 # FastMCP instance and tool registrations
+│   │   ├── lifespan.py               # resource creation/teardown, stdout guard
+│   │   └── startup.py                # legacy shim to the CLI entrypoint
+│   ├── models/                       # Pydantic models shared across layers
+│   ├── tools/                        # one module per MCP tool + shared helpers
+│   ├── registry/                     # local loading, persistence, and update flow
+│   ├── <service modules>.py          # resolver, fetcher, cache, parser, outline, search, etc.
+│   └── <support modules>.py          # config, state, protocols, errors, logging, normalization, identity
 ├── tests/
-│   ├── conftest.py                   # Top-level fixtures shared across all tests
-│   ├── unit/
-│   │   ├── conftest.py               # Unit-specific fixtures (no I/O)
-│   │   ├── test_resolver.py          # resolve_library: exact lookup, unsupported-query handling, fuzzy fallback, edge cases
-│   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
-│   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale marking
-│   │   ├── test_parser.py            # Heading detection, code block suppression, section extraction
-│   │   ├── test_search.py            # Pattern compilation, line scanning, smart case, pagination
-│   │   └── test_cli_doctor.py        # Doctor command: all checks, --fix, schema validation
-│   └── integration/
-│       ├── conftest.py               # Integration-specific fixtures (full AppState, mocked HTTP)
-│       ├── test_tools.py             # Full tool call pipeline: input → output shape
-│       └── test_cli.py               # CLI subprocess tests: help, doctor, setup, --fix
-├── .github/
-│   └── workflows/
-│       ├── ci.yml
-│       └── release.yml
-└── .gitignore
+│   ├── unit/                         # internal algorithm and module tests
+│   └── integration/                  # tool, transport, startup, and CLI contract tests
+└── .github/workflows/
 ```
+
+**Structural rule**: keep the top-level package shallow until a domain clearly needs its own namespace. For example, the registry flow and doctor helpers now live in dedicated packages (`registry/`, `cli/doctor/`), while smaller cross-cutting concerns still remain as flat modules (`normalization.py`, `identity.py`, `errors.py`).
 
 ### 1.2 Module Responsibilities
 
 The structure enforces a strict layering. Violations (e.g., a tool importing from `cache.py` directly) indicate a missing abstraction.
 
-| Layer              | Modules                                              | Rule                                                                                   |
-| ------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Entrypoint**     | `cli/main.py`, `cli/cmd_serve.py`, `cli/cmd_setup.py`, `cli/cmd_doctor.py`, `mcp/server.py`, `mcp/lifespan.py` | CLI dispatcher, subcommands, tool registrations, resource lifecycle. No business logic. |
-| **Tools**          | `tools/*.py`                                         | One file per tool. Receives `AppState`, returns output dict. Raises `ProContextError`. |
-| **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols, not concrete classes.    |
-| **Infrastructure** | `registry.py`, `config.py`, `transport.py`, `schedulers.py` | Setup and wiring. Run once at startup; schedulers run as long-lived background coroutines. |
-| **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`   | No dependencies on other layers. Imported freely.                                      |
+| Layer              | Modules                                                                 | Rule                                                                                   |
+| ------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Entrypoint**     | `cli/main.py`, `cli/cmd_*.py`, `cli/<command packages>/`, `mcp/*.py`   | CLI dispatch, command workflows, server bootstrap, tool registration, and lifecycle. No domain logic beyond orchestration. |
+| **Tools**          | `tools/*.py`                                                            | One module per MCP tool. Receives `AppState`, returns output dicts, raises `ProContextError`. |
+| **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols or plain values, not concrete runtime state. |
+| **Infrastructure** | `registry/`, `config.py`, `transport.py`, `schedulers.py`, `logging_config.py` | Setup, persistence, security middleware, scheduling, and runtime wiring.               |
+| **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`, `normalization.py`, `identity.py` | Low-level types and utilities that can be imported widely without pulling in transport-specific code. |
 
 **Adding a new tool**: Create `tools/new_tool.py`, register it in `mcp/server.py`. No other files change.
 
@@ -150,6 +117,7 @@ dependencies = [
     "anyio>=4.0.0,<5.0.0",                  # Structured concurrency
     "pydantic>=2.5.0,<3.0.0",               # Data validation
     "pydantic-settings>=2.2.0,<3.0.0",      # YAML config + env var overrides
+    "pyjwt>=2.12.0",                        # Declared runtime dependency in pyproject.toml
     "pyyaml>=6.0.1,<7.0.0",                 # YAML parser (required by pydantic-settings)
     "rapidfuzz>=3.6.0,<4.0.0",              # Levenshtein fuzzy matching
     "platformdirs>=4.0.0,<5.0.0",           # Platform-aware config/data directories
@@ -182,7 +150,7 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "T20"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
@@ -205,7 +173,7 @@ include = ["src"]
 
 **Version floors**: Since this is a new project with no legacy consumers, version floors should track reasonably close to the latest stable release at the time of writing. There is no reason to support old versions that nobody is using yet. Review and bump floors at the start of each implementation phase — stale floors accumulate silently and can mask behavioural differences between the version you test against and the version the floor permits.
 
-**Dependency footprint**: ProContext has 11 runtime dependencies. Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
+**Dependency footprint**: ProContext keeps a deliberately small runtime dependency set (currently 12 packages in `pyproject.toml`). Each is justified by a capability that would require significantly more code to replicate correctly (async HTTP with SSRF-safe redirect control, async SQLite, fuzzy string matching, structured logging, validated settings). Zero-dependency is a virtue but not at the cost of correctness or maintainability. Before adding any new runtime dependency, verify that the same capability cannot be covered by an existing dependency or the Python standard library.
 
 **License compatibility**: All runtime dependencies use permissive licenses compatible with MIT. Verified at last review (2026-02-24):
 
@@ -217,6 +185,7 @@ include = ["src"]
 | `anyio`             | MIT               | Structured concurrency (used by MCP SDK and tests) |
 | `pydantic`          | MIT               |                                                  |
 | `pydantic-settings` | MIT               |                                                  |
+| `pyjwt`             | MIT               | Declared runtime dependency in the current `pyproject.toml` |
 | `pyyaml`            | MIT               |                                                  |
 | `rapidfuzz`         | MIT               |                                                  |
 | `platformdirs`      | MIT               | Platform-aware config/data directories           |
@@ -422,7 +391,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 ### 4.1 Resolver
 
-**Modules**: `resolver.py`, `registry.py`, `tools/resolve_library.py`
+**Modules**: `resolver.py`, `registry/`, `tools/resolve_library.py`
 
 **Expected behaviours**:
 
@@ -448,7 +417,8 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - Cache read failure (`aiosqlite.Error`): treated as cache miss, falls back to network fetch, returns content with `cached: false`
 - Cache write failure (`aiosqlite.Error`): fetched content still returned normally, error logged
 - SSRF: private IP URL raises `URL_NOT_ALLOWED`
-- SSRF: redirect to non-allowlisted domain raises `URL_NOT_ALLOWED`
+- SSRF: redirect to another public domain is followed after the initial allowlisted URL passes validation
+- SSRF: redirect to private IP still raises `URL_NOT_ALLOWED`
 - Page is cached on first fetch; subsequent calls with different offsets are served from cache without re-fetch
 - `content_hash` is stable while content is unchanged and changes when the underlying cached content changes
 - `offset` and `limit` correctly window the content
@@ -482,7 +452,9 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - Smart case: all-lowercase query → case-insensitive; mixed/upper → case-sensitive
 - `whole_word: true` wraps pattern in `\b...\b`
 - Pagination: `offset` skips lines, `max_results` limits output, `has_more`/`next_offset` enable continuation
-- Outline is trimmed to the match range (first match line → last match line) before compaction; zero matches → empty string
+- Zero matches → empty outline string
+- Small outlines (≤50 entries after empty-fence stripping) are returned unchanged so parent headings are preserved
+- Oversized outlines are trimmed to the match range (first match line → last match line) before compaction
 - Outline compaction uses the same progressive reduction as `read_page` (≤ 50 entries target)
 - Page fetch uses the shared `fetch_or_cached_page` helper (same cache as `read_page`)
 
@@ -509,7 +481,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 ### 4.6 Registry Updates
 
-**Modules**: `registry.py`, `schedulers.py`, `mcp/lifespan.py`
+**Modules**: `registry/`, `schedulers.py`, `mcp/lifespan.py`
 
 **Expected behaviours**:
 
@@ -537,14 +509,15 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - `parse_outline_entries()` converts a raw outline string into structured `OutlineEntry` objects with correct `line_number`, `text`, `depth`, `is_fence`, and `in_fence` attributes
 - Fence tracking follows CommonMark rules: closer must use the same character as the opener and be at least as long; simple boolean toggle with char/length state
 - `strip_empty_fences()` removes fence pairs that contain zero heading entries
-- `compact_outline()` progressively strips: empty fences → H6 → H5 → fenced content (fence markers + headings inside fences) → H4 → H3, stopping as soon as entries ≤ 50
+- `strip_empty_fences()` runs before compaction and removes fence pairs that contain zero heading entries
+- `compact_outline()` progressively strips H6 → H5 → fenced content (fence markers + headings inside fences) → H4 → H3, stopping as soon as entries ≤ 50
 - `compact_outline()` returns `None` if the outline cannot be reduced to ≤ 50 entries after all compaction stages
 - `trim_outline_to_range()` filters entries to those between a start and end line number (inclusive); used by `search_page` to trim to match range
 - `format_outline()` converts structured entries back to the formatted string (`"line_number:content\nline_number2:content2..."`)
 - `read_outline` tool returns paginated outline entries (offset = 1-based entry index, limit = max entries, default 1000) with empty fences pre-stripped
 - `read_outline` with offset beyond total entries returns empty outline with correct metadata, not an error
 - `read_page` compacted outline replaces full outline in output; if irreducible, output contains status string `"[Outline too large (N entries). Use read_outline for paginated access.]"`
-- `search_page` outline is trimmed to match range then compacted; zero matches → empty string
+- `search_page` returns the full outline for small pages; oversized pages are range-trimmed then compacted; zero matches → empty string
 
 ---
 
@@ -563,7 +536,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 **Contract tests vs. implementation tests**:
 
-`tests/integration/test_tools.py` contains the **contract tests** — they call tools through the full pipeline and assert on observable output shape, exactly as an MCP client would. A complete internal rewrite (e.g., swapping the cache backend, changing the resolver algorithm) must not break any integration test. These are the tests that matter for compatibility guarantees.
+The **integration suites** are the contract tests — the tool-focused files (`test_resolve_library.py`, `test_read_page*.py`, `test_search_page.py`, `test_read_outline.py`) plus the wire-level and startup suites (`test_mcp_wire_contract.py`, `test_mcp_error_envelope.py`, `test_stdout_guard.py`, `test_startup_errors.py`). They exercise the observable behaviour an MCP client or operator cares about. A complete internal rewrite (e.g., swapping the cache backend, changing the resolver algorithm) must not break those integration tests.
 
 `tests/unit/` contains **implementation tests** — they call internal functions directly and verify algorithmic correctness (normalisation edge cases, parser rules, SSRF logic). These tests are permitted to break during refactoring, because they test the implementation, not the contract. Their purpose is fast feedback during development, not stability guarantees. Do not treat a failing unit test as a sign the public API is broken — check the integration tests for that.
 
@@ -672,7 +645,7 @@ async def app_state(indexes, sample_entries):
 
 - SSRF: private IPv4 ranges blocked
 - SSRF: private IPv6 blocked
-- SSRF: redirect to non-allowlisted domain blocked
+- SSRF: redirect to another public domain is followed after the initial allowlisted hop
 - SSRF: redirect to private IP blocked
 - Successful fetch: returns content
 - 404 response: raises `PAGE_NOT_FOUND`
@@ -722,26 +695,14 @@ async def app_state(indexes, sample_entries):
 - `trim_outline_to_range()`: filters to line range, empty input → empty output
 - `format_outline()`: round-trips correctly from parsed entries
 
-`tests/integration/test_tools.py`
+`tests/integration/`
 
-- `resolve_library`: full call, correct output shape
-- `read_page`: cache miss path (mocked HTTP), cache hit path
-- `read_page`: URL not in allowlist raises `URL_NOT_ALLOWED`
-- `read_page`: compacted outline returned when entries > 50; status message when irreducible
-- `read_outline`: paginated outline with correct entry count and metadata
-- `read_outline`: offset beyond total entries returns empty outline, not an error
-- `search_page`: cache miss path (mocked HTTP), returns matches
-- `search_page`: cache hit path (shared with read_page), returns matches
-- `search_page`: invalid regex raises `INVALID_INPUT`
-- `search_page`: outline trimmed to match range; zero matches → empty outline string
-- HTTP transport: `auth_enabled=true`, explicit key, missing bearer key → 401
-- HTTP transport: `auth_enabled=true`, explicit key, incorrect bearer key → 401
-- HTTP transport: `auth_enabled=true`, explicit key, valid bearer key → 200
-- HTTP transport: `auth_enabled=true`, empty key → key auto-generated and logged
-- HTTP transport: `auth_enabled=false`, request without bearer key is allowed
-- HTTP transport: `auth_enabled=false`, startup warning logged
-- HTTP transport: non-loopback origin → 403
-- HTTP transport: unknown protocol version → 400
+- `test_resolve_library.py`: full resolver contract, unsupported-input hints, language sorting
+- `test_read_page.py`, `test_read_page_md_probe.py`, `test_read_page_compaction.py`: cache behaviour, `.md` probing, compaction, redirect limits, allowlist enforcement
+- `test_read_outline.py`: paginated outline browsing and metadata
+- `test_search_page.py`: shared-cache search flow, regex validation, small-vs-oversized outline behaviour
+- `test_mcp_wire_contract.py`, `test_mcp_error_envelope.py`: MCP wire contract, output schemas, structured tool errors
+- `test_cli.py`, `test_stdout_guard.py`, `test_startup_errors.py`: CLI surface, stdout protection, startup failure paths
 
 **Coverage target**: 90% branch coverage (`branch = true` in `[tool.coverage.run]`). Branches covering network errors, cache misses, and config validation failures are explicitly tested via mocking — not left to chance.
 

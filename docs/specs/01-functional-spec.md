@@ -157,7 +157,7 @@ Top-level output fields:
 **Processing**:
 
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1. Apply minimal URL normalization first: trim outer whitespace, lowercase scheme and host, and remove default ports (`:80` for `http`, `:443` for `https`). Preserve path, query string, fragment, and trailing slash exactly.
-2. Check SQLite cache for `page:{sha256(normalized_url)}` — if fresh, return from cache
+2. Check SQLite cache for `url_hash = sha256(normalized_url)` — if fresh, return from cache
 3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first. On any failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
 4. Compact outline for response (progressive depth reduction to ≤50 entries; status message if irreducible)
 5. Slice content to the requested window (`offset`/`limit`)
@@ -230,7 +230,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 **Processing**:
 
 1. Validate URL against SSRF allowlist
-2. Fetch page: check SQLite cache for `page:{sha256(url)}` — same cache as `read_page`. On cache miss, fetch and cache.
+2. Fetch page: check SQLite cache for `url_hash = sha256(url)` — same cache as `read_page`. On cache miss, fetch and cache.
 3. Starting from `offset`, scan each line for a match against `query` (respecting `mode`, `case_mode`, `whole_word`)
 4. Collect up to `max_results` matching lines
 5. If there are no matches, return an empty outline string
@@ -454,7 +454,7 @@ A single SQLite database stores all fetched content at `cache.db_path` (default:
 
 | Table        | Key                  | Content                                       | TTL      |
 | ------------ | -------------------- | --------------------------------------------- | -------- |
-| `page_cache` | `page:{sha256(url)}` | Full page markdown (llms.txt, README, or docs) | 24 hours |
+| `page_cache` | `url_hash = sha256(url)` | Full page markdown (llms.txt, README, or docs) | 24 hours |
 
 All fetched content — llms.txt indexes, README files, and documentation pages — is stored in a single `page_cache` table. `read_page`, `search_page`, and `read_outline` all share this cache: a page fetched by one tool is immediately available to the others without a re-fetch.
 

@@ -106,11 +106,11 @@ resolve_library("langchain-openai")
 read_page("https://python.langchain.com/llms.txt")
   │
   ├─ SSRF check: domain in allowlist?
-  ├─ Cache check: page:{sha256(url)}
+  ├─ Cache check: url_hash = sha256(url)
   │    HIT (fresh)  → return cached content + outline
   │    HIT (stale)  → return stale immediately; spawn background refresh
   │    MISS         → continue
-  ├─ Fetch: HTTP GET url (30s timeout, SSRF validated per redirect)
+  ├─ Fetch: HTTP GET url (30s timeout, initial URL allowlisted; private IPs blocked on redirect hops)
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
   ├─ Compact outline (progressive depth reduction → ≤50 entries, or status message)
@@ -119,7 +119,7 @@ read_page("https://python.langchain.com/llms.txt")
 search_page("https://python.langchain.com/llms.txt", "streaming")
   │
   ├─ SSRF check: domain in allowlist?
-  ├─ Cache check: page:{sha256(url)} — shared cache with read_page
+  ├─ Cache check: url_hash = sha256(url) — shared cache with read_page
   │    HIT  → use cached content
   │    MISS → fetch and cache (same path as read_page)
   ├─ Build matcher from query + mode + case_mode + whole_word
@@ -132,7 +132,7 @@ search_page("https://python.langchain.com/llms.txt", "streaming")
 read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
   │
   ├─ SSRF check: domain in allowlist?
-  ├─ Cache check: page:{sha256(url)} — shared cache with read_page/search_page
+  ├─ Cache check: url_hash = sha256(url) — shared cache with read_page/search_page
   │    HIT  → use cached outline
   │    MISS → fetch and cache (same path as read_page)
   ├─ Parse outline string into structured entries
@@ -586,7 +586,7 @@ The client is created once at startup and closed on shutdown. It is never re-cre
 
 ### 5.2 SSRF Prevention
 
-The SSRF allowlist is built at startup from the loaded registry. In HTTP mode, if a background registry update succeeds, a new allowlist is rebuilt from the updated registry and swapped in-memory together with the new indexes. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be fetched by `read_page`.
+The SSRF allowlist is built at startup from the loaded registry. In HTTP mode, if a background registry update succeeds, a new allowlist is rebuilt from the updated registry and swapped in-memory together with the new indexes. It stores **base domains** (the last two DNS labels: `langchain.com`, `pydantic.dev`) rather than exact hostnames. This allows any subdomain of a registered documentation domain — including subdomains not explicitly listed in the registry — to be used as the initial fetch URL.
 
 ```python
 from urllib.parse import urlparse
@@ -626,7 +626,7 @@ def build_allowlist(
 def extract_base_domains_from_content(content: str) -> frozenset[str]:
     """Extract base domains from all http/https URLs found in content.
 
-    Used for runtime allowlist expansion at depth 1 (llms.txt) and depth 2 (pages).
+    Used for runtime allowlist expansion from any fetched documentation content.
     """
     domains: set[str] = set()
     for match in _URL_RE.finditer(content):
@@ -645,7 +645,8 @@ def expand_allowlist_from_content(
     regardless of expansion configuration. Only mutates ``state.allowlist`` when
     ``settings.fetcher.allowlist_expansion == "discovered"``.
 
-    Called by both read_page and search_page after any successful fetch.
+    Called by the shared fetch helper used by read_page, search_page, and
+    read_outline after any successful fetch.
     """
     discovered_domains = extract_base_domains_from_content(content)
     if state.settings.fetcher.allowlist_expansion == "discovered":
@@ -689,7 +690,7 @@ def is_url_allowed(
 **Runtime allowlist expansion** (reactive, not pre-fetched):
 
 - **`"registry"`** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
-- **`"discovered"`**: after `read_page` or `search_page` fetches any content (llms.txt, README, or documentation page), all URLs in the content have their base domains extracted and merged into `state.allowlist`. Enables following cross-domain links found in documentation.
+- **`"discovered"`**: after any page tool fetches content (llms.txt, README, or documentation page), all URLs in the content have their base domains extracted and merged into `state.allowlist`. Enables following cross-domain links found in documentation.
 
 When expansion is `"discovered"`, it is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
 
@@ -699,7 +700,7 @@ When expansion is `"discovered"`, it is monotonic (domains are only added, never
 
 ### 5.3 Redirect Handling
 
-Each redirect hop is individually validated before following:
+The initial request URL is validated against the allowlist. Redirect hops continue to enforce the private-IP guard and the redirect limit, but they do not re-apply the domain allowlist:
 
 ```python
 async def fetch(
@@ -712,11 +713,12 @@ async def fetch(
     current_url = url
 
     for hop in range(max_redirects + 1):
+        check_domain = self._settings.ssrf_domain_check and hop == 0
         if not is_url_allowed(
             current_url,
             allowlist,
             check_private_ips=self._settings.ssrf_private_ip_check,
-            check_domain=self._settings.ssrf_domain_check,
+            check_domain=check_domain,
         ):
             raise ProContextError(
                 code=ErrorCode.URL_NOT_ALLOWED,
@@ -751,6 +753,8 @@ async def fetch(
         recoverable=False,
     )
 ```
+
+This asymmetry is deliberate in the current implementation: the registry-derived allowlist constrains the initial URL, while redirect hops are only prevented from reaching private/internal IP space.
 
 The return type is `str` (response text), not `httpx.Response`. This keeps `httpx` out of the tool layer — tool handlers and `FetcherProtocol` consumers never touch `httpx` types directly.
 
@@ -1233,6 +1237,10 @@ sub = parser.add_subparsers(dest="command")
 sub.add_parser("setup")
 doctor_parser = sub.add_parser("doctor")
 doctor_parser.add_argument("--fix", action="store_true")
+db_parser = sub.add_parser("db")
+db_sub = db_parser.add_subparsers(dest="db_command")
+db_sub.required = True
+db_sub.add_parser("recreate")
 
 if args.command == "setup":
     from procontext.cli.cmd_setup import run_setup
@@ -1240,6 +1248,10 @@ if args.command == "setup":
 elif args.command == "doctor":
     from procontext.cli.cmd_doctor import run_doctor
     asyncio.run(run_doctor(settings, fix=args.fix))
+elif args.command == "db":
+    from procontext.cli.cmd_db import run_db_recreate
+    if args.db_command == "recreate":
+        asyncio.run(run_db_recreate(settings))
 else:
     from procontext.cli.cmd_serve import run_server
     run_server(settings)
@@ -1251,7 +1263,7 @@ Command modules are imported inside the `if/elif/else` branches to avoid loading
 |---------|--------|---------------------|
 | _(default)_ | `cmd_serve.py` | MCP SDK, FastMCP, uvicorn, full server stack |
 | `setup` | `cmd_setup.py` | httpx, registry |
-| `doctor` | `cmd_doctor.py` | aiosqlite, httpx (only with `--fix`) |
+| `doctor` | `cmd_doctor.py` | aiosqlite, httpx |
 | `db recreate` | `cmd_db.py` | aiosqlite |
 
 **Legacy shim**: `mcp/startup.py` delegates to `cli.main:main` for backward compatibility with `python -m procontext.mcp.startup`.
@@ -1279,7 +1291,7 @@ See [docs/cli/doctor.md](../cli/doctor.md) for the full design document.
 
 The registry update system keeps the in-memory library index fresh without interrupting request serving. It is designed around three principles:
 
-1. **Explicit initialisation** — the server requires a local registry on disk. Run `procontext setup` once to download it; the server refuses to start without it.
+1. **Registry availability on disk** — the running server expects a valid local registry pair on disk. `procontext setup` is the explicit bootstrap path, and the default serve command falls back to a one-time auto-setup attempt if the pair is missing or invalid.
 2. **Cheap polling** — a tiny metadata file is fetched on each poll cycle; the full registry is only downloaded when its checksum changes.
 3. **Zero-downtime swap** — new registry data is applied to the live `AppState` atomically while in-flight requests continue using the previous data safely.
 
@@ -1316,7 +1328,7 @@ The local registry pair (both files together) is the consistency unit. If either
 
 ### 9.2 `procontext setup`
 
-`procontext setup` is a one-time CLI command that must be run before starting the server for the first time:
+`procontext setup` is the explicit first-time bootstrap command for downloading the local registry pair:
 
 ```
 procontext setup
@@ -1397,7 +1409,7 @@ Transient failures are retried aggressively with exponential backoff. Semantic f
 
 ### 9.6 Background Update Check
 
-`check_for_registry_update(state)` in `registry.py` follows these steps:
+`check_for_registry_update(state)` in `registry/update.py` (re-exported by `procontext.registry`) follows these steps:
 
 1. Fetch `metadata_url`. Network error or 5xx/408/429 → `"transient_failure"`.
 2. Parse and validate metadata fields (`version`, `checksum`, `download_url`). Invalid shape → `"semantic_failure"`.
@@ -1429,7 +1441,7 @@ The allowlist is always reset to the registry baseline on each successful update
 
 ### 9.8 Atomic Persistence of Local Registry Pair
 
-`save_registry_to_disk()` in `registry.py` writes both files with crash-safe semantics using write-to-temp-then-rename: each file is written and fsynced to a `.tmp` sibling, then renamed into place with `os.replace()`, followed by an fsync on the parent directory. Temp files are cleaned up in a `finally` block.
+`save_registry_to_disk()` in `registry/storage.py` (re-exported by `procontext.registry`) writes both files with crash-safe semantics using write-to-temp-then-rename: each file is written and fsynced to a `.tmp` sibling, then renamed into place with `os.replace()`, followed by an fsync on the parent directory. Temp files are cleaned up in a `finally` block.
 
 Crash-safety guarantees:
 

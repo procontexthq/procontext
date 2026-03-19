@@ -53,7 +53,7 @@ For command naming and command-tree conventions, see [command-guidelines.md](com
 
 CLI commands (`setup`, `doctor`, `db`) print to stdout freely. The stdout guard that protects the MCP JSON-RPC stream in stdio mode only activates inside the MCP server lifespan — CLI commands never enter that context.
 
-For details on the stdio transport and stdout protection, see [Technical Spec §7](../specs/02-technical-spec.md).
+For details on the stdio transport and stdout protection, see [Technical Spec §8](../specs/02-technical-spec.md).
 
 ## Adding New Commands
 
