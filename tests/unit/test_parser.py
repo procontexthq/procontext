@@ -42,6 +42,12 @@ class TestHeadingDetection:
         # "##NoSpace" is not a valid heading
         assert parse_outline("##NoSpace") == ""
 
+    def test_heading_allows_tab_after_hashes(self) -> None:
+        assert parse_outline("#\tTitle") == "1:#\tTitle"
+
+    def test_empty_atx_heading_captured(self) -> None:
+        assert parse_outline("##") == "1:##"
+
     def test_all_heading_levels(self) -> None:
         content = "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6"
         result = parse_outline(content)
@@ -175,6 +181,11 @@ class TestFenceLines:
         assert "2:## Example" in result
         assert "3:````" in result
 
+    def test_fence_line_with_trailing_text_inside_fence_not_treated_as_closer(self) -> None:
+        content = "```\n# Inside\n```python\n# Still inside\n```\n# After"
+        result = parse_outline(content)
+        assert result == "1:```\n2:# Inside\n4:# Still inside\n5:```\n6:# After"
+
     def test_indented_heading_inside_fence_preserves_indent(self) -> None:
         # Heading inside a code block retains its original indentation
         content = "```yaml\n    ## Host\n```"
@@ -242,12 +253,8 @@ class TestIndentedHeadings:
     def test_three_space_indent(self) -> None:
         assert parse_outline("   ### Sub") == "1:   ### Sub"
 
-    def test_four_space_indent_captured(self) -> None:
-        # We match on stripped lines so indented headings inside code blocks
-        # (e.g. "    ## Host" in a YAML block) are captured. As a side effect,
-        # a 4-space indented line outside a fence is also captured — acceptable
-        # given the stateless design.
-        assert parse_outline("    # Heading") == "1:    # Heading"
+    def test_four_space_indent_outside_fence_not_captured(self) -> None:
+        assert parse_outline("    # Heading") == ""
 
     def test_indented_heading_preserves_original_line_in_output(self) -> None:
         result = parse_outline("  ## Section")

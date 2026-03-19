@@ -96,6 +96,18 @@ class TestParseOutlineEntries:
         assert entries[3].in_fence is True
         assert entries[4].is_fence is True  # ```` closes it
 
+    def test_fence_like_line_with_trailing_text_inside_fence_not_a_closer(self) -> None:
+        outline = "1:```\n2:```python\n3:## Still inside\n4:```\n5:## After"
+        entries = parse_outline_entries(outline)
+
+        assert entries[0].is_fence is True
+        assert entries[1].is_fence is False
+        assert entries[1].depth is None
+        assert entries[1].in_fence is True
+        assert entries[2].in_fence is True
+        assert entries[3].is_fence is True
+        assert entries[4].in_fence is False
+
     def test_tilde_fence(self) -> None:
         outline = "1:~~~\n2:## Inside\n3:~~~"
         entries = parse_outline_entries(outline)
@@ -120,6 +132,12 @@ class TestParseOutlineEntries:
         assert entries[1].depth == 2
         assert entries[1].in_fence is True
         assert entries[1].text == "    ## Host"
+
+    def test_four_space_indented_heading_outside_fence_not_structural(self) -> None:
+        entries = parse_outline_entries("1:    # Heading")
+        assert entries[0].depth is None
+        assert entries[0].in_fence is False
+        assert entries[0].is_fence is False
 
     def test_preserves_text_exactly(self) -> None:
         outline = "42:## Section with `code` and **bold**"

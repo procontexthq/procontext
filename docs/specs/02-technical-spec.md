@@ -893,12 +893,15 @@ Matched against the original `line`. The `^ {0,3}` indentation constraint ensure
 **Pattern 2 — Heading lines**
 
 ```python
-_HEADING_RE = re.compile(r"(?:>\s*)?(#{1,6}) .+")
+_HEADING_RE = re.compile(r"(?:>\s*)?(#{1,6})(?:[ \t]+|$)")
 ```
 
-Matched against `stripped` (leading/trailing whitespace removed). Matching on the stripped line serves two purposes:
-- Handles blockquote headings (`> ## Section`) by ignoring the `>` prefix
-- Captures headings inside code blocks regardless of their indentation (e.g. `    ## Host` in a YAML block)
+Used through fence-aware heading matching:
+- Outside fenced code blocks, the parser removes up to 3 leading spaces before matching. Lines with 4+ leading spaces are treated as indented code, not structural headings.
+- Inside fenced code blocks, the parser matches against `line.strip()` so heading-like content such as `    ## Host` is preserved in the outline.
+- The optional `(?:>\s*)?` prefix still handles blockquote headings (`> ## Section`).
+
+ATX headings are recognized when the hash marker is followed by a space, a tab, or end-of-line. This means empty ATX headings such as `##` are preserved in the outline, and tab-separated forms such as `#\tTitle` are accepted.
 
 **Pattern 3 — Conservative setext headings**
 
@@ -919,13 +922,17 @@ When matched, the pair is normalized to a synthetic ATX entry at the title line 
 
 ```python
 while index < len(raw_lines):
-    if _FENCE_RE.match(line):
+    if not in_fence and _FENCE_RE.match(line):
         lines.append(f"{lineno}:{line}")
-    elif _HEADING_RE.match(stripped):
+    elif in_fence and _is_matching_fence_closer(line, fence_char, fence_len):
+        lines.append(f"{lineno}:{line}")
+    elif _match_heading(line, in_fence=in_fence):
         lines.append(f"{lineno}:{line}")
     elif not in_fence and _normalized_setext_heading(line, raw_lines[index + 1]):
         lines.append(f"{lineno}:{synthetic_heading}")
 ```
+
+Fence closing follows CommonMark-style rules: the closer must use the same fence character as the opener, be at least as long, and contain only trailing spaces or tabs after the fence run. Lines such as ````python` inside a fenced block are preserved as content, not treated as closers.
 
 **What is deliberately excluded**:
 
@@ -954,7 +961,7 @@ class OutlineEntry:
 1. Split the outline string by newlines
 2. For each line, extract `line_number` by splitting on the first `:`
 3. Determine `is_fence` by matching `_FENCE_RE` against the text
-4. Determine `depth` by matching `_HEADING_RE` and counting `#` characters; `None` for fence lines
+4. Determine `depth` by reusing the parser's fence-aware heading matcher and counting `#` characters; `None` for fence lines and non-heading content
 5. Track fence state using CommonMark rules: when a fence opener is seen, record its character (`` ` `` or `~`) and length. A closer must use the same character and be at least as long. This enables `in_fence` tagging on each entry.
 
 ### 7.3 Empty Fence Stripping

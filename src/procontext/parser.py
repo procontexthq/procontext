@@ -23,9 +23,11 @@ import re
 # 4-space indented lines (indented code blocks) are correctly ignored.
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
-# Matches ATX headings H1–H6 on the stripped line.  The optional ``(?:>\s*)?``
-# prefix handles blockquote headings (``> ## Section``).
-_HEADING_RE = re.compile(r"(?:>\s*)?(#{1,6}) .+")
+# Matches ATX headings H1–H6 once leading structural indentation has already
+# been handled. The optional ``(?:>\s*)?`` prefix handles blockquote headings
+# (``> ## Section``). A heading marker may be followed by spaces, tabs, or
+# end-of-line (empty heading).
+_HEADING_RE = re.compile(r"(?:>\s*)?(#{1,6})(?:[ \t]+|$)")
 
 # Matches conservative setext underlines: at most 3 spaces of indentation, then
 # one or more "=" or "-" characters, optionally followed by whitespace.
@@ -66,28 +68,34 @@ def parse_outline(content: str) -> str:
 
         line = raw_lines[index]
         lineno = index + 1
-        stripped = line.strip()
         fence_match = _FENCE_RE.match(line)
 
-        if fence_match is not None:
+        if not in_fence and fence_match is not None:
             lines.append(f"{lineno}:{line}")
             marker = fence_match.group(1)
             char = marker[0]
             length = len(marker)
-
-            if not in_fence:
-                in_fence = True
-                fence_char = char
-                fence_len = length
-            elif char == fence_char and length >= fence_len:
-                in_fence = False
-                fence_char = ""
-                fence_len = 0
+            in_fence = True
+            fence_char = char
+            fence_len = length
 
             index += 1
             continue
 
-        if _HEADING_RE.match(stripped):
+        if in_fence and _is_matching_fence_closer(
+            line,
+            fence_char=fence_char,
+            fence_len=fence_len,
+        ):
+            lines.append(f"{lineno}:{line}")
+            in_fence = False
+            fence_char = ""
+            fence_len = 0
+
+            index += 1
+            continue
+
+        if _match_heading(line, in_fence=in_fence) is not None:
             lines.append(f"{lineno}:{line}")
             index += 1
             continue
@@ -140,3 +148,36 @@ def _normalized_setext_heading(title_line: str, underline_line: str) -> str | No
 
     marker = "#" if underline_match.group(1)[0] == "=" else "##"
     return f"{marker} {title}"
+
+
+def _match_heading(line: str, *, in_fence: bool) -> re.Match[str] | None:
+    """Match an ATX heading using fence-aware indentation rules."""
+    if in_fence:
+        return _HEADING_RE.match(line.strip())
+
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return None
+
+    return _HEADING_RE.match(line[leading_spaces:])
+
+
+def _is_matching_fence_closer(line: str, *, fence_char: str, fence_len: int) -> bool:
+    """Return True when *line* is a valid closer for the active fence.
+
+    CommonMark requires the closer to use the same fence character, be at
+    least as long as the opener, and contain only trailing spaces/tabs.
+    """
+    if not line:
+        return False
+
+    stripped = line.lstrip(" ")
+    indent = len(line) - len(stripped)
+    if indent > 3:
+        return False
+
+    marker_len = len(stripped) - len(stripped.lstrip(fence_char))
+    if marker_len < fence_len:
+        return False
+
+    return stripped[marker_len:].strip(" \t") == ""

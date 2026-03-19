@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from procontext.parser import _FENCE_RE, _HEADING_RE
+from procontext.parser import _FENCE_RE, _is_matching_fence_closer, _match_heading
 
 
 @dataclass(frozen=True)
@@ -59,58 +59,43 @@ def parse_outline_entries(outline_string: str) -> list[OutlineEntry]:
 
         # Determine if this is a fence line
         fence_match = _FENCE_RE.match(text)
-        is_fence = fence_match is not None
 
-        if is_fence:
+        if not in_fence and fence_match is not None:
             assert fence_match is not None
             marker = fence_match.group(1)
             char = marker[0]
             length = len(marker)
-
-            if not in_fence:
-                # Opening a new fence
-                in_fence = True
-                fence_char = char
-                fence_len = length
-                entries.append(
-                    OutlineEntry(
-                        line_number=line_number,
-                        text=text,
-                        depth=None,
-                        is_fence=True,
-                        in_fence=False,  # The opener itself is not "inside" the fence
-                    )
+            in_fence = True
+            fence_char = char
+            fence_len = length
+            entries.append(
+                OutlineEntry(
+                    line_number=line_number,
+                    text=text,
+                    depth=None,
+                    is_fence=True,
+                    in_fence=False,  # The opener itself is not "inside" the fence
                 )
-            elif char == fence_char and length >= fence_len:
-                # Closing the fence
-                in_fence = False
-                fence_char = ""
-                fence_len = 0
-                entries.append(
-                    OutlineEntry(
-                        line_number=line_number,
-                        text=text,
-                        depth=None,
-                        is_fence=True,
-                        in_fence=False,  # The closer itself is not "inside" the fence
-                    )
+            )
+        elif in_fence and _is_matching_fence_closer(
+            text,
+            fence_char=fence_char,
+            fence_len=fence_len,
+        ):
+            in_fence = False
+            fence_char = ""
+            fence_len = 0
+            entries.append(
+                OutlineEntry(
+                    line_number=line_number,
+                    text=text,
+                    depth=None,
+                    is_fence=True,
+                    in_fence=False,  # The closer itself is not "inside" the fence
                 )
-            else:
-                # Fence-like line inside a fence that doesn't close it
-                # (different char or shorter length) — treat as heading check
-                depth = _extract_depth(text)
-                entries.append(
-                    OutlineEntry(
-                        line_number=line_number,
-                        text=text,
-                        depth=depth,
-                        is_fence=False,
-                        in_fence=True,
-                    )
-                )
+            )
         else:
-            # Heading line
-            depth = _extract_depth(text)
+            depth = _extract_depth(text, in_fence=in_fence)
             entries.append(
                 OutlineEntry(
                     line_number=line_number,
@@ -124,9 +109,9 @@ def parse_outline_entries(outline_string: str) -> list[OutlineEntry]:
     return entries
 
 
-def _extract_depth(text: str) -> int | None:
+def _extract_depth(text: str, *, in_fence: bool) -> int | None:
     """Extract heading depth (1-6) from a line, or None if not a heading."""
-    match = _HEADING_RE.match(text.strip())
+    match = _match_heading(text, in_fence=in_fence)
     if match:
         return len(match.group(1))
     return None

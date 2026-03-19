@@ -434,11 +434,14 @@ Each subsection defines the expected behaviours for a module. These serve as the
 **Expected behaviours**:
 
 - H1–H6 headings detected with correct 1-based line numbers
+- ATX headings accept a space, tab, or end-of-line after the hash marker (`# Title`, `#\tTitle`, and `##` all parse)
 - Plain setext headings are detected outside fenced code blocks and normalized to synthetic `#` / `##` entries at the title line number
 - Blockquote headings (`> ## Section`) are captured
 - Fence opener/closer lines are emitted so the agent knows where code blocks start/end
+- Fence closers must match the opener character/length and may only have trailing spaces or tabs; lines like ````python` inside a fenced block remain content
 - Headings inside code blocks are captured as-is (agent infers context from surrounding fence lines)
 - 4-space indented lines are not treated as fence openers
+- 4-space indented heading-like lines outside fences are ignored as structural headings
 
 ---
 
@@ -666,11 +669,13 @@ async def app_state(indexes, sample_entries):
 `tests/unit/test_parser.py`
 
 - H1–H6 headings detected with correct 1-based line numbers
+- ATX headings support tab-separated markers and empty headings
 - Plain setext headings normalized to synthetic `#` / `##` entries; blockquote setext remains unsupported
 - Blockquote headings (`> ## Section`) are captured; deeply nested (`>> ##`) are not
-- Fence opener/closer lines emitted as-is
+- Fence openers/valid closers emitted as-is; fence-like lines with trailing info text inside a fence do not close it
 - Headings inside code blocks captured with original indentation
 - 4-space indented lines not treated as fence openers
+- 4-space indented heading-like lines outside fences not captured
 - Lines with 7+ hashes not captured
 - BOM (`\ufeff`) on line 1 does not prevent heading detection
 
