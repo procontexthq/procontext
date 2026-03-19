@@ -54,28 +54,42 @@ class LibraryMatch(BaseModel):
     packages: list[PackageEntry] = Field(
         description="Package groups by ecosystem with language, README, and repo metadata."
     )
-    matched_via: Literal["package_name", "library_id", "alias", "fuzzy"] = Field(
-        description="Match method: package_name, library_id, alias, or fuzzy text match."
+    matched_via: Literal["package_name", "library_id", "name", "alias", "fuzzy"] = Field(
+        description="Match method: package_name, library_id, name, alias, or fuzzy text match."
     )
     relevance: float = Field(description="Match confidence 0.0 (low) to 1.0 (high).")
+
+
+TextMatchType = Literal["library_id", "name", "alias"]
+
+
+@dataclass(frozen=True)
+class ExactTextHit:
+    """Exact text lookup hit for a library ID, display name, or alias."""
+
+    library_id: str
+    match_type: TextMatchType
 
 
 @dataclass
 class RegistryIndexes:
     """In-memory indexes built from known-libraries.json at startup.
 
-    Four dicts rebuilt in a single pass (<100ms for 1,000 entries).
+    Exact indexes are rebuilt in a single pass (<100ms for 1,000 entries).
     """
 
-    # package name (lowercase) → library ID  e.g. "langchain-openai" → "langchain"
-    by_package: dict[str, str] = field(default_factory=dict)
+    # package name (lowercase, as published) → library IDs
+    by_package_exact: dict[str, list[str]] = field(default_factory=dict)
+
+    # PyPI package name (PEP 503 canonical form) → library IDs
+    by_package_pypi_canonical: dict[str, list[str]] = field(default_factory=dict)
 
     # library ID → full registry entry
     by_id: dict[str, RegistryEntry] = field(default_factory=dict)
 
-    # alias (lowercase) → library ID  e.g. "lang-chain" → "langchain"
-    by_alias: dict[str, str] = field(default_factory=dict)
+    # normalized text → exact hits from library IDs, display names, and aliases
+    by_text_exact: dict[str, list[ExactTextHit]] = field(default_factory=dict)
 
     # flat list of (term, library_id) pairs for fuzzy matching
-    # populated from all IDs + package names + aliases (lowercased)
+    # populated from package names, canonical package keys, IDs, names, and aliases
     fuzzy_corpus: list[tuple[str, str]] = field(default_factory=list)

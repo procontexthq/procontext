@@ -59,8 +59,8 @@ async def resolve_library(
     """Resolve a library name to its documentation source.
 
     Accepts a library name, package specifier (e.g. 'langchain-community'), or alias.
-    Matched in priority order: exact PyPI/npm package names, canonical library IDs,
-    registered aliases, then fuzzy name matching.
+    Matched in priority order: exact package lookup, exact text lookup
+    (library ID, display name, alias), then fuzzy matching.
 
     Always call this first to identify a library and obtain its documentation URLs.
     Then pass the index_url to read_page to get the documentation index.
@@ -78,7 +78,7 @@ async def resolve_library(
           package_names — package names in this ecosystem
           readme_url   — README URL for this package group (may be null)
           repo_url     — source repository URL (may be null)
-        matched_via  — "package_name" | "library_id" | "alias" | "fuzzy"
+        matched_via  — "package_name" | "library_id" | "name" | "alias" | "fuzzy"
         relevance    — confidence score 0.0 (low) to 1.0 (high)
 
     An empty matches list means the library is not in the registry.

@@ -76,12 +76,16 @@ ProContext exposes four MCP tools. All tools are async and return structured JSO
 
 **Processing**:
 
-1. Normalize input: strip pip extras, version specifiers; lowercase; trim whitespace
-2. Exact match against known package names (e.g., `"langchain-openai"` → `"langchain"`)
-3. Exact match against library IDs
-4. Match against known aliases
+1. Preprocess input: trim whitespace and safely strip Python extras/version syntax or npm numeric `@version` suffixes
+2. Classify the query as definitely Python, definitely npm, maybe Python, generic, or source-spec / GitHub-like
+3. Exact package lookup
+   - definitely Python: PyPI canonical lookup only
+   - definitely npm: exact package lookup only
+   - maybe Python: exact package lookup, then PyPI canonical fallback
+   - generic: exact package lookup only
+4. Exact text lookup against library IDs, display names, and aliases
 5. Fuzzy match (Levenshtein) for typos
-6. If no match: return empty list (never an error — unknown library is a valid outcome)
+6. If no match, or if the query is a source-spec / GitHub-like input: return empty list
 
 All matching is against in-memory indexes loaded from the registry at startup. No network calls.
 
@@ -118,15 +122,17 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 | `description`  | Short description of what the library does. May be empty for older registry entries                        |
 | `index_url`    | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
 | `packages`     | List of package ecosystem entries. Each entry contains `ecosystem`, `languages`, `package_names`, `readme_url`, and `repo_url`. Languages, README URLs, and repository URLs live here — not at the top level of the match. |
-| `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"alias"`, `"fuzzy"`                             |
+| `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"name"`, `"alias"`, `"fuzzy"`                   |
 | `relevance`    | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance                            |
 
 **Notes**:
 
 - `matches` is always sorted by `relevance` descending. Exact matches (relevance `1.0`) always precede fuzzy matches. This ordering is guaranteed and stable.
+- Exact package matches can return multiple libraries when different ecosystems share the same published package name, for example PyPI `openai` and npm `openai`.
 - When `language` is provided, results are additionally sorted so libraries with a matching language in their `packages` entries appear first. The `language` parameter sorts but never filters — all matches are still returned.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
+- Source-spec / GitHub-like inputs such as `https://github.com/user/repo`, `github:user/repo`, or `name @ https://...` return an empty `matches` list; the caller should ask for the package name instead.
 - The agent typically uses `index_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
 
 ---

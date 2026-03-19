@@ -7,55 +7,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from procontext.models.tools import ReadPageInput, ResolveLibraryInput, SearchPageInput
-from procontext.resolver import normalise_query, resolve_library
+from procontext.resolver import resolve_library
 
 if TYPE_CHECKING:
     from procontext.models.registry import RegistryIndexes
 
 
 # ---------------------------------------------------------------------------
-# normalise_query
-# ---------------------------------------------------------------------------
-
-
-class TestNormaliseQuery:
-    def test_extras_stripping(self) -> None:
-        assert normalise_query("langchain[openai]") == "langchain"
-
-    def test_extras_multiple(self) -> None:
-        assert normalise_query("langchain[openai,anthropic]") == "langchain"
-
-    def test_version_spec_gte(self) -> None:
-        assert normalise_query("langchain>=0.3") == "langchain"
-
-    def test_version_spec_complex(self) -> None:
-        assert normalise_query("langchain>=0.3,<1.0") == "langchain"
-
-    def test_version_spec_exact(self) -> None:
-        assert normalise_query("httpx==0.28.0") == "httpx"
-
-    def test_version_spec_compatible(self) -> None:
-        assert normalise_query("httpx~=0.28") == "httpx"
-
-    def test_lowercase(self) -> None:
-        assert normalise_query("LangChain") == "langchain"
-
-    def test_whitespace(self) -> None:
-        assert normalise_query("  langchain  ") == "langchain"
-
-    def test_combined(self) -> None:
-        """Extras + version + case + whitespace all at once."""
-        assert normalise_query("  LangChain[openai]>=0.3  ") == "langchain"
-
-    def test_empty_after_strip(self) -> None:
-        assert normalise_query("   ") == ""
-
-    def test_caret_version(self) -> None:
-        assert normalise_query("pydantic^2.0") == "pydantic"
-
-
-# ---------------------------------------------------------------------------
-# resolve_library — 5-step algorithm
+# resolve_library
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +36,7 @@ class TestResolveLibraryStep1PackageName:
         assert matches[0].matched_via == "package_name"
 
     def test_case_insensitive(self, indexes: RegistryIndexes) -> None:
-        """Package lookup is case-insensitive because normalise_query lowercases."""
+        """Package lookup remains case-insensitive."""
         matches = resolve_library("Pydantic-Settings", indexes)
         assert len(matches) == 1
         assert matches[0].library_id == "pydantic"
@@ -110,6 +69,7 @@ class TestResolveLibraryStep2LibraryId:
         matches = resolve_library("langchain", indexes)
         assert len(matches) == 1
         assert matches[0].library_id == "langchain"
+        assert matches[0].matched_via == "package_name"
         assert matches[0].relevance == 1.0
 
 

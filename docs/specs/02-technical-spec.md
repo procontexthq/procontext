@@ -97,10 +97,11 @@
 ### 1.2 Request Flow
 
 ```
-resolve_library("langchain-openai>=0.3")
+resolve_library("langchain[openai]>=0.3")
   │
-  ├─ Normalise: strip version/extras → "langchain-openai" → lowercase
-  ├─ Index 1 (package → ID): "langchain-openai" → "langchain"  ✓
+  ├─ Preprocess: strip extras/version → "langchain" → lowercase
+  ├─ Classify: definitely_python
+  ├─ Index 1 (PyPI canonical package → IDs): "langchain" → ["langchain"]  ✓
   └─ Return [{ library_id: "langchain", index_url: "...", matched_via: "package_name", relevance: 1.0 }]
 
 read_page("https://python.langchain.com/llms.txt")
@@ -202,7 +203,7 @@ class LibraryMatch(BaseModel):
     description: str               # Short description of what the library does
     index_url: str                  # URL to the library's llms.txt documentation index
     packages: list[PackageEntry]    # Package ecosystem entries (languages, readme, repo live here)
-    matched_via: Literal["package_name", "library_id", "alias", "fuzzy"]
+    matched_via: Literal["package_name", "library_id", "name", "alias", "fuzzy"]
     relevance: float               # 0.0–1.0
 ```
 
@@ -404,78 +405,85 @@ class ProContextError(Exception):
 
 ### 4.1 In-Memory Indexes
 
-Loaded from `known-libraries.json` at startup. Four Python dicts/lists rebuilt in a single pass (<100ms for 1,000 entries):
+Loaded from `known-libraries.json` at startup. Four exact/fuzzy structures are rebuilt in a single pass (<100ms for 1,000 entries):
 
 ```python
 @dataclass
 class RegistryIndexes:
-    # Index 1: package name (lowercase) → library ID
-    # Many-to-one: "langchain-openai", "langchain-core" → "langchain"
-    by_package: dict[str, str]
+    # Index 1: package name (lowercase, as published) → library IDs
+    by_package_exact: dict[str, list[str]]
 
-    # Index 2: library ID (lowercase) → full RegistryEntry
+    # Index 2: PyPI package name (PEP 503 canonical form) → library IDs
+    by_package_pypi_canonical: dict[str, list[str]]
+
+    # Index 3: library ID → full RegistryEntry
     by_id: dict[str, RegistryEntry]
 
-    # Index 3: alias (lowercase) → library ID (O(1) exact alias lookup)
-    # e.g. "torch" → "pytorch"
-    by_alias: dict[str, str]
+    # Index 4: normalized text → exact text hits from library_id, name, alias
+    by_text_exact: dict[str, list[ExactTextHit]]
 
-    # Index 4: flat list of (term, library_id) for fuzzy matching
-    # Populated from: all IDs + all package names + all aliases (lowercased)
+    # Flat list of unique (normalized_term, library_id) pairs for fuzzy matching
     fuzzy_corpus: list[tuple[str, str]]
 
 def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
-    by_package: dict[str, str] = {}
+    by_package_exact_seen: dict[str, dict[str, None]] = {}
+    by_package_pypi_canonical_seen: dict[str, dict[str, None]] = {}
     by_id: dict[str, RegistryEntry] = {}
-    by_alias: dict[str, str] = {}
-    fuzzy_corpus: list[tuple[str, str]] = []
+    by_text_exact_seen: dict[str, dict[str, ExactTextHit]] = {}
+    fuzzy_corpus_seen: dict[tuple[str, str], None] = {}
 
     for entry in entries:
         by_id[entry.id] = entry
-        fuzzy_corpus.append((entry.id, entry.id))
-
-        for pkg_entry in entry.packages:
-            for pkg_name in pkg_entry.package_names:
-                by_package[pkg_name.lower()] = entry.id
-                fuzzy_corpus.append((pkg_name.lower(), entry.id))
-
-        for alias in entry.aliases:
-            by_alias[alias.lower()] = entry.id
-            fuzzy_corpus.append((alias.lower(), entry.id))
+        # add text, package, and fuzzy terms with build-time dedupe
 
     return RegistryIndexes(
-        by_package=by_package,
+        by_package_exact=...,
+        by_package_pypi_canonical=...,
         by_id=by_id,
-        by_alias=by_alias,
-        fuzzy_corpus=fuzzy_corpus,
+        by_text_exact=...,
+        fuzzy_corpus=list(fuzzy_corpus_seen.keys()),
     )
 ```
 
+Build-time dedupe rules:
+
+- Package indexes keep one entry per `(key, library_id)` while preserving registry order.
+- Text index keeps one entry per `(key, library_id)` and upgrades weaker hits using the priority `library_id` → `name` → `alias`.
+- Fuzzy corpus keeps one entry per `(normalized_term, library_id)`.
+
 ### 4.2 Resolution Algorithm
 
-Five steps in priority order. Returns on the first hit.
+Three tiers in priority order. Returns on the first successful tier.
 
 ```
-Step 0: Normalise query (see Section 4.4)
+Step 0: Preprocess query (see Section 4.4)
+        - trim outer whitespace
+        - safe-strip trusted dependency syntax
+        - classify query
 
-Step 1: Exact package match
-        indexes.by_package.get(normalised)
-        "langchain-openai" → "langchain"  ✓
+Step 1: Exact package tier
+        definitely_python:
+          indexes.by_package_pypi_canonical.get(canonicalized_query)
+        definitely_npm:
+          indexes.by_package_exact.get(stripped_query)
+        maybe_python:
+          indexes.by_package_exact.get(stripped_query)
+          then indexes.by_package_pypi_canonical.get(canonicalized_query) on miss
+        generic:
+          indexes.by_package_exact.get(stripped_query)
+        github_like/source-spec:
+          return []
 
-Step 2: Exact ID match
-        indexes.by_id.get(normalised)
-        "langchain" → RegistryEntry  ✓
+Step 2: Exact text tier
+        indexes.by_text_exact.get(normalized_text_query)
+        returns exact library_id, name, or alias matches in that priority order
 
-Step 3: Alias match
-        indexes.by_alias.get(normalised)   # O(1) dict lookup
-        "torch" → "pytorch"  ✓
-
-Step 4: Fuzzy match (Levenshtein)
+Step 3: Fuzzy match (Levenshtein)
         rapidfuzz.process.extract against fuzzy_corpus terms
         "langchan" → "langchain" (distance 1)  ✓
         Returns ALL matches above threshold, ranked by relevance
 
-Step 5: No match → return empty list
+Step 4: No match → return empty list
 ```
 
 ### 4.3 Fuzzy Matching
@@ -485,7 +493,7 @@ from rapidfuzz import process, fuzz
 
 def fuzzy_search(
     query: str,
-    corpus: list[tuple[str, str]],  # (term, library_id)
+    corpus: list[tuple[str, str]],  # (normalized_term, library_id)
     limit: int = 5,
 ) -> list[LibraryMatch]:
     terms = [term for term, _ in corpus]
@@ -517,30 +525,43 @@ def fuzzy_search(
     return sorted(matches, key=lambda m: m.relevance, reverse=True)
 ```
 
-**Score cutoff rationale**: 70% rejects clearly wrong matches while catching common typos (`"fastapi"` → `"fasapi"`, `"langchain"` → `"langchan"`). Exact matches in steps 1–3 always score `1.0`.
+The same fuzzy-normalization helper is applied both when the corpus is built and when the incoming query reaches the fuzzy tier:
+
+- trim outer whitespace
+- lowercase
+- apply the same safe stripping used by exact lookup
+- collapse repeated internal whitespace
+
+**Score cutoff rationale**: 70% rejects clearly wrong matches while catching common typos (`"fastapi"` → `"fasapi"`, `"langchain"` → `"langchan"`). Exact matches in steps 1–2 always score `1.0`.
 
 ### 4.4 Query Normalisation
 
 Applied before every resolution attempt:
 
 ```python
-import re
+def strip_safe_query(raw: str) -> str:
+    query = raw.strip()
+    if not query or is_source_spec_query(query):
+        return query
 
-def normalise_query(raw: str) -> str:
-    # 1. Strip pip extras:      "package[extra1,extra2]" → "package"
-    query = re.sub(r"\[.*?\]", "", raw)
+    # npm numeric semver/range suffixes
+    if scoped_or_unscoped_npm_version_match(query):
+        return extracted_package_name
 
-    # 2. Strip version specs:   "package>=1.0,<2.0" → "package"
-    query = re.sub(r"[><=!~^].+", "", query)
-
-    # 3. Lowercase
-    query = query.lower()
-
-    # 4. Trim whitespace
-    query = query.strip()
+    # Python extras and version/range suffixes
+    if python_requirement_match(query):
+        return extracted_package_name
 
     return query
 ```
+
+Classification happens after safe stripping:
+
+- `definitely_python`: Python extras or version/range syntax was present
+- `definitely_npm`: scoped npm package or safe npm version stripping succeeded
+- `maybe_python`: plain package-like token where PEP 503 changes the key
+- `generic`: plain token where PEP 503 does not change the key
+- `github_like`: source-spec / GitHub-like input such as `https://github.com/...`, `git+https://github.com/...`, `github:user/repo`, or `name @ https://...`
 
 ---
 

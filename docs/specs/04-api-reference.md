@@ -240,13 +240,17 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 }
 ```
 
-**Normalisation applied before matching**: pip extras (`[...]`) and version specifiers (`>=`, `==`, `~=`, `<`, `>`, `!=`, `^`) are stripped; input is lowercased and trimmed.
+**Preprocessing applied before matching**: outer whitespace is trimmed; Python extras and version/range suffixes are stripped; npm numeric `@version` suffixes are stripped. Python direct references (`name @ https://...`), bare GitHub/source-spec inputs, and npm dist-tags such as `@latest` are not rewritten.
 
 **Matching order** (first hit wins):
 
-1. Exact match against known package names (across all ecosystems: PyPI, npm, conda, jsr)
-2. Exact match against library IDs
-3. Exact match against known aliases
+1. GitHub/source-spec input → immediate empty `matches` list
+2. Exact package lookup
+   - definitely Python: PyPI canonical package lookup
+   - definitely npm: exact package lookup
+   - maybe Python: exact package lookup, then PyPI canonical fallback
+   - generic: exact package lookup
+3. Exact text lookup against library IDs, display names, and aliases
 4. Levenshtein fuzzy match (score threshold: 70%)
 5. No match → empty `matches` list
 
@@ -316,7 +320,7 @@ All matching is in-memory. No network calls.
           },
           "matched_via": {
             "type": "string",
-            "enum": ["package_name", "library_id", "alias", "fuzzy"],
+            "enum": ["package_name", "library_id", "name", "alias", "fuzzy"],
             "description": "How the match was made."
           },
           "relevance": {
@@ -372,6 +376,40 @@ Result (`text` field, parsed):
         }
       ],
       "matched_via": "package_name",
+      "relevance": 1.0
+    }
+  ]
+}
+```
+
+**Exact display name match**:
+
+Request arguments:
+
+```json
+{ "query": "Babel Core" }
+```
+
+Result:
+
+```json
+{
+  "matches": [
+    {
+      "library_id": "babel-core",
+      "name": "Babel Core",
+      "description": "JavaScript compiler core package.",
+      "index_url": "https://babeljs.io/llms.txt",
+      "packages": [
+        {
+          "ecosystem": "npm",
+          "languages": ["javascript", "typescript"],
+          "package_names": ["@babel/core"],
+          "readme_url": null,
+          "repo_url": null
+        }
+      ],
+      "matched_via": "name",
       "relevance": 1.0
     }
   ]

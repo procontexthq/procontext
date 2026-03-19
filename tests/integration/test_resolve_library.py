@@ -63,7 +63,7 @@ class TestResolveLibraryHandler:
         assert result["matches"][0]["matched_via"] == "package_name"
 
     async def test_pip_specifier_resolves_correctly(self, app_state: AppState) -> None:
-        result = await handle("langchain-openai>=0.3", app_state)
+        result = await handle("langchain[openai]>=0.3", app_state)
         assert result["matches"][0]["library_id"] == "langchain"
 
     async def test_packages_in_response(self, app_state: AppState) -> None:
@@ -74,6 +74,113 @@ class TestResolveLibraryHandler:
         assert pkg["ecosystem"] == "pypi"
         assert "python" in pkg["languages"]
         assert "langchain" in pkg["package_names"]
+
+
+@pytest.fixture()
+async def mixed_state() -> AppState:
+    """AppState with mixed-ecosystem packages for resolver edge cases."""
+    entries = [
+        RegistryEntry(
+            id="langchain",
+            name="LangChain",
+            description="Framework for building LLM-powered applications.",
+            packages=[
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["langchain", "langchain-openai"],
+                ),
+            ],
+            aliases=["lang-chain"],
+            llms_txt_url="https://python.langchain.com/llms.txt",
+        ),
+        RegistryEntry(
+            id="babel-core",
+            name="Babel Core",
+            description="JavaScript compiler core package.",
+            packages=[
+                PackageEntry(
+                    ecosystem="npm",
+                    languages=["javascript", "typescript"],
+                    package_names=["@babel/core"],
+                ),
+            ],
+            llms_txt_url="https://babeljs.io/llms.txt",
+        ),
+        RegistryEntry(
+            id="openai-python",
+            name="OpenAI Python",
+            description="Official OpenAI SDK for Python.",
+            packages=[
+                PackageEntry(
+                    ecosystem="pypi",
+                    languages=["python"],
+                    package_names=["openai"],
+                ),
+            ],
+            llms_txt_url="https://openai.github.io/openai-python/llms.txt",
+        ),
+        RegistryEntry(
+            id="openai-js",
+            name="OpenAI JavaScript",
+            description="Official OpenAI SDK for JavaScript and TypeScript.",
+            packages=[
+                PackageEntry(
+                    ecosystem="npm",
+                    languages=["javascript", "typescript"],
+                    package_names=["openai"],
+                ),
+            ],
+            llms_txt_url="https://openai.github.io/openai-node/llms.txt",
+        ),
+    ]
+    indexes = build_indexes(entries)
+    async with aiosqlite.connect(":memory:") as db:
+        cache = Cache(db)
+        await cache.init_db()
+        async with httpx.AsyncClient() as client:
+            fetcher = Fetcher(client)
+            allowlist = build_allowlist(entries)
+            state = AppState(
+                settings=Settings(),
+                indexes=indexes,
+                registry_version="test",
+                http_client=client,
+                cache=cache,
+                fetcher=fetcher,
+                allowlist=allowlist,
+            )
+            yield state
+
+
+class TestResolveLibraryMixedHandler:
+    async def test_exact_name_match_returns_name_match_type(self, mixed_state: AppState) -> None:
+        result = await handle("  Babel   Core  ", mixed_state)
+
+        assert result["matches"][0]["library_id"] == "babel-core"
+        assert result["matches"][0]["matched_via"] == "name"
+
+    async def test_scoped_npm_package_with_version_resolves(self, mixed_state: AppState) -> None:
+        result = await handle("@babel/core@^7.26.0", mixed_state)
+
+        assert result["matches"][0]["library_id"] == "babel-core"
+        assert result["matches"][0]["matched_via"] == "package_name"
+
+    async def test_shared_exact_package_identifier_returns_multiple_matches(
+        self, mixed_state: AppState
+    ) -> None:
+        result = await handle("openai", mixed_state)
+
+        assert {match["library_id"] for match in result["matches"]} == {
+            "openai-python",
+            "openai-js",
+        }
+        assert {match["matched_via"] for match in result["matches"]} == {"package_name"}
+
+    async def test_github_like_query_returns_empty_matches(self, mixed_state: AppState) -> None:
+        result = await handle("https://github.com/openai/openai-python", mixed_state)
+
+        assert result["matches"] == []
 
 
 @pytest.fixture()

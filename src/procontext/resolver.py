@@ -6,31 +6,30 @@ No knowledge of AppState, MCP, or I/O.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Literal
 
 from rapidfuzz import fuzz, process
 
 from procontext.models.registry import LibraryMatch
+from procontext.normalization import (
+    canonicalize_pypi_name,
+    is_source_spec_query,
+    normalize_fuzzy_term,
+    normalize_package_key,
+    normalize_text_key,
+    strip_safe_query,
+)
 
 if TYPE_CHECKING:
     from procontext.models.registry import RegistryEntry, RegistryIndexes
 
-
-def normalise_query(raw: str) -> str:
-    """Normalise a raw query string for resolution.
-
-    Steps (order matters):
-      1. Strip pip extras:     "package[extra1,extra2]" → "package"
-      2. Strip version specs:  "package>=1.0,<2.0" → "package"
-      3. Lowercase
-      4. Trim whitespace
-    """
-    query = re.sub(r"\[.*?\]", "", raw)
-    query = re.sub(r"[><=!~^].+", "", query)
-    query = query.lower()
-    query = query.strip()
-    return query
+QueryKind = Literal[
+    "definitely_python",
+    "definitely_npm",
+    "maybe_python",
+    "generic",
+    "github_like",
+]
 
 
 def resolve_library(
@@ -40,36 +39,29 @@ def resolve_library(
     fuzzy_score_cutoff: int = 70,
     fuzzy_max_results: int = 5,
 ) -> list[LibraryMatch]:
-    """Resolve a query to matching libraries using the 5-step algorithm.
-
-    Returns on first hit for steps 1-3 (exact matches).
-    Step 4 (fuzzy) may return multiple results.
-    Result is always sorted by relevance descending (contract guarantee).
-    """
-    normalised = normalise_query(query)
-    if not normalised:
+    """Resolve a query to matching libraries using exact tiers before fuzzy search."""
+    stripped_query = strip_safe_query(query)
+    if not stripped_query:
         return []
 
-    # Step 1: Exact package name match
-    library_id = indexes.by_package.get(normalised)
-    if library_id is not None:
-        entry = indexes.by_id[library_id]
-        return [_match_from_entry(entry, matched_via="package_name", relevance=1.0)]
+    query_kind = _classify_query(query, stripped_query)
+    if query_kind == "github_like":
+        return []
 
-    # Step 2: Exact ID match
-    entry = indexes.by_id.get(normalised)
-    if entry is not None:
-        return [_match_from_entry(entry, matched_via="library_id", relevance=1.0)]
+    package_matches = _resolve_package_matches(stripped_query, query_kind, indexes)
+    if package_matches:
+        return package_matches
 
-    # Step 3: Alias match
-    library_id = indexes.by_alias.get(normalised)
-    if library_id is not None:
-        entry = indexes.by_id[library_id]
-        return [_match_from_entry(entry, matched_via="alias", relevance=1.0)]
+    text_matches = _resolve_text_matches(stripped_query, indexes)
+    if text_matches:
+        return text_matches
 
-    # Step 4: Fuzzy match
+    fuzzy_query = normalize_fuzzy_term(query)
+    if not fuzzy_query:
+        return []
+
     matches = _fuzzy_search(
-        normalised,
+        fuzzy_query,
         indexes.fuzzy_corpus,
         indexes.by_id,
         limit=fuzzy_max_results,
@@ -78,14 +70,13 @@ def resolve_library(
     if matches:
         return matches
 
-    # Step 5: No match
     return []
 
 
 def _match_from_entry(
     entry: RegistryEntry,
     *,
-    matched_via: Literal["package_name", "library_id", "alias", "fuzzy"],
+    matched_via: Literal["package_name", "library_id", "name", "alias", "fuzzy"],
     relevance: float,
 ) -> LibraryMatch:
     """Build a LibraryMatch from a RegistryEntry."""
@@ -98,6 +89,107 @@ def _match_from_entry(
         matched_via=matched_via,
         relevance=relevance,
     )
+
+
+def _classify_query(raw_query: str, stripped_query: str) -> QueryKind:
+    trimmed_query = raw_query.strip()
+    if is_source_spec_query(trimmed_query):
+        return "github_like"
+    if _is_definitely_python_query(trimmed_query):
+        return "definitely_python"
+    if _is_definitely_npm_query(trimmed_query, stripped_query):
+        return "definitely_npm"
+    if _is_maybe_python_query(stripped_query):
+        return "maybe_python"
+    return "generic"
+
+
+def _is_definitely_python_query(query: str) -> bool:
+    if "@" in query or "/" in query:
+        return False
+    return "[" in query or any(
+        operator in query for operator in ("==", "~=", "!=", "<=", ">=", "<", ">")
+    )
+
+
+def _is_definitely_npm_query(raw_query: str, stripped_query: str) -> bool:
+    if stripped_query.startswith("@") and "/" in stripped_query:
+        return True
+    return raw_query != stripped_query and "@" in raw_query
+
+
+def _is_maybe_python_query(query: str) -> bool:
+    if not query or query.startswith("@") or "/" in query:
+        return False
+    return canonicalize_pypi_name(query) != normalize_package_key(query)
+
+
+def _resolve_package_matches(
+    stripped_query: str,
+    query_kind: QueryKind,
+    indexes: RegistryIndexes,
+) -> list[LibraryMatch]:
+    exact_key = normalize_package_key(stripped_query)
+    canonical_key = canonicalize_pypi_name(stripped_query)
+
+    if query_kind == "definitely_python":
+        return _matches_from_library_ids(
+            indexes.by_package_pypi_canonical.get(canonical_key, []),
+            indexes,
+            matched_via="package_name",
+        )
+    if query_kind == "definitely_npm":
+        return _matches_from_library_ids(
+            indexes.by_package_exact.get(exact_key, []),
+            indexes,
+            matched_via="package_name",
+        )
+    if query_kind == "maybe_python":
+        exact_matches = _matches_from_library_ids(
+            indexes.by_package_exact.get(exact_key, []),
+            indexes,
+            matched_via="package_name",
+        )
+        if exact_matches:
+            return exact_matches
+        return _matches_from_library_ids(
+            indexes.by_package_pypi_canonical.get(canonical_key, []),
+            indexes,
+            matched_via="package_name",
+        )
+    return _matches_from_library_ids(
+        indexes.by_package_exact.get(exact_key, []),
+        indexes,
+        matched_via="package_name",
+    )
+
+
+def _resolve_text_matches(
+    stripped_query: str,
+    indexes: RegistryIndexes,
+) -> list[LibraryMatch]:
+    text_key = normalize_text_key(stripped_query)
+    hits = indexes.by_text_exact.get(text_key, [])
+    return [
+        _match_from_entry(
+            indexes.by_id[hit.library_id],
+            matched_via=hit.match_type,
+            relevance=1.0,
+        )
+        for hit in hits
+    ]
+
+
+def _matches_from_library_ids(
+    library_ids: list[str],
+    indexes: RegistryIndexes,
+    *,
+    matched_via: Literal["package_name"],
+) -> list[LibraryMatch]:
+    return [
+        _match_from_entry(indexes.by_id[library_id], matched_via=matched_via, relevance=1.0)
+        for library_id in library_ids
+    ]
 
 
 def _fuzzy_search(

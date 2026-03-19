@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from procontext.models.registry import RegistryEntry, RegistryIndexes
+from procontext.models.registry import ExactTextHit, RegistryEntry, RegistryIndexes, TextMatchType
+from procontext.normalization import (
+    canonicalize_pypi_name,
+    normalize_fuzzy_term,
+    normalize_package_key,
+    normalize_text_key,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -78,31 +84,94 @@ def _load_local_registry_pair(
 
 def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
     """Build in-memory indexes from a list of registry entries."""
-    by_package: dict[str, str] = {}
+    by_package_exact_seen: dict[str, dict[str, None]] = {}
+    by_package_pypi_canonical_seen: dict[str, dict[str, None]] = {}
     by_id: dict[str, RegistryEntry] = {}
-    by_alias: dict[str, str] = {}
-    fuzzy_corpus: list[tuple[str, str]] = []
+    by_text_exact_seen: dict[str, dict[str, ExactTextHit]] = {}
+    fuzzy_corpus_seen: dict[tuple[str, str], None] = {}
 
     for entry in entries:
         by_id[entry.id] = entry
-        fuzzy_corpus.append((entry.id, entry.id))
+        _add_text_hit(by_text_exact_seen, entry.id, entry.id, "library_id")
+        _add_fuzzy_term(fuzzy_corpus_seen, entry.id, entry.id)
+        _add_fuzzy_term(fuzzy_corpus_seen, entry.name, entry.id)
 
         for pkg_entry in entry.packages:
             for name in pkg_entry.package_names:
-                by_package[name.lower()] = entry.id
-                fuzzy_corpus.append((name.lower(), entry.id))
+                exact_key = normalize_package_key(name)
+                _add_keyed_library(by_package_exact_seen, exact_key, entry.id)
+                _add_fuzzy_term(fuzzy_corpus_seen, name, entry.id)
+
+                if pkg_entry.ecosystem == "pypi":
+                    canonical_key = canonicalize_pypi_name(name)
+                    _add_keyed_library(by_package_pypi_canonical_seen, canonical_key, entry.id)
+                    _add_fuzzy_term(fuzzy_corpus_seen, canonical_key, entry.id)
 
         for alias in entry.aliases:
-            by_alias[alias.lower()] = entry.id
-            fuzzy_corpus.append((alias.lower(), entry.id))
+            _add_text_hit(by_text_exact_seen, alias, entry.id, "alias")
+            _add_fuzzy_term(fuzzy_corpus_seen, alias, entry.id)
+
+        _add_text_hit(by_text_exact_seen, entry.name, entry.id, "name")
 
     return RegistryIndexes(
-        by_package=by_package,
+        by_package_exact=_freeze_keyed_library_index(by_package_exact_seen),
+        by_package_pypi_canonical=_freeze_keyed_library_index(by_package_pypi_canonical_seen),
         by_id=by_id,
-        by_alias=by_alias,
-        fuzzy_corpus=fuzzy_corpus,
+        by_text_exact=_freeze_text_index(by_text_exact_seen),
+        fuzzy_corpus=list(fuzzy_corpus_seen.keys()),
     )
 
 
 def _sha256_prefixed(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _add_keyed_library(index: dict[str, dict[str, None]], key: str, library_id: str) -> None:
+    index.setdefault(key, {})[library_id] = None
+
+
+def _add_text_hit(
+    index: dict[str, dict[str, ExactTextHit]],
+    raw_key: str,
+    library_id: str,
+    match_type: TextMatchType,
+) -> None:
+    key = normalize_text_key(raw_key)
+    hits_for_key = index.setdefault(key, {})
+    existing = hits_for_key.get(library_id)
+    if existing is None or _text_match_priority(match_type) < _text_match_priority(
+        existing.match_type
+    ):
+        hits_for_key[library_id] = ExactTextHit(library_id=library_id, match_type=match_type)
+
+
+def _add_fuzzy_term(
+    fuzzy_corpus_seen: dict[tuple[str, str], None],
+    raw_term: str,
+    library_id: str,
+) -> None:
+    term = normalize_fuzzy_term(raw_term)
+    if not term:
+        return
+    fuzzy_corpus_seen[(term, library_id)] = None
+
+
+def _freeze_keyed_library_index(index: dict[str, dict[str, None]]) -> dict[str, list[str]]:
+    return {key: list(library_ids.keys()) for key, library_ids in index.items()}
+
+
+def _freeze_text_index(
+    index: dict[str, dict[str, ExactTextHit]],
+) -> dict[str, list[ExactTextHit]]:
+    return {
+        key: sorted(hits.values(), key=lambda hit: _text_match_priority(hit.match_type))
+        for key, hits in index.items()
+    }
+
+
+def _text_match_priority(match_type: TextMatchType) -> int:
+    if match_type == "library_id":
+        return 0
+    if match_type == "name":
+        return 1
+    return 2
