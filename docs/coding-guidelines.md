@@ -171,7 +171,11 @@ A useful heuristic: if a function cannot be understood in one reading without sc
 
 ## Testing Strategy
 
-### 18. Test the public API contract, not the implementation
+### 18. Always write tests first
+
+Make it a habit to write tests before implementing new features or fixing bugs. This ensures that you have a clear understanding of the expected behavior and helps catch regressions early.
+
+### 19. Test the public API contract, not the implementation
 
 Write tests from the perspective of a consumer: import the public API and assert on observable behavior. Do not reach into private methods or internal state.
 
@@ -179,11 +183,11 @@ Write tests from the perspective of a consumer: import the public API and assert
 
 Do not generate tests that mirror the source file structure and test private helpers directly. Resist this pattern.
 
-### 19. Keep tests for deprecated APIs until removal
+### 20. Keep tests for deprecated APIs until removal
 
 Deprecated code is still public API. Maintain tests for it through the entire deprecation cycle. Suppress deprecation warnings explicitly in those test files so future contributors know the suppression is intentional.
 
-### 20. Every bug fix requires a regression test
+### 21. Every bug fix requires a regression test
 
 Do not merge a bug fix without a test that fails before the fix and passes after. This prevents the same bug from reappearing silently in a future refactor.
 
@@ -191,7 +195,7 @@ Do not merge a bug fix without a test that fails before the fix and passes after
 
 ## Supply Chain Security
 
-### 21. Publish provenance attestations
+### 22. Publish provenance attestations
 
 Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
@@ -203,7 +207,7 @@ Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
 Enterprise consumers increasingly require provenance. Its absence is an adoption barrier.
 
-### 22. Verify every dependency against the actual registry
+### 23. Verify every dependency against the actual registry
 
 ~20% of AI-suggested packages do not exist in any public registry (2025 study, 576k samples). Attackers register these hallucinated names with malicious code ("slopsquatting"). Before adding any dependency, verify the package name exists in the actual registry and is the package you intend to use.
 

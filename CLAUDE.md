@@ -106,6 +106,7 @@ See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
 
 ## Testing Requirements
 
+- Always write test cases first
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
 - Coverage: test edge cases and errors
