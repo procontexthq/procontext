@@ -74,6 +74,83 @@ function Write-Kv {
     Write-Host ("  {0,-15} {1}" -f $Label, $Value) -ForegroundColor DarkGray
 }
 
+function Remove-TrailingDirectorySeparators {
+    param([string]$PathValue)
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $PathValue
+    }
+
+    $trimmedPath = $PathValue.Trim()
+    $root = [System.IO.Path]::GetPathRoot($trimmedPath)
+    if (-not [string]::IsNullOrWhiteSpace($root) -and $trimmedPath.Length -le $root.Length) {
+        return $trimmedPath
+    }
+
+    return $trimmedPath.TrimEnd([char[]]@('\', '/'))
+}
+
+function Resolve-NormalizedFileSystemPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PathValue,
+
+        [switch]$RequireExisting
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        throw "Path cannot be empty."
+    }
+
+    $expandedPath = [Environment]::ExpandEnvironmentVariables($PathValue.Trim())
+    $provider = $null
+    $drive = $null
+    $providerPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $expandedPath,
+        [ref]$provider,
+        [ref]$drive
+    )
+
+    if ($provider -and $provider.Name -ne "FileSystem") {
+        throw "Path '$PathValue' must use the FileSystem provider."
+    }
+
+    $normalizedPath = Remove-TrailingDirectorySeparators ([System.IO.Path]::GetFullPath($providerPath))
+    if ($RequireExisting -and -not (Test-Path -LiteralPath $normalizedPath)) {
+        throw "Path '$normalizedPath' does not exist."
+    }
+
+    return $normalizedPath
+}
+
+function Normalize-PathEntry {
+    param([string]$PathEntry)
+
+    if ([string]::IsNullOrWhiteSpace($PathEntry)) {
+        return $null
+    }
+
+    try {
+        return (Resolve-NormalizedFileSystemPath -PathValue $PathEntry -RequireExisting)
+    } catch {
+        return $null
+    }
+}
+
+function Get-NormalizedPathEntries {
+    param([string]$PathValue)
+
+    $normalizedEntries = @()
+    foreach ($entry in @("$PathValue" -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $normalizedEntry = Normalize-PathEntry $entry
+        if (-not [string]::IsNullOrWhiteSpace($normalizedEntry)) {
+            $normalizedEntries += $normalizedEntry
+        }
+    }
+
+    return $normalizedEntries
+}
+
 function Assert-SupportedPowerShell {
     if ($PSVersionTable.PSVersion.Major -lt 5) {
         Write-Failure "PowerShell 5+ is required (found $($PSVersionTable.PSVersion))."
@@ -108,46 +185,48 @@ function Invoke-Step {
 function Add-ToProcessPath {
     param([string]$PathEntry)
 
-    if ([string]::IsNullOrWhiteSpace($PathEntry) -or -not (Test-Path $PathEntry)) {
+    $normalizedEntry = Normalize-PathEntry $PathEntry
+    if ([string]::IsNullOrWhiteSpace($normalizedEntry)) {
         return
     }
 
-    $entries = @($env:Path -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($entries | Where-Object { $_ -ieq $PathEntry }) {
+    $entries = @(Get-NormalizedPathEntries -PathValue $env:Path)
+    if ($entries | Where-Object { $_ -ieq $normalizedEntry }) {
         return
     }
 
-    $env:Path = "$PathEntry;$env:Path"
+    $env:Path = "$normalizedEntry;$env:Path"
 }
 
 function Add-ToUserPath {
     param([string]$PathEntry)
 
-    if ([string]::IsNullOrWhiteSpace($PathEntry) -or -not (Test-Path $PathEntry)) {
+    $normalizedEntry = Normalize-PathEntry $PathEntry
+    if ([string]::IsNullOrWhiteSpace($normalizedEntry)) {
         return
     }
 
-    Add-ToProcessPath $PathEntry
+    Add-ToProcessPath $normalizedEntry
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $entries = @("$userPath" -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($entries | Where-Object { $_ -ieq $PathEntry }) {
+    $entries = @(Get-NormalizedPathEntries -PathValue $userPath)
+    if ($entries | Where-Object { $_ -ieq $normalizedEntry }) {
         return
     }
 
     if ($DryRun) {
-        Write-Info "Would add $PathEntry to user PATH if needed"
+        Write-Info "Would add $normalizedEntry to user PATH if needed"
         return
     }
 
-    $newUserPath = $PathEntry
+    $newUserPath = $normalizedEntry
     if (-not [string]::IsNullOrWhiteSpace($userPath)) {
-        $newUserPath = "$userPath;$PathEntry"
+        $newUserPath = "$userPath;$normalizedEntry"
     }
 
     [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
     Refresh-SystemPath
-    Write-Info "Added $PathEntry to user PATH"
+    Write-Info "Added $normalizedEntry to user PATH"
 }
 
 function Warn-UserPathMissing {
@@ -156,16 +235,17 @@ function Warn-UserPathMissing {
         [string]$Label
     )
 
-    if ([string]::IsNullOrWhiteSpace($PathEntry) -or -not (Test-Path $PathEntry)) {
+    $normalizedEntry = Normalize-PathEntry $PathEntry
+    if ([string]::IsNullOrWhiteSpace($normalizedEntry)) {
         return
     }
 
-    $entries = @("$script:OriginalUserPath" -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($entries | Where-Object { $_ -ieq $PathEntry }) {
+    $entries = @(Get-NormalizedPathEntries -PathValue $script:OriginalUserPath)
+    if ($entries | Where-Object { $_ -ieq $normalizedEntry }) {
         return
     }
 
-    Write-Warn "PATH may be missing $Label ($PathEntry) in new PowerShell sessions."
+    Write-Warn "PATH may be missing $Label ($normalizedEntry) in new PowerShell sessions."
     Write-Warn "Reopen PowerShell after install, or add it to the user PATH manually."
 }
 
@@ -200,12 +280,41 @@ function Finalize-UvPath {
         return
     }
 
-    $uvBinDir = Split-Path -Parent $uvPath
+    $uvBinDir = Resolve-NormalizedFileSystemPath -PathValue (Split-Path -Parent $uvPath) -RequireExisting
     $userHome = [Environment]::GetFolderPath("UserProfile")
     if ($uvBinDir.StartsWith($userHome, [System.StringComparison]::OrdinalIgnoreCase)) {
         Add-ToUserPath $uvBinDir
         Warn-UserPathMissing -PathEntry $uvBinDir -Label "uv"
     }
+}
+
+function Get-GitHubLatestRelease {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Repository
+    )
+
+    $headers = @{
+        "User-Agent" = "procontext-installer"
+        "Accept" = "application/vnd.github+json"
+    }
+
+    return (Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -Headers $headers)
+}
+
+function Get-Sha256FromChecksumFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ChecksumFile
+    )
+
+    $checksumContent = Get-Content -LiteralPath $ChecksumFile -Raw
+    $match = [regex]::Match($checksumContent, '(?i)\b[a-f0-9]{64}\b')
+    if (-not $match.Success) {
+        throw "Could not parse a SHA-256 checksum from '$ChecksumFile'."
+    }
+
+    return $match.Value.ToLowerInvariant()
 }
 
 function Get-PortableGitRoot {
@@ -284,7 +393,12 @@ function Resolve-Configuration {
     if ([string]::IsNullOrWhiteSpace($resolvedInstallDir)) {
         $resolvedInstallDir = Get-DefaultInstallDir
     }
-    $script:InstallDir = $resolvedInstallDir
+    try {
+        $script:InstallDir = Resolve-NormalizedFileSystemPath -PathValue $resolvedInstallDir
+    } catch {
+        Write-Failure "Invalid install directory '$resolvedInstallDir': $($_.Exception.Message)"
+        exit 2
+    }
 
     if (-not $PSBoundParameters.ContainsKey("NoSetup") -and
         [Environment]::GetEnvironmentVariable("PROCONTEXT_NO_SETUP") -eq "1") {
@@ -297,12 +411,7 @@ function Resolve-Configuration {
 }
 
 function Resolve-PortableGitDownload {
-    $releaseApi = "https://api.github.com/repos/git-for-windows/git/releases/latest"
-    $headers = @{
-        "User-Agent" = "procontext-installer"
-        "Accept" = "application/vnd.github+json"
-    }
-    $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers
+    $release = Get-GitHubLatestRelease -Repository "git-for-windows/git"
     if (-not $release -or -not $release.assets) {
         throw "Could not resolve the latest git-for-windows release metadata."
     }
@@ -319,6 +428,146 @@ function Resolve-PortableGitDownload {
         Tag = $release.tag_name
         Name = $asset.name
         Url = $asset.browser_download_url
+    }
+}
+
+function Get-PortableUvRoot {
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        return (Join-Path $env:LOCALAPPDATA "ProContext\deps\portable-uv")
+    }
+    return (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".procontext-portable-uv")
+}
+
+function Get-PortableUvCommandPath {
+    $root = Get-PortableUvRoot
+    foreach ($candidate in @(
+        (Join-Path $root "uv.exe"),
+        (Join-Path $root "bin\uv.exe")
+    )) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    $discovered = Get-ChildItem -LiteralPath $root -Filter "uv.exe" -File -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($discovered) {
+        return $discovered.FullName
+    }
+
+    return $null
+}
+
+function Use-PortableUvIfPresent {
+    $uvExe = Get-PortableUvCommandPath
+    if (-not $uvExe) {
+        return $false
+    }
+
+    Add-ToProcessPath (Split-Path -Parent $uvExe)
+    return [bool](Get-Command uv -ErrorAction SilentlyContinue)
+}
+
+function Get-UvWindowsArtifactStem {
+    $arch = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = $env:PROCESSOR_ARCHITECTURE
+    }
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        throw "Could not determine the Windows processor architecture for uv bootstrap."
+    }
+
+    switch ($arch.ToUpperInvariant()) {
+        "AMD64" { return "x86_64-pc-windows-msvc" }
+        "ARM64" { return "aarch64-pc-windows-msvc" }
+        "X86" { return "i686-pc-windows-msvc" }
+        default { throw "Unsupported Windows architecture '$arch' for uv bootstrap." }
+    }
+}
+
+function Resolve-PortableUvDownload {
+    $release = Get-GitHubLatestRelease -Repository "astral-sh/uv"
+    if (-not $release -or -not $release.assets) {
+        throw "Could not resolve the latest uv release metadata."
+    }
+
+    $artifactStem = Get-UvWindowsArtifactStem
+    $assetName = "uv-$artifactStem.zip"
+    $checksumName = "$assetName.sha256"
+
+    $asset = $release.assets |
+        Where-Object { $_.name -eq $assetName } |
+        Select-Object -First 1
+    $checksumAsset = $release.assets |
+        Where-Object { $_.name -eq $checksumName } |
+        Select-Object -First 1
+
+    if (-not $asset) {
+        throw "Could not find $assetName in the latest uv release."
+    }
+    if (-not $checksumAsset) {
+        throw "Could not find $checksumName in the latest uv release."
+    }
+
+    return @{
+        Tag = $release.tag_name
+        Name = $asset.name
+        Url = $asset.browser_download_url
+        ChecksumName = $checksumAsset.name
+        ChecksumUrl = $checksumAsset.browser_download_url
+    }
+}
+
+function Install-PortableUv {
+    if (Use-PortableUvIfPresent) {
+        return
+    }
+
+    Write-Info "uv not found; bootstrapping user-local portable uv"
+
+    $download = Resolve-PortableUvDownload
+    $portableRoot = Get-PortableUvRoot
+    $portableParent = Split-Path -Parent $portableRoot
+    $tmpZip = Join-Path $env:TEMP $download.Name
+    $tmpChecksum = Join-Path $env:TEMP $download.ChecksumName
+    $tmpExtract = Join-Path $env:TEMP ("procontext-portable-uv-" + [guid]::NewGuid().ToString("N"))
+
+    New-Item -ItemType Directory -Force -Path $portableParent | Out-Null
+    if (Test-Path -LiteralPath $portableRoot) {
+        Remove-Item -Recurse -Force $portableRoot
+    }
+    if (Test-Path -LiteralPath $tmpExtract) {
+        Remove-Item -Recurse -Force $tmpExtract
+    }
+    New-Item -ItemType Directory -Force -Path $tmpExtract | Out-Null
+
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $download.Url -OutFile $tmpZip
+        Invoke-WebRequest -UseBasicParsing -Uri $download.ChecksumUrl -OutFile $tmpChecksum
+
+        $expectedSha256 = Get-Sha256FromChecksumFile -ChecksumFile $tmpChecksum
+        $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpZip).Hash.ToLowerInvariant()
+        if ($actualSha256 -ne $expectedSha256) {
+            throw "Checksum mismatch for $($download.Name). Expected $expectedSha256, got $actualSha256."
+        }
+
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
+        New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
+        Move-Item -Path (Join-Path $tmpExtract "*") -Destination $portableRoot -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmpZip) {
+            Remove-Item -Force $tmpZip
+        }
+        if (Test-Path -LiteralPath $tmpChecksum) {
+            Remove-Item -Force $tmpChecksum
+        }
+        if (Test-Path -LiteralPath $tmpExtract) {
+            Remove-Item -Recurse -Force $tmpExtract
+        }
+    }
+
+    if (-not (Use-PortableUvIfPresent)) {
+        throw "Portable uv bootstrap completed, but uv is still unavailable."
     }
 }
 
@@ -431,6 +680,13 @@ function Ensure-Git {
 function Ensure-Uv {
     Refresh-SystemPath
     Refresh-UserBinPath
+    if (Use-PortableUvIfPresent) {
+        Finalize-UvPath
+        $version = (& uv --version)
+        Write-Success "uv already available: $version"
+        return
+    }
+
     $uv = Get-Command uv -ErrorAction SilentlyContinue
     if ($uv) {
         Finalize-UvPath
@@ -497,18 +753,16 @@ function Ensure-Uv {
     }
 
     if ($DryRun) {
-        Write-Host "[dry-run] download and run https://astral.sh/uv/install.ps1" -ForegroundColor DarkCyan
+        Write-Host "[dry-run] download, verify, and extract portable uv from the latest GitHub release" -ForegroundColor DarkCyan
         Write-Success "uv would be installed"
         return
     }
 
-    $tempScript = Join-Path $env:TEMP ("install-uv-" + [guid]::NewGuid().ToString("N") + ".ps1")
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri "https://astral.sh/uv/install.ps1" -OutFile $tempScript
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $tempScript
-    } finally {
-        if (Test-Path $tempScript) {
-            Remove-Item -Force $tempScript
+    if (-not $uv -and -not $DryRun) {
+        try {
+            Install-PortableUv
+        } catch {
+            Write-Warn "Portable uv bootstrap failed: $($_.Exception.Message)"
         }
     }
 
@@ -517,7 +771,8 @@ function Ensure-Uv {
     $uv = Get-Command uv -ErrorAction SilentlyContinue
     if (-not $uv) {
         Write-Failure "uv installation did not complete successfully."
-        Write-Failure "Try https://docs.astral.sh/uv/getting-started/installation/ and rerun."
+        Write-Failure "Install it with winget, Chocolatey, scoop, or from https://github.com/astral-sh/uv/releases,"
+        Write-Failure "then rerun this installer."
         exit 1
     }
 

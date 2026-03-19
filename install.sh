@@ -246,6 +246,14 @@ resolve_brew_bin() {
     return 1
 }
 
+run_brew() {
+    local brew_bin=""
+    brew_bin="$(resolve_brew_bin || true)"
+    [[ -n "$brew_bin" ]] || return 127
+
+    run "$brew_bin" "$@"
+}
+
 activate_brew_for_session() {
     local brew_bin=""
     brew_bin="$(resolve_brew_bin || true)"
@@ -253,6 +261,16 @@ activate_brew_for_session() {
         return 1
     fi
     eval "$("$brew_bin" shellenv)"
+    return 0
+}
+
+stabilize_brew_path() {
+    local brew_bin=""
+    brew_bin="$(resolve_brew_bin || true)"
+    [[ -n "$brew_bin" ]] || return 1
+
+    ensure_path_dir_on_path "$(dirname "$brew_bin")"
+    activate_brew_for_session >/dev/null 2>&1 || true
     return 0
 }
 
@@ -331,7 +349,8 @@ ensure_downloader() {
     ui_info "No downloader found; attempting to install curl"
     case "$(os_name)" in
         Darwin)
-            if has_cmd brew && run brew install curl; then
+            if run_brew install curl; then
+                stabilize_brew_path
                 DOWNLOADER="curl"
                 return 0
             fi
@@ -370,6 +389,21 @@ download_file() {
     wget -q --https-only --secure-protocol=TLSv1_2 --tries=3 --timeout=20 -O "$output" "$url"
 }
 
+print_network_error_hint() {
+    local target="$1"
+    ui_error "Check DNS resolution, proxy or VPN settings, firewall rules, or a captive portal that may be blocking $target."
+}
+
+print_repo_access_hint() {
+    ui_error "Verify that git can reach $REPO_URL."
+    if [[ "$REPO_URL" != "$DEFAULT_REPO_URL" ]]; then
+        ui_error "If this repository is private, confirm your git credentials or token have access."
+    else
+        ui_error "If GitHub is restricted in your environment, verify access to github.com and raw.githubusercontent.com."
+    fi
+    ui_error "You can test access with: git ls-remote \"$REPO_URL\""
+}
+
 ensure_homebrew() {
     [[ "$(os_name)" != "Darwin" ]] && return 0
 
@@ -393,11 +427,15 @@ ensure_homebrew() {
 
     local tmp
     tmp="$(mktempfile)"
-    download_file "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" "$tmp"
+    if ! download_file "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" "$tmp"; then
+        ui_error "Failed to download the Homebrew installer."
+        print_network_error_hint "raw.githubusercontent.com"
+        exit 1
+    fi
     /bin/bash "$tmp"
 
-    if ! activate_brew_for_session; then
-        ui_error "Homebrew installation finished, but brew is still unavailable in this shell."
+    if ! stabilize_brew_path; then
+        ui_error "Homebrew installation finished, but the brew binary is still unavailable."
         ui_error "Open a new shell, ensure Homebrew is on PATH, and rerun this installer."
         exit 1
     fi
@@ -417,8 +455,9 @@ ensure_uv() {
     if [[ "$(os_name)" == "Darwin" ]]; then
         ensure_homebrew
     fi
-    if has_cmd brew; then
-        if run brew install uv; then
+    if run_brew install uv; then
+        stabilize_brew_path
+        if has_cmd uv; then
             refresh_user_bin_path
         fi
     fi
@@ -431,7 +470,11 @@ ensure_uv() {
     if ! has_cmd uv; then
         local tmp
         tmp="$(mktempfile)"
-        download_file "https://astral.sh/uv/install.sh" "$tmp"
+        if ! download_file "https://astral.sh/uv/install.sh" "$tmp"; then
+            ui_error "Failed to download the uv installer."
+            print_network_error_hint "astral.sh"
+            exit 1
+        fi
         sh "$tmp"
         refresh_user_bin_path
     fi
@@ -440,6 +483,7 @@ ensure_uv() {
         ui_error "uv installation did not complete successfully."
         ui_error "Try running 'curl -LsSf https://astral.sh/uv/install.sh | sh' manually,"
         ui_error "then open a new shell and rerun this installer."
+        print_network_error_hint "astral.sh"
         exit 1
     fi
 
@@ -457,7 +501,10 @@ ensure_git() {
     case "$(os_name)" in
         Darwin)
             ensure_homebrew
-            if has_cmd brew && run brew install git && has_cmd git; then
+            if run_brew install git; then
+                stabilize_brew_path
+            fi
+            if has_cmd git; then
                 ui_success "git installed: $(git --version)"
                 return 0
             fi
@@ -492,6 +539,12 @@ ensure_git() {
     esac
 }
 
+is_procontext_checkout() {
+    [[ -d "$INSTALL_DIR/.git" ]] || return 1
+    [[ -f "$INSTALL_DIR/pyproject.toml" ]] || return 1
+    [[ -d "$INSTALL_DIR/src/procontext" ]] || return 1
+}
+
 validate_existing_checkout() {
     if [[ ! -d "$INSTALL_DIR/.git" ]]; then
         ui_error "$INSTALL_DIR exists but is not a git checkout."
@@ -499,8 +552,7 @@ validate_existing_checkout() {
         exit 1
     fi
 
-    if [[ ! -f "$INSTALL_DIR/pyproject.toml" ]] ||
-        ! grep -qE '^name = "procontext"$' "$INSTALL_DIR/pyproject.toml"; then
+    if ! is_procontext_checkout; then
         ui_error "$INSTALL_DIR does not look like a ProContext checkout."
         ui_error "Choose a different --dir or remove the existing directory."
         exit 1
@@ -522,9 +574,12 @@ update_checkout_ref() {
     if ! run git -C "$INSTALL_DIR" fetch --tags origin; then
         if [[ "$fresh_clone" == "1" ]]; then
             ui_error "Failed to fetch repository metadata for $INSTALL_REF."
+            print_network_error_hint "github.com"
+            print_repo_access_hint
             exit 1
         fi
         ui_warn "Git fetch failed; continuing with the existing checkout."
+        ui_warn "If this keeps happening, verify DNS, proxy or VPN settings, firewall rules, and git access to $REPO_URL."
         return 0
     fi
 
@@ -570,7 +625,8 @@ sync_repo() {
         ui_info "Cloning ProContext into $INSTALL_DIR"
         if ! run git clone "$REPO_URL" "$INSTALL_DIR"; then
             ui_error "Failed to clone $REPO_URL."
-            ui_error "Check network access and repository permissions, then rerun this installer."
+            print_network_error_hint "github.com"
+            print_repo_access_hint
             exit 1
         fi
         update_checkout_ref "1"
