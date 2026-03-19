@@ -21,8 +21,8 @@ from procontext.outline import (
     strip_empty_fences,
     trim_outline_to_range,
 )
+from procontext.page import fetch_or_cached_page
 from procontext.search import build_matcher, search_lines
-from procontext.tools._shared import fetch_or_cached_page
 
 if TYPE_CHECKING:
     from procontext.state import AppState

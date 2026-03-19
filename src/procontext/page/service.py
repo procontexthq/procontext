@@ -1,8 +1,8 @@
-"""Shared fetch logic for page-based tools (read_page, search_page).
+"""Page retrieval service shared by page-based tools.
 
-Encapsulates the full cache-check → fetch → cache-write → stale-refresh
-flow. Tool handlers call ``fetch_or_cached_page`` and then apply their
-own output formatting on the result.
+Encapsulates the full cache-check -> fetch -> cache-write -> stale-refresh
+flow for documentation pages. Tool handlers call ``fetch_or_cached_page``
+and then apply their own output formatting.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _content_hash(content: str) -> str:
 
 
 async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
-    """Cache-check → network fetch → cache-write for a single page URL.
+    """Cache-check -> network fetch -> cache-write for a single page URL.
 
     Handles SSRF validation, cache lookup, .md probing, outline parsing,
     allowlist expansion, cache write, and stale background refresh.
@@ -121,23 +121,13 @@ async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
     return await _fetch_and_cache(url, url_hash, state)
 
 
-# ------------------------------------------------------------------
-# Internal helpers
-# ------------------------------------------------------------------
-
-
 def _maybe_spawn_refresh(
     url: str,
     url_hash: str,
     state: AppState,
     cached_entry: object,
 ) -> None:
-    """Spawn a background refresh task if appropriate.
-
-    Skips if:
-    - A refresh for this URL is already in-flight
-    - The URL was checked within the cooldown period
-    """
+    """Spawn a background refresh task if appropriate."""
     if url_hash in state._refreshing:
         log.debug("stale_refresh_skipped", reason="already_in_flight", url=url)
         return
@@ -164,12 +154,7 @@ async def _background_refresh(
     url_hash: str,
     state: AppState,
 ) -> None:
-    """Re-fetch a page in the background for stale cache entries.
-
-    Fire-and-forget — all exceptions are caught and logged.
-    Updates ``last_checked_at`` on both success and failure to
-    prevent immediate retries.
-    """
+    """Re-fetch a page in the background for stale cache entries."""
     log.info("stale_refresh_started", url=url)
     try:
         if state.fetcher is None or state.cache is None:
@@ -248,33 +233,27 @@ async def _fetch_with_md_probe(url: str, state: AppState) -> str:
 
 
 def _with_md_extension(url: str) -> str:
-    """Return the URL with .md appended to the path component.
-
-    Appends before any query string or fragment so the server receives the
-    correct path, e.g. ``/docs/page#section`` → ``/docs/page.md#section``.
-    """
+    """Return the URL with .md appended to the path component."""
     parsed = urlparse(url)
     return urlunparse(parsed._replace(path=parsed.path + ".md"))
 
 
 def _should_probe_md(url: str) -> bool:
-    """Return True if the URL is a candidate for .md probing.
-
-    Probing is skipped when:
-    - The URL already has a real alphabetic file extension (.md, .txt, .html, …)
-    - The path ends with a trailing slash or has no path (appending .md would
-      corrupt the URL, e.g. ``/docs/.md``)
-    - The URL has a query string — static file servers that serve raw markdown
-      don't use query parameters, so the probe would always 404
-
-    Version segments like ``v1.2`` are NOT treated as extensions because the
-    part after the dot is numeric, not alphabetic.
-    """
+    """Return True if the URL path looks extensionless and should try a .md probe."""
     parsed = urlparse(url)
     if parsed.query:
         return False
-    last_segment = parsed.path.rsplit("/", 1)[-1]
-    if not last_segment:
+
+    path = parsed.path
+    if not path or path.endswith("/"):
         return False
-    _, ext = splitext(last_segment)
-    return not (bool(ext) and ext[1:].isalpha())
+
+    _, ext = splitext(path.rsplit("/", 1)[-1])
+    if not ext:
+        return True
+
+    # Numeric or mixed alphanumeric suffixes like `.2`, `.3`, `.v2rc`,
+    # or `.h5` are typically version-ish path segments rather than real
+    # file extensions, so probing `.md` is still worthwhile.
+    ext_body = ext[1:]
+    return not ext_body.isalpha()

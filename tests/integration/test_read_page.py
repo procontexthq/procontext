@@ -11,7 +11,7 @@ import pytest
 import respx
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.tools import _shared as shared_tools
+from procontext.page import service as page_service
 from procontext.tools.read_page import handle as read_page_handle
 from tests.integration.tool_test_support import (
     SAMPLE_PAGE,
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 def _track_background_refresh(monkeypatch: pytest.MonkeyPatch) -> anyio.Event:
     """Signal when the read_page background refresh task completes."""
     completed = anyio.Event()
-    original_background_refresh = shared_tools._background_refresh
+    original_background_refresh = page_service._background_refresh
 
     async def wrapped_background_refresh(*, url: str, url_hash: str, state: AppState) -> None:
         try:
@@ -38,7 +38,7 @@ def _track_background_refresh(monkeypatch: pytest.MonkeyPatch) -> anyio.Event:
         finally:
             completed.set()
 
-    monkeypatch.setattr(shared_tools, "_background_refresh", wrapped_background_refresh)
+    monkeypatch.setattr(page_service, "_background_refresh", wrapped_background_refresh)
     return completed
 
 
@@ -48,7 +48,7 @@ def _block_background_refresh(
     """Hold the background refresh open until the test explicitly releases it."""
     release = anyio.Event()
     completed = anyio.Event()
-    original_background_refresh = shared_tools._background_refresh
+    original_background_refresh = page_service._background_refresh
 
     async def wrapped_background_refresh(*, url: str, url_hash: str, state: AppState) -> None:
         try:
@@ -57,7 +57,7 @@ def _block_background_refresh(
         finally:
             completed.set()
 
-    monkeypatch.setattr(shared_tools, "_background_refresh", wrapped_background_refresh)
+    monkeypatch.setattr(page_service, "_background_refresh", wrapped_background_refresh)
     return release, completed
 
 

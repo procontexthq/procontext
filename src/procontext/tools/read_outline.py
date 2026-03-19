@@ -13,7 +13,7 @@ import structlog
 from procontext.errors import ErrorCode, ProContextError
 from procontext.models.tools import ReadOutlineInput, ReadOutlineOutput
 from procontext.outline import format_outline, parse_outline_entries, strip_empty_fences
-from procontext.tools._shared import fetch_or_cached_page
+from procontext.page import fetch_or_cached_page
 
 if TYPE_CHECKING:
     from procontext.state import AppState

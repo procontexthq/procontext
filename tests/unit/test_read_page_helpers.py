@@ -7,7 +7,7 @@ will encounter in the wild.
 
 from __future__ import annotations
 
-from procontext.tools._shared import _should_probe_md, _with_md_extension
+from procontext.page.service import _should_probe_md, _with_md_extension
 
 # ---------------------------------------------------------------------------
 # _should_probe_md

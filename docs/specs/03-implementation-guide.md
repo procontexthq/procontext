@@ -64,6 +64,7 @@ procontext/
 │   ├── models/                       # Pydantic models shared across layers
 │   ├── tools/                        # one module per MCP tool + shared helpers
 │   ├── registry/                     # local loading, persistence, and update flow
+│   ├── page/                         # page retrieval/orchestration services
 │   ├── <service modules>.py          # resolver, fetcher, cache, parser, outline, search, etc.
 │   └── <support modules>.py          # config, state, protocols, errors, logging, normalization, identity
 ├── tests/
@@ -82,7 +83,7 @@ The structure enforces a strict layering. Violations (e.g., a tool importing fro
 | ------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | **Entrypoint**     | `cli/main.py`, `cli/cmd_*.py`, `cli/<command packages>/`, `mcp/*.py`   | CLI dispatch, command workflows, server bootstrap, tool registration, and lifecycle. No domain logic beyond orchestration. |
 | **Tools**          | `tools/*.py`                                                            | One module per MCP tool. Receives `AppState`, returns output dicts, raises `ProContextError`. |
-| **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols or plain values, not concrete runtime state. |
+| **Services**       | `page/`, `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols or plain values, not concrete runtime state. |
 | **Infrastructure** | `registry/`, `config.py`, `http_transport.py`, `schedulers.py`, `logging_config.py` | Setup, persistence, security middleware, scheduling, and runtime wiring.               |
 | **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`, `normalization.py`, `identity.py` | Low-level types and utilities that can be imported widely without pulling in transport-specific code. |
 
@@ -405,7 +406,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 ### 4.2 Fetcher & Cache
 
-**Modules**: `fetcher.py`, `cache.py`, `tools/read_page.py`, `tools/_shared.py`
+**Modules**: `fetcher.py`, `cache.py`, `page/service.py`, `tools/read_page.py`
 
 **Expected behaviours**:
 
@@ -456,7 +457,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - Small outlines (≤50 entries after empty-fence stripping) are returned unchanged so parent headings are preserved
 - Oversized outlines are trimmed to the match range (first match line → last match line) before compaction
 - Outline compaction uses the same progressive reduction as `read_page` (≤ 50 entries target)
-- Page fetch uses the shared `fetch_or_cached_page` helper (same cache as `read_page`)
+- Page fetch uses the dedicated page service (`fetch_or_cached_page`) (same cache as `read_page`)
 
 ---
 

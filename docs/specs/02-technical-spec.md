@@ -812,14 +812,14 @@ async def get_page(self, url_hash: str) -> PageCacheEntry | None:
         entry.stale = True
     return entry
 
-# In tools/_shared.py — shared helper used by read_page, search_page, read_outline
+# In page/service.py — shared service used by read_page, search_page, read_outline
 page = await state.cache.get_page(url_hash)
 if page is not None and page.stale:
     _maybe_spawn_refresh(url, url_hash, state, page)  # background refresh
     return FetchResult(..., stale=True)  # return stale content immediately
 ```
 
-All page tools use a shared helper (`fetch_or_cached_page`) that encapsulates the full cache-check → fetch → cache-write → stale-refresh flow. When a cached entry has expired, the stale content is returned immediately with `stale: true`, and a background task is spawned to refresh the cache. The next call to the same URL will get fresh content if the background refresh has completed.
+All page tools use a dedicated page service (`fetch_or_cached_page`) that encapsulates the full cache-check → fetch → cache-write → stale-refresh flow. When a cached entry has expired, the stale content is returned immediately with `stale: true`, and a background task is spawned to refresh the cache. The next call to the same URL will get fresh content if the background refresh has completed.
 
 **Background refresh guards**: Two mechanisms prevent redundant work:
 - **In-memory `_refreshing` set** on `AppState`: Tracks URL hashes with in-flight refresh tasks. A second call to the same stale URL while a refresh is running does not spawn a duplicate task.

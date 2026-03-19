@@ -19,7 +19,7 @@ from procontext.outline import (
     parse_outline_entries,
     strip_empty_fences,
 )
-from procontext.tools._shared import fetch_or_cached_page
+from procontext.page import fetch_or_cached_page
 
 if TYPE_CHECKING:
     from datetime import datetime

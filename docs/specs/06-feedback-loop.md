@@ -282,7 +282,7 @@ The `[#5]` suffix is the annotation ID, allowing the agent to reference it for r
 
 **Why a separate field**: Mixing annotations into the `content` field would corrupt line numbers that `offset`, outline entries, and `search_page` matches reference. A dedicated field preserves content integrity.
 
-**Injection point**: Each tool handler (`read_page.py`, `search_page.py`, `read_outline.py`) calls a shared helper after `fetch_or_cached_page` returns. The helper queries the annotations table and returns the formatted string. This keeps annotation logic out of the fetch path.
+**Injection point**: Each tool handler (`read_page.py`, `search_page.py`, `read_outline.py`) calls the page service after `fetch_or_cached_page` returns. The annotation lookup helper can run on top of that result without being coupled to the fetch path itself.
 
 **When disabled**: If `feedback.enabled` is `false`, annotation lookup is skipped and the field is `null`.
 
