@@ -16,7 +16,7 @@ Starts the MCP server. This is the default behavior and what MCP clients (Claude
 - In **stdio mode** (default): the server communicates over stdin/stdout via JSON-RPC.
 - In **HTTP mode** (`PROCONTEXT__SERVER__TRANSPORT=http`): starts a persistent HTTP server on `/mcp`.
 
-If the registry has not been downloaded yet, an automatic one-time setup is attempted before the server starts.
+If the registry has not been downloaded yet, startup exits with an actionable error telling the operator to run `procontext setup`.
 
 ### `procontext setup`
 
@@ -26,7 +26,7 @@ Downloads the library registry from the configured metadata URL and saves it to 
 uv run procontext setup
 ```
 
-This is required once before the server can start. If skipped, the server will attempt auto-setup on first run.
+This is required once before the server can start. If skipped, the serve command exits immediately with setup guidance.
 
 ### `procontext doctor`
 

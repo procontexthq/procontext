@@ -60,7 +60,7 @@ async def run_registry_update_scheduler(state: AppState) -> None:
     backoff_seconds = REGISTRY_INITIAL_BACKOFF_SECONDS
     consecutive_transient_failures = 0
 
-    # Delay the first poll if the registry was checked recently (e.g. auto-setup just
+    # Delay the first poll if the registry was checked recently (e.g. setup just
     # ran). registry_check_is_due uses last_checked_at, which save_registry_to_disk
     # always writes, so this naturally avoids a redundant fetch on first run.
     try:

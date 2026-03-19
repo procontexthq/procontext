@@ -146,7 +146,7 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 **Controls**:
 
 - SHA-256 checksum validation on registry downloads. The metadata JSON provides the expected checksum; the downloaded registry is verified before use. On mismatch, the existing registry is retained. (02-technical-spec, Section 9)
-- Startup checksum validation of the local registry pair (`known-libraries.json` + `registry-state.json`) detects torn/partial writes; an invalid pair triggers a fresh auto-setup download rather than trusting inconsistent local state. (02-technical-spec, Section 9)
+- Startup checksum validation of the local registry pair (`known-libraries.json` + `registry-state.json`) detects torn/partial writes; an invalid pair causes startup to fail rather than trusting inconsistent local state. Recovery is explicit via `procontext setup` or `procontext doctor --fix`. (02-technical-spec, Section 9)
 - Registry served over HTTPS from GitHub Pages — relies on GitHub's infrastructure security for transport integrity.
 
 **Residual risk**: If both the registry JSON and the metadata JSON (containing the checksum) are compromised simultaneously, the checksum provides no protection. This is a single-origin trust problem inherent to the architecture. Future mitigations: signed registries (GPG or Sigstore), multiple independent metadata sources.

@@ -349,7 +349,7 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 
 - No network exposure — entirely local
 - Process lifecycle managed by the MCP client
-- Registry loaded from local disk when a valid local registry pair exists (`<data_dir>/registry/known-libraries.json` + `registry-state.json`). If no valid pair is found, the server attempts a one-time auto-setup (network fetch); if that also fails, it exits with an actionable error pointing to `procontext setup`.
+- Registry loaded from local disk when a valid local registry pair exists (`<data_dir>/registry/known-libraries.json` + `registry-state.json`). If no valid pair is found, the server exits with an actionable error pointing to `procontext setup`.
 - SQLite database at `cache.db_path` (default: `platformdirs.user_data_dir("procontext")/cache.db`, configurable independently from `data_dir`)
 - No authentication required
 
@@ -407,7 +407,7 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 
 1. Attempt to load local registry pair from `<data_dir>/registry/known-libraries.json` and `<data_dir>/registry/registry-state.json`
 2. Validate the pair (`known-libraries.json` parses, `registry-state.json` parses, checksum matches)
-3. If either file is missing or the pair is invalid: attempt a one-time auto-setup (network fetch of registry). If auto-setup also fails, the server exits with an error message pointing to `procontext setup`.
+3. If either file is missing or the pair is invalid: exit with an error message pointing to `procontext setup`. Startup does not attempt to bootstrap the registry automatically.
 4. In the background: check the configured registry metadata endpoint for a newer version and download if available. The updated registry is used on the next server start (stdio) or atomically swapped in-memory in HTTP long-running mode (registry indexes + SSRF allowlist updated together).
 
 **Local state sidecar** (`registry-state.json`):

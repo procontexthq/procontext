@@ -253,7 +253,7 @@ class TestSchedulerHttpMode:
         assert sleep_durations[3] == REGISTRY_INITIAL_BACKOFF_SECONDS
 
     async def test_http_delays_first_poll_when_registry_recently_checked(self) -> None:
-        """When registry_check_is_due returns False (e.g. auto-setup just ran), the
+        """When registry_check_is_due returns False (e.g. setup just ran), the
         HTTP scheduler sleeps the full poll interval BEFORE the first check.
 
         Sequence: sleep(24h) → check → sleep(24h) → cancel

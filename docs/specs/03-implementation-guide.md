@@ -83,7 +83,7 @@ The structure enforces a strict layering. Violations (e.g., a tool importing fro
 | **Entrypoint**     | `cli/main.py`, `cli/cmd_*.py`, `cli/<command packages>/`, `mcp/*.py`   | CLI dispatch, command workflows, server bootstrap, tool registration, and lifecycle. No domain logic beyond orchestration. |
 | **Tools**          | `tools/*.py`                                                            | One module per MCP tool. Receives `AppState`, returns output dicts, raises `ProContextError`. |
 | **Services**       | `resolver.py`, `fetcher.py`, `cache.py`, `parser.py`, `outline.py`, `search.py` | Pure business logic. No MCP imports. Typed against protocols or plain values, not concrete runtime state. |
-| **Infrastructure** | `registry/`, `config.py`, `transport.py`, `schedulers.py`, `logging_config.py` | Setup, persistence, security middleware, scheduling, and runtime wiring.               |
+| **Infrastructure** | `registry/`, `config.py`, `http_transport.py`, `schedulers.py`, `logging_config.py` | Setup, persistence, security middleware, scheduling, and runtime wiring.               |
 | **Shared**         | `models/`, `errors.py`, `protocols.py`, `state.py`, `normalization.py`, `identity.py` | Low-level types and utilities that can be imported widely without pulling in transport-specific code. |
 
 **Adding a new tool**: Create `tools/new_tool.py`, register it in `mcp/server.py`. No other files change.
@@ -462,7 +462,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 
 ### 4.5 HTTP Transport
 
-**Modules**: `transport.py`, `mcp/startup.py`
+**Modules**: `http_transport.py`, `mcp/startup.py`
 
 **Expected behaviours**:
 
@@ -490,9 +490,9 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
 - Successful update persists both `known-libraries.json` and `registry-state.json`
-- Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid pair triggers auto-setup (blocking network fetch); if that also fails, server exits with actionable error
+- Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid pair exits immediately with actionable setup guidance
 - `save_registry_to_disk()` uses temp files + fsync + atomic replace (no partially written destination files)
-- Simulated interrupted write leaves startup in a safe state (either previous valid pair or clean auto-setup attempt)
+- Simulated interrupted write leaves startup in a safe state (either previous valid pair or a clean startup failure with setup guidance)
 - HTTP mode scheduler: successful checks run every 24 hours
 - HTTP mode scheduler: transient failures use exponential backoff + jitter (1 minute to 60 minutes cap)
 - HTTP mode scheduler: after 8 consecutive transient failures, counter and backoff reset, cadence returns to 24 hours; next round gets a fresh set of fast-retry attempts

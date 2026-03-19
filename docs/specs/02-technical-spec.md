@@ -1257,11 +1257,11 @@ else:
     run_server(settings)
 ```
 
-Command modules are imported inside the `if/elif/else` branches to avoid loading unnecessary dependencies. `procontext doctor` does not import the MCP SDK; `procontext setup` does not import `aiosqlite`. CLI commands use `print()` for user-facing output (stdout) and `structlog` for operational logs (stderr).
+Command modules are imported inside the `if/elif/else` branches to avoid loading unnecessary dependencies. `procontext doctor` does not import the MCP SDK; `procontext setup` does not import `aiosqlite`. Within `cmd_serve.py`, the project HTTP transport wrapper (`http_transport.py`) is imported only inside the HTTP branch, so stdio startup avoids loading ProContext's HTTP-specific middleware/wiring unless HTTP mode is explicitly selected. CLI commands use `print()` for user-facing output (stdout) and `structlog` for operational logs (stderr).
 
 | Command | Module | Dependencies loaded |
 |---------|--------|---------------------|
-| _(default)_ | `cmd_serve.py` | MCP SDK, FastMCP, uvicorn, full server stack |
+| _(default)_ | `cmd_serve.py` | MCP SDK, FastMCP, stdio server stack; ProContext's HTTP transport wrapper loads only when `transport=http` |
 | `setup` | `cmd_setup.py` | httpx, registry |
 | `doctor` | `cmd_doctor.py` | aiosqlite, httpx |
 | `db recreate` | `cmd_db.py` | aiosqlite |
@@ -1291,7 +1291,7 @@ See [docs/cli/doctor.md](../cli/doctor.md) for the full design document.
 
 The registry update system keeps the in-memory library index fresh without interrupting request serving. It is designed around three principles:
 
-1. **Registry availability on disk** — the running server expects a valid local registry pair on disk. `procontext setup` is the explicit bootstrap path, and the default serve command falls back to a one-time auto-setup attempt if the pair is missing or invalid.
+1. **Registry availability on disk** — the running server expects a valid local registry pair on disk. `procontext setup` is the explicit bootstrap path; the serve command never bootstraps the registry implicitly.
 2. **Cheap polling** — a tiny metadata file is fetched on each poll cycle; the full registry is only downloaded when its checksum changes.
 3. **Zero-downtime swap** — new registry data is applied to the live `AppState` atomically while in-flight requests continue using the previous data safely.
 
@@ -1320,7 +1320,7 @@ Two registry artefacts live on disk:
 ```
 
 - `updated_at` — set only when a new registry version is actually downloaded and persisted.
-- `last_checked_at` — set after every successful update check, even when the registry is already current. Used by both transports to gate checks: if the gap between now and `last_checked_at` is less than `registry.poll_interval_hours`, the startup check (stdio) or first poll (HTTP) is skipped to avoid redundant metadata fetches on frequent restarts or immediately after auto-setup.
+- `last_checked_at` — set after every successful update check, even when the registry is already current. Used by both transports to gate checks: if the gap between now and `last_checked_at` is less than `registry.poll_interval_hours`, the startup check (stdio) or first poll (HTTP) is skipped to avoid redundant metadata fetches on frequent restarts or immediately after `procontext setup`.
 
 The local registry pair (both files together) is the consistency unit. If either file is missing, cannot be parsed, or the checksum in the state file does not match `sha256(known-libraries.json)`, the pair is considered invalid and the server treats it as if no registry exists.
 
@@ -1350,10 +1350,8 @@ It fetches the registry metadata, downloads the full registry, validates the che
       On success → proceed to step 3.
 
 2. If local pair is missing or invalid →
-      Attempt a blocking auto-setup (same as procontext setup).
-        On success → load the newly saved pair, proceed to step 3.
-        On failure → exit with:
-          "Registry not initialised. Run 'procontext setup' to download the registry."
+      Exit with:
+        "Registry not initialised. Run 'procontext setup' to download the registry."
 
 3. Build in-memory indexes (RegistryIndexes) and SSRF allowlist from loaded data.
    Server is now ready to handle requests.
@@ -1363,8 +1361,6 @@ It fetches the registry metadata, downloads the full registry, validates the che
       HTTP   → run_registry_update_scheduler() (infinite loop, consults last_checked_at
                                                 before first poll)
 ```
-
-The auto-setup in step 2 makes the server self-healing on first run: if a user forgets to run `procontext setup`, a direct invocation will attempt to initialise the registry automatically. If the network is unavailable, the server exits with an actionable error rather than starting with no data.
 
 ---
 
@@ -1448,7 +1444,7 @@ Crash-safety guarantees:
 | Failure point                                    | Effect on disk                | Next startup behaviour                            |
 | ------------------------------------------------ | ----------------------------- | ------------------------------------------------- |
 | Crash during temp write                          | Destination files untouched   | Load previous valid pair                          |
-| Crash after registry rename, before state rename | Registry updated, state stale | Checksum mismatch → auto-setup or exit with error |
+| Crash after registry rename, before state rename | Registry updated, state stale | Checksum mismatch → exit with error; operator reruns `procontext setup` or `procontext doctor --fix` |
 | Crash after both renames                         | Both files updated            | Load new pair normally                            |
 
 `_fsync_directory()` is a no-op on Windows (`sys.platform == "win32"` guard) since Windows does not support `fsync` on directory handles. The write-then-rename guarantee still holds; only the directory entry durability is weaker.
@@ -1461,7 +1457,7 @@ Registry update checks run differently depending on transport mode:
 
 **stdio mode** — checks once at startup if `registry_check_is_due()` returns True, then exits. The process is typically short-lived (one agent session), so a polling loop would be wasteful.
 
-**HTTP mode** — loops indefinitely. Before the first check, consults `registry_check_is_due()`: if the registry was checked recently (e.g. auto-setup just ran), sleeps for `poll_interval_hours` before the first check; otherwise checks immediately. The poll interval after a successful check is controlled by `registry.poll_interval_hours` (default 24h, configurable). Transient failures are retried with exponential backoff; semantic failures return to the normal poll cadence without backoff.
+**HTTP mode** — loops indefinitely. Before the first check, consults `registry_check_is_due()`: if the registry was checked recently (e.g. `procontext setup` just ran), sleeps for `poll_interval_hours` before the first check; otherwise checks immediately. The poll interval after a successful check is controlled by `registry.poll_interval_hours` (default 24h, configurable). Transient failures are retried with exponential backoff; semantic failures return to the normal poll cadence without backoff.
 
 Backoff parameters (currently hardcoded, not configurable):
 

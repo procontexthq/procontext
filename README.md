@@ -199,7 +199,7 @@ uv run --project . procontext setup
 
 Full install and troubleshooting guide: [docs/cli/installation.md](docs/cli/installation.md)
 
-> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, the server will attempt a one-time auto-setup on first run - if the network is unavailable at that point, it will exit with an actionable error.
+> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, startup exits immediately with an actionable error telling you to run `procontext setup`.
 
 ### stdio mode (default)
 

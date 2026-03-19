@@ -54,7 +54,7 @@ branch = true
 # - mcp/*: FastMCP instance, lifespan wiring, tool registrations — require a live MCP runtime
 # - cli/main.py: argparse dispatcher, tested via subprocess
 # - cli/cmd_setup.py: thin wrapper over registry functions, tested via subprocess
-# - cli/cmd_serve.py: registry bootstrap + server launch, tested via subprocess
+# - cli/cmd_serve.py: registry validation + server launch, tested via subprocess
 # - logging_config.py: structlog configuration, side-effectful at import
 # - protocols.py: pure Protocol definitions with no runtime code
 omit = [
