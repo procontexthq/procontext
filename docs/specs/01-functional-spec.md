@@ -2,7 +2,7 @@
 
 > **Document**: 01-functional-spec.md
 > **Status**: Draft v2
-> **Last Updated**: 2026-03-08
+> **Last Updated**: 2026-03-20
 
 ---
 

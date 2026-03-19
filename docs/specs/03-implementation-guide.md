@@ -2,7 +2,7 @@
 
 > **Document**: 03-implementation-guide.md
 > **Status**: Draft v3
-> **Last Updated**: 2026-03-10
+> **Last Updated**: 2026-03-20
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -78,7 +78,7 @@ procontext/
 │       │   ├── read_outline.py       # Business logic for read_outline
 │       │   └── _shared.py            # Shared helper: fetch_or_cached_page (cache-check → fetch → cache-write → stale-refresh)
 │       ├── registry.py               # Registry loading, index building, disk persistence, update check
-│       ├── resolver.py               # 5-step resolution algorithm, fuzzy matching
+│       ├── resolver.py               # Plain-name resolution tiers, unsupported-query detection, fuzzy matching
 │       ├── fetcher.py                # HTTP client, SSRF validation, redirect handling
 │       ├── cache.py                  # SQLite cache: page_cache, stale-while-revalidate metadata, cleanup
 │       ├── schedulers.py             # Background coroutines: registry update scheduler, cache cleanup scheduler
@@ -90,7 +90,7 @@ procontext/
 │   ├── conftest.py                   # Top-level fixtures shared across all tests
 │   ├── unit/
 │   │   ├── conftest.py               # Unit-specific fixtures (no I/O)
-│   │   ├── test_resolver.py          # resolve_library: normalisation, all 5 steps, edge cases
+│   │   ├── test_resolver.py          # resolve_library: exact lookup, unsupported-query handling, fuzzy fallback, edge cases
 │   │   ├── test_fetcher.py           # SSRF validation, redirect handling, error cases
 │   │   ├── test_cache.py             # Cache read/write, TTL expiry, stale marking
 │   │   ├── test_parser.py            # Heading detection, code block suppression, section extraction
@@ -659,13 +659,12 @@ async def app_state(indexes, sample_entries):
 
 `tests/unit/test_resolver.py`
 
-- Query normalisation: extras, version specs, case, whitespace
-- Step 1: exact package name match
-- Step 2: exact ID match
-- Step 3: alias match
-- Step 4: fuzzy match (typos, score threshold)
-- Step 5: no match → empty list
-- Edge case: pip extras (`"langchain[openai]"`)
+- Input validation boundaries and whitespace trimming
+- Exact package, library ID, and alias matches
+- Fuzzy match behavior and score ordering
+- Unsupported dependency syntax returns no resolver match
+- No match → empty list
+- Edge case: dependency specifiers are rejected (`"langchain[openai]"`, `"langchain>=0.1"`)
 - Edge case: monorepo packages (`"langchain-core"` → `"langchain"`)
 
 `tests/unit/test_fetcher.py`

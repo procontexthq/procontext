@@ -80,14 +80,19 @@ ProContext exposes four MCP tools. The agent drives the navigation — no server
 **Step 1 — Resolve the library**
 
 ```
-resolve_library({ "query": "langchain>=0.2" })
+resolve_library({ "query": "langchain-openai" })
 
 → {
-    "library_id": "langchain",
-    "name": "LangChain",
-    "index_url": "https://python.langchain.com/llms.txt",
-    "matched_via": "package_name",
-    "relevance": 1.0
+    "matches": [
+      {
+        "library_id": "langchain",
+        "name": "LangChain",
+        "index_url": "https://python.langchain.com/llms.txt",
+        "matched_via": "package_name",
+        "relevance": 1.0
+      }
+    ],
+    "hint": null
   }
 ```
 
@@ -146,7 +151,7 @@ ProContext takes a different approach: build a curated registry of known-good do
 ## Features
 
 **Registry-first resolution**
-Library lookups complete in under 10ms from an in-memory index built at startup. Fuzzy matching handles typos and pip-style specifiers (`langchain>=0.1`, `langchain[openai]`).
+Library lookups complete in under 10ms from an in-memory index built at startup. Exact package, library ID, display name, and alias matching run before fuzzy typo fallback. Dependency specifiers and source URLs return a hint telling the caller to retry with the plain package or library name.
 
 **llms.txt native**
 Purpose-built for the [llms.txt standard](https://llmstxt.org) - the AI-optimized documentation format. Fetches tables of contents and individual pages on demand.
