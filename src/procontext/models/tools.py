@@ -6,6 +6,17 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from procontext.models.registry import LibraryMatch
+from procontext.normalization import normalize_doc_url
+
+
+def _validate_http_url(raw: str) -> str:
+    """Validate a tool URL after applying conservative normalization."""
+    url = normalize_doc_url(raw)
+    if len(url) > 2048:
+        raise ValueError("url must not exceed 2048 characters")
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("url must use http or https scheme")
+    return url
 
 
 class ResolveLibraryInput(BaseModel):
@@ -58,12 +69,7 @@ class ReadPageInput(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) > 2048:
-            raise ValueError("url must not exceed 2048 characters")
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("url must use http or https scheme")
-        return v
+        return _validate_http_url(v)
 
     @field_validator("offset")
     @classmethod
@@ -123,12 +129,7 @@ class ReadOutlineInput(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) > 2048:
-            raise ValueError("url must not exceed 2048 characters")
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("url must use http or https scheme")
-        return v
+        return _validate_http_url(v)
 
     @field_validator("offset")
     @classmethod
@@ -186,12 +187,7 @@ class SearchPageInput(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        v = v.strip()
-        if len(v) > 2048:
-            raise ValueError("url must not exceed 2048 characters")
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("url must use http or https scheme")
-        return v
+        return _validate_http_url(v)
 
     @field_validator("query")
     @classmethod

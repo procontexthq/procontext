@@ -90,6 +90,42 @@ class TestReadPageHandler:
         assert respx.calls.call_count == 1
 
     @respx.mock
+    async def test_equivalent_host_case_and_default_port_share_cache(
+        self, app_state: AppState
+    ) -> None:
+        variant_url = "HTTPS://PYTHON.LANGCHAIN.COM:443/docs/concepts/streaming.md"
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        first = await read_page_handle(variant_url, 1, 500, app_state)
+        second = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+
+        assert first["url"] == SAMPLE_URL
+        assert first["cached"] is False
+        assert second["url"] == SAMPLE_URL
+        assert second["cached"] is True
+        assert respx.calls.call_count == 1
+
+    @respx.mock
+    async def test_trailing_slash_url_uses_distinct_cache_entry(self, app_state: AppState) -> None:
+        without_slash = "https://python.langchain.com/docs/concepts?view=raw"
+        with_slash = "https://python.langchain.com/docs/concepts/?view=raw"
+        respx.get(without_slash).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+        respx.get(with_slash).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        first = await read_page_handle(without_slash, 1, 500, app_state)
+        second = await read_page_handle(with_slash, 1, 500, app_state)
+        third = await read_page_handle(without_slash, 1, 500, app_state)
+        fourth = await read_page_handle(with_slash, 1, 500, app_state)
+
+        assert first["url"] == without_slash
+        assert first["cached"] is False
+        assert second["url"] == with_slash
+        assert second["cached"] is False
+        assert third["cached"] is True
+        assert fourth["cached"] is True
+        assert respx.calls.call_count == 2
+
+    @respx.mock
     async def test_stale_cache_serves_stale_immediately(
         self,
         app_state: AppState,

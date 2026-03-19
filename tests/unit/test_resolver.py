@@ -174,6 +174,16 @@ class TestReadPageInputBoundary:
         with pytest.raises(ValueError, match="http"):
             ReadPageInput(url="ftp://example.com/page")
 
+    def test_url_normalizes_scheme_host_and_default_https_port(self) -> None:
+        validated = ReadPageInput(url="  HTTPS://Example.COM:443/Docs/Page  ")
+
+        assert validated.url == "https://example.com/Docs/Page"
+
+    def test_url_preserves_path_query_fragment_and_trailing_slash(self) -> None:
+        validated = ReadPageInput(url="https://Example.com/Docs/Page/?a=1#Section")
+
+        assert validated.url == "https://example.com/Docs/Page/?a=1#Section"
+
 
 class TestSearchPageInputBoundary:
     def test_valid_input(self) -> None:
@@ -208,6 +218,11 @@ class TestSearchPageInputBoundary:
     def test_non_http_url_rejected(self) -> None:
         with pytest.raises(ValueError, match="http"):
             SearchPageInput(url="ftp://example.com/page", query="test")
+
+    def test_url_normalizes_default_http_port(self) -> None:
+        validated = SearchPageInput(url="HTTP://Example.com:80/page", query="test")
+
+        assert validated.url == "http://example.com/page"
 
 
 class TestMatchStructure:
