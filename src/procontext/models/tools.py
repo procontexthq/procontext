@@ -35,9 +35,18 @@ class ResolveLibraryInput(BaseModel):
         return v
 
 
+class ResolveHint(BaseModel):
+    code: Literal["UNSUPPORTED_QUERY_SYNTAX", "FUZZY_FALLBACK_USED"]
+    message: str
+
+
 class ResolveLibraryOutput(BaseModel):
     matches: list[LibraryMatch] = Field(
         description="Ranked list of matching libraries, sorted by relevance descending."
+    )
+    hint: ResolveHint | None = Field(
+        default=None,
+        description="Optional actionable guidance for recoverable non-error resolve outcomes.",
     )
 
 

@@ -225,7 +225,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
     "properties": {
       "query": {
         "type": "string",
-        "description": "Library name, package name, or alias. Accepts pip-style specifiers: 'langchain', 'langchain-openai', 'langchain[openai]>=0.3', 'LangChain'.",
+        "description": "Plain library name, package name, display name, or alias. Examples: 'langchain', 'langchain-openai', 'LangChain', 'Babel Core'.",
         "minLength": 1,
         "maxLength": 500
       },
@@ -240,19 +240,16 @@ Tool authors and MCP client implementors need to handle both. The agent should o
 }
 ```
 
-**Preprocessing applied before matching**: outer whitespace is trimmed; Python extras and version/range suffixes are stripped; npm numeric `@version` suffixes are stripped. Python direct references (`name @ https://...`), bare GitHub/source-spec inputs, and npm dist-tags such as `@latest` are not rewritten.
+**Preprocessing applied before matching**: package lookup trims outer whitespace and lowercases the query; text and fuzzy lookup trim, lowercase, and collapse repeated internal whitespace. Dependency specifiers, tags, extras, and source refs are not rewritten.
 
-**Matching order** (first hit wins):
+**Matching order**:
 
-1. GitHub/source-spec input → immediate empty `matches` list
-2. Exact package lookup
-   - definitely Python: PyPI canonical package lookup
-   - definitely npm: exact package lookup
-   - maybe Python: exact package lookup, then PyPI canonical fallback
-   - generic: exact package lookup
+1. Dependency/source-spec input → immediate empty `matches` list plus `UNSUPPORTED_QUERY_SYNTAX`
+2. Exact package lookup against published package names
 3. Exact text lookup against library IDs, display names, and aliases
-4. Levenshtein fuzzy match (score threshold: 70%)
-5. No match → empty `matches` list
+4. Merge and deduplicate exact hits, with package hits ordered before text hits
+5. Levenshtein fuzzy match (score threshold: 70%) only if the merged exact set is empty; attach `FUZZY_FALLBACK_USED`
+6. No match → empty `matches` list
 
 All matching is in-memory. No network calls.
 
@@ -340,6 +337,20 @@ All matching is in-memory. No network calls.
           "relevance"
         ]
       }
+    },
+    "hint": {
+      "type": ["object", "null"],
+      "description": "Optional actionable guidance for recoverable non-error cases. Omitted or null for ordinary exact results, ordinary no-match, and exact multi-match results.",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": ["UNSUPPORTED_QUERY_SYNTAX", "FUZZY_FALLBACK_USED"]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"]
     }
   },
   "required": ["matches"]
@@ -353,7 +364,7 @@ All matching is in-memory. No network calls.
 Request arguments:
 
 ```json
-{ "query": "langchain-openai>=0.3" }
+{ "query": "langchain-openai" }
 ```
 
 Result (`text` field, parsed):
@@ -416,6 +427,26 @@ Result:
 }
 ```
 
+**Source-spec / GitHub-like input**:
+
+Request arguments:
+
+```json
+{ "query": "https://github.com/openai/openai-python" }
+```
+
+Result:
+
+```json
+    {
+      "matches": [],
+      "hint": {
+        "code": "UNSUPPORTED_QUERY_SYNTAX",
+        "message": "Provide only the published package name, library ID, display name, or alias without version specifiers, extras, tags, or source URLs."
+      }
+    }
+```
+
 **Fuzzy match (typo)**:
 
 Request arguments:
@@ -427,8 +458,8 @@ Request arguments:
 Result:
 
 ```json
-{
-  "matches": [
+  {
+    "matches": [
     {
       "library_id": "fastapi",
       "name": "FastAPI",
@@ -446,7 +477,11 @@ Result:
       "matched_via": "fuzzy",
       "relevance": 0.92
     }
-  ]
+  ],
+  "hint": {
+    "code": "FUZZY_FALLBACK_USED",
+    "message": "No exact match was found. Verify the fuzzy match before continuing."
+  }
 }
 ```
 
@@ -466,11 +501,11 @@ Result:
 }
 ```
 
-An empty `matches` list is a valid, non-error outcome. The library is simply not in the registry.
+An empty `matches` list is a valid, non-error outcome. The library is simply not in the registry unless a `hint` explains a recoverable input issue.
 
 ### 2.4 Error Cases
 
-`resolve_library` does not raise tool-level errors. An unrecognised library returns an empty list. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. empty string, query over 500 characters).
+`resolve_library` does not raise tool-level errors for recoverable lookup outcomes. An unrecognised library returns an empty list. Recoverable unsupported-input cases may return a `hint` instead of an error. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. empty string, query over 500 characters).
 
 ---
 

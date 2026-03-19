@@ -41,9 +41,7 @@ mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 async def resolve_library(
     query: Annotated[
         str,
-        Field(
-            description="Library name, package specifier (e.g. 'langchain-community'), or alias."
-        ),
+        Field(description="Plain library name, package name, display name, or alias."),
     ],
     ctx: Context,
     language: Annotated[
@@ -58,7 +56,7 @@ async def resolve_library(
 ) -> ResolveLibraryOutput:
     """Resolve a library name to its documentation source.
 
-    Accepts a library name, package specifier (e.g. 'langchain-community'), or alias.
+    Accepts a plain library name, package name, display name, or alias.
     Matched in priority order: exact package lookup, exact text lookup
     (library ID, display name, alias), then fuzzy matching.
 
@@ -67,6 +65,7 @@ async def resolve_library(
 
     Response:
       matches        — ranked list of results, sorted by relevance descending
+      hint           — optional recoverable guidance for unsupported input or fuzzy fallback
       Each match contains:
         library_id   — canonical library identifier
         name         — human-readable library name
@@ -81,7 +80,8 @@ async def resolve_library(
         matched_via  — "package_name" | "library_id" | "name" | "alias" | "fuzzy"
         relevance    — confidence score 0.0 (low) to 1.0 (high)
 
-    An empty matches list means the library is not in the registry.
+    An empty matches list means the library is not in the registry unless hint explains
+    how to retry with a plain package or library name.
     """
     state: AppState = ctx.request_context.lifespan_context
     try:

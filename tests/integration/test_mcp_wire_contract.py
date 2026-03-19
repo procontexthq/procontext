@@ -168,7 +168,14 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
         assert "outputSchema" in tool, f"{tool_name} missing outputSchema"
         assert tool["outputSchema"]["type"] == "object"
 
-    assert "matches" in tools_by_name["resolve_library"]["outputSchema"]["properties"]
+    resolve_output_schema = tools_by_name["resolve_library"]["outputSchema"]
+    assert "matches" in resolve_output_schema["properties"]
+    assert "hint" in resolve_output_schema["properties"]
+    resolve_hint_schema = resolve_output_schema["$defs"]["ResolveHint"]
+    assert resolve_hint_schema["properties"]["code"]["enum"] == [
+        "UNSUPPORTED_QUERY_SYNTAX",
+        "FUZZY_FALLBACK_USED",
+    ]
     assert "outline" in tools_by_name["read_page"]["outputSchema"]["properties"]
 
 
@@ -205,6 +212,47 @@ def test_resolve_library_wire_success(subprocess_env: dict[str, str]) -> None:
     payload = json.loads(tool_response["result"]["content"][0]["text"])
     assert "matches" in payload
     assert payload["matches"][0]["library_id"] == "langchain"
+
+
+def test_resolve_library_wire_unsupported_input_hint(subprocess_env: dict[str, str]) -> None:
+    responses = _run_mcp_exchange(
+        subprocess_env,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "resolve_library",
+                    "arguments": {"query": "langchain[openai]>=0.3"},
+                },
+            },
+        ],
+    )
+
+    tool_response = next(response for response in responses if response.get("id") == 2)
+    assert tool_response["result"]["isError"] is False
+
+    payload = json.loads(tool_response["result"]["content"][0]["text"])
+    assert payload["matches"] == []
+    assert payload["hint"] == {
+        "code": "UNSUPPORTED_QUERY_SYNTAX",
+        "message": (
+            "Provide only the published package name, library ID, display name, "
+            "or alias without version specifiers, extras, tags, or source URLs."
+        ),
+    }
 
 
 def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[str, str]) -> None:

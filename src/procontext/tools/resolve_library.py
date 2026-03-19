@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.models.tools import ResolveLibraryInput, ResolveLibraryOutput
+from procontext.models.tools import ResolveHint, ResolveLibraryInput, ResolveLibraryOutput
+from procontext.normalization import is_unsupported_resolve_query
 from procontext.resolver import resolve_library
 
 if TYPE_CHECKING:
@@ -53,7 +54,7 @@ async def handle(
 
     log.info("resolve_complete", match_count=len(matches))
 
-    output = ResolveLibraryOutput(matches=matches)
+    output = ResolveLibraryOutput(matches=matches, hint=_resolve_hint(validated.query, matches))
     return output.model_dump(mode="json")
 
 
@@ -76,3 +77,22 @@ def _sort_by_language(matches: list[LibraryMatch], language: str) -> list[Librar
 
     # Stable sort: matches with the language come first
     return sorted(sorted_matches, key=lambda m: not _has_language(m))
+
+
+def _resolve_hint(query: str, matches: list[LibraryMatch]) -> ResolveHint | None:
+    if is_unsupported_resolve_query(query):
+        return ResolveHint(
+            code="UNSUPPORTED_QUERY_SYNTAX",
+            message=(
+                "Provide only the published package name, library ID, display name, "
+                "or alias without version specifiers, extras, tags, or source URLs."
+            ),
+        )
+
+    if matches and all(match.matched_via == "fuzzy" for match in matches):
+        return ResolveHint(
+            code="FUZZY_FALLBACK_USED",
+            message="No exact match was found. Verify the fuzzy match before continuing.",
+        )
+
+    return None

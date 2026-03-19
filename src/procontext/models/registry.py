@@ -81,9 +81,6 @@ class RegistryIndexes:
     # package name (lowercase, as published) → library IDs
     by_package_exact: dict[str, list[str]] = field(default_factory=dict)
 
-    # PyPI package name (PEP 503 canonical form) → library IDs
-    by_package_pypi_canonical: dict[str, list[str]] = field(default_factory=dict)
-
     # library ID → full registry entry
     by_id: dict[str, RegistryEntry] = field(default_factory=dict)
 
@@ -91,5 +88,5 @@ class RegistryIndexes:
     by_text_exact: dict[str, list[ExactTextHit]] = field(default_factory=dict)
 
     # flat list of (term, library_id) pairs for fuzzy matching
-    # populated from package names, canonical package keys, IDs, names, and aliases
+    # populated from package names, IDs, names, and aliases
     fuzzy_corpus: list[tuple[str, str]] = field(default_factory=list)

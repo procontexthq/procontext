@@ -23,6 +23,7 @@ class TestResolveLibraryHandler:
         # "langchain" is both a package name and a library ID — Step 1 wins
         result = await handle("langchain", app_state)
         assert len(result["matches"]) == 1
+        assert result["hint"] is None
         match = result["matches"][0]
         assert match["library_id"] == "langchain"
         assert match["matched_via"] == "package_name"
@@ -30,6 +31,7 @@ class TestResolveLibraryHandler:
 
     async def test_output_contains_all_required_fields(self, app_state: AppState) -> None:
         result = await handle("pydantic", app_state)
+        assert set(result.keys()) == {"matches", "hint"}
         match = result["matches"][0]
         assert set(match.keys()) == {
             "library_id",
@@ -44,6 +46,7 @@ class TestResolveLibraryHandler:
     async def test_no_match_returns_empty_list(self, app_state: AppState) -> None:
         result = await handle("xyzzy-nonexistent", app_state)
         assert result["matches"] == []
+        assert result["hint"] is None
 
     async def test_empty_query_raises_invalid_input(self, app_state: AppState) -> None:
         with pytest.raises(ProContextError) as exc_info:
@@ -62,9 +65,18 @@ class TestResolveLibraryHandler:
         assert result["matches"][0]["library_id"] == "langchain"
         assert result["matches"][0]["matched_via"] == "package_name"
 
-    async def test_pip_specifier_resolves_correctly(self, app_state: AppState) -> None:
+    async def test_dependency_specifier_returns_unsupported_query_syntax_hint(
+        self, app_state: AppState
+    ) -> None:
         result = await handle("langchain[openai]>=0.3", app_state)
-        assert result["matches"][0]["library_id"] == "langchain"
+        assert result["matches"] == []
+        assert result["hint"] == {
+            "code": "UNSUPPORTED_QUERY_SYNTAX",
+            "message": (
+                "Provide only the published package name, library ID, display name, "
+                "or alias without version specifiers, extras, tags, or source URLs."
+            ),
+        }
 
     async def test_packages_in_response(self, app_state: AppState) -> None:
         result = await handle("langchain", app_state)
@@ -159,12 +171,35 @@ class TestResolveLibraryMixedHandler:
 
         assert result["matches"][0]["library_id"] == "babel-core"
         assert result["matches"][0]["matched_via"] == "name"
+        assert result["hint"] is None
 
-    async def test_scoped_npm_package_with_version_resolves(self, mixed_state: AppState) -> None:
+    async def test_scoped_npm_package_with_version_returns_hint(
+        self, mixed_state: AppState
+    ) -> None:
         result = await handle("@babel/core@^7.26.0", mixed_state)
 
-        assert result["matches"][0]["library_id"] == "babel-core"
-        assert result["matches"][0]["matched_via"] == "package_name"
+        assert result["matches"] == []
+        assert result["hint"] == {
+            "code": "UNSUPPORTED_QUERY_SYNTAX",
+            "message": (
+                "Provide only the published package name, library ID, display name, "
+                "or alias without version specifiers, extras, tags, or source URLs."
+            ),
+        }
+
+    async def test_npm_dist_tag_returns_unsupported_query_syntax_hint(
+        self, mixed_state: AppState
+    ) -> None:
+        result = await handle("@babel/core@latest", mixed_state)
+
+        assert result["matches"] == []
+        assert result["hint"] == {
+            "code": "UNSUPPORTED_QUERY_SYNTAX",
+            "message": (
+                "Provide only the published package name, library ID, display name, "
+                "or alias without version specifiers, extras, tags, or source URLs."
+            ),
+        }
 
     async def test_shared_exact_package_identifier_returns_multiple_matches(
         self, mixed_state: AppState
@@ -176,11 +211,46 @@ class TestResolveLibraryMixedHandler:
             "openai-js",
         }
         assert {match["matched_via"] for match in result["matches"]} == {"package_name"}
+        assert result["hint"] is None
 
-    async def test_github_like_query_returns_empty_matches(self, mixed_state: AppState) -> None:
+    async def test_github_like_query_returns_unsupported_query_syntax_hint(
+        self, mixed_state: AppState
+    ) -> None:
         result = await handle("https://github.com/openai/openai-python", mixed_state)
 
         assert result["matches"] == []
+        assert result["hint"] == {
+            "code": "UNSUPPORTED_QUERY_SYNTAX",
+            "message": (
+                "Provide only the published package name, library ID, display name, "
+                "or alias without version specifiers, extras, tags, or source URLs."
+            ),
+        }
+
+    async def test_fuzzy_match_returns_fallback_hint(self, mixed_state: AppState) -> None:
+        result = await handle("langchian", mixed_state)
+
+        assert result["matches"][0]["library_id"] == "langchain"
+        assert result["matches"][0]["matched_via"] == "fuzzy"
+        assert result["hint"] == {
+            "code": "FUZZY_FALLBACK_USED",
+            "message": "No exact match was found. Verify the fuzzy match before continuing.",
+        }
+
+    async def test_language_sort_reorders_multiple_matches_without_filtering(
+        self, mixed_state: AppState
+    ) -> None:
+        result = await handle("openai", mixed_state, language="python")
+
+        assert [match["library_id"] for match in result["matches"]] == [
+            "openai-python",
+            "openai-js",
+        ]
+        assert {match["library_id"] for match in result["matches"]} == {
+            "openai-python",
+            "openai-js",
+        }
+        assert all(match["packages"] for match in result["matches"])
 
 
 @pytest.fixture()

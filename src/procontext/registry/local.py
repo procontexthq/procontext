@@ -9,12 +9,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.models.registry import ExactTextHit, RegistryEntry, RegistryIndexes, TextMatchType
-from procontext.normalization import (
-    canonicalize_pypi_name,
-    normalize_fuzzy_term,
-    normalize_package_key,
-    normalize_text_key,
-)
+from procontext.normalization import normalize_fuzzy_term, normalize_package_key, normalize_text_key
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,7 +80,6 @@ def _load_local_registry_pair(
 def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
     """Build in-memory indexes from a list of registry entries."""
     by_package_exact_seen: dict[str, dict[str, None]] = {}
-    by_package_pypi_canonical_seen: dict[str, dict[str, None]] = {}
     by_id: dict[str, RegistryEntry] = {}
     by_text_exact_seen: dict[str, dict[str, ExactTextHit]] = {}
     fuzzy_corpus_seen: dict[tuple[str, str], None] = {}
@@ -102,11 +96,6 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
                 _add_keyed_library(by_package_exact_seen, exact_key, entry.id)
                 _add_fuzzy_term(fuzzy_corpus_seen, name, entry.id)
 
-                if pkg_entry.ecosystem == "pypi":
-                    canonical_key = canonicalize_pypi_name(name)
-                    _add_keyed_library(by_package_pypi_canonical_seen, canonical_key, entry.id)
-                    _add_fuzzy_term(fuzzy_corpus_seen, canonical_key, entry.id)
-
         for alias in entry.aliases:
             _add_text_hit(by_text_exact_seen, alias, entry.id, "alias")
             _add_fuzzy_term(fuzzy_corpus_seen, alias, entry.id)
@@ -115,7 +104,6 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
 
     return RegistryIndexes(
         by_package_exact=_freeze_keyed_library_index(by_package_exact_seen),
-        by_package_pypi_canonical=_freeze_keyed_library_index(by_package_pypi_canonical_seen),
         by_id=by_id,
         by_text_exact=_freeze_text_index(by_text_exact_seen),
         fuzzy_corpus=list(fuzzy_corpus_seen.keys()),

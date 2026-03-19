@@ -41,12 +41,11 @@ class TestResolveLibraryStep1PackageName:
         assert len(matches) == 1
         assert matches[0].library_id == "pydantic"
 
-    def test_pip_extras_stripped(self, indexes: RegistryIndexes) -> None:
-        """Pip extras are stripped before lookup."""
+    def test_dependency_syntax_is_not_rewritten_for_package_lookup(
+        self, indexes: RegistryIndexes
+    ) -> None:
         matches = resolve_library("langchain[openai]>=0.3", indexes)
-        assert len(matches) == 1
-        assert matches[0].library_id == "langchain"
-        assert matches[0].matched_via == "package_name"
+        assert matches == []
 
 
 class TestResolveLibraryStep2LibraryId:

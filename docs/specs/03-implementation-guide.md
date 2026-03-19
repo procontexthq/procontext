@@ -427,7 +427,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 **Expected behaviours**:
 
 - `"langchain-openai"` → resolves via package name to `"langchain"`
-- `"langchain[openai]>=0.3"` → normalised then resolves
+- `"langchain[openai]>=0.3"` → returns empty matches with `UNSUPPORTED_QUERY_SYNTAX`
 - `"LangChain"` → lowercase normalised, resolves via ID
 - `"langchan"` → fuzzy match to `"langchain"` with relevance < 1.0
 - `"xyzzy-nonexistent"` → empty matches list, no error

@@ -12,6 +12,7 @@ from procontext.models.tools import (
     ReadOutlineOutput,
     ReadPageInput,
     ReadPageOutput,
+    ResolveHint,
     ResolveLibraryInput,
     ResolveLibraryOutput,
     SearchPageInput,
@@ -27,6 +28,7 @@ __all__ = [
     # cache
     "PageCacheEntry",
     # tools
+    "ResolveHint",
     "ResolveLibraryInput",
     "ResolveLibraryOutput",
     "ReadPageInput",

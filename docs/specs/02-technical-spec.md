@@ -97,11 +97,10 @@
 ### 1.2 Request Flow
 
 ```
-resolve_library("langchain[openai]>=0.3")
+resolve_library("langchain-openai")
   │
-  ├─ Preprocess: strip extras/version → "langchain" → lowercase
-  ├─ Classify: definitely_python
-  ├─ Index 1 (PyPI canonical package → IDs): "langchain" → ["langchain"]  ✓
+  ├─ Normalize package key: trim + lowercase
+  ├─ Index 1 (package → IDs): "langchain-openai" → ["langchain"]  ✓
   └─ Return [{ library_id: "langchain", index_url: "...", matched_via: "package_name", relevance: 1.0 }]
 
 read_page("https://python.langchain.com/llms.txt")
@@ -244,8 +243,13 @@ class ResolveLibraryInput(BaseModel):
             raise ValueError("query must not exceed 500 characters")
         return v
 
+class ResolveHint(BaseModel):
+    code: Literal["UNSUPPORTED_QUERY_SYNTAX", "FUZZY_FALLBACK_USED"]
+    message: str
+
 class ResolveLibraryOutput(BaseModel):
     matches: list[LibraryMatch]
+    hint: ResolveHint | None = None
 
 class ReadPageInput(BaseModel):
     url: str
@@ -405,7 +409,7 @@ class ProContextError(Exception):
 
 ### 4.1 In-Memory Indexes
 
-Loaded from `known-libraries.json` at startup. Four exact/fuzzy structures are rebuilt in a single pass (<100ms for 1,000 entries):
+Loaded from `known-libraries.json` at startup. Three exact/fuzzy structures are rebuilt in a single pass (<100ms for 1,000 entries):
 
 ```python
 @dataclass
@@ -413,13 +417,10 @@ class RegistryIndexes:
     # Index 1: package name (lowercase, as published) → library IDs
     by_package_exact: dict[str, list[str]]
 
-    # Index 2: PyPI package name (PEP 503 canonical form) → library IDs
-    by_package_pypi_canonical: dict[str, list[str]]
-
-    # Index 3: library ID → full RegistryEntry
+    # Index 2: library ID → full RegistryEntry
     by_id: dict[str, RegistryEntry]
 
-    # Index 4: normalized text → exact text hits from library_id, name, alias
+    # Index 3: normalized text → exact text hits from library_id, name, alias
     by_text_exact: dict[str, list[ExactTextHit]]
 
     # Flat list of unique (normalized_term, library_id) pairs for fuzzy matching
@@ -427,7 +428,6 @@ class RegistryIndexes:
 
 def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
     by_package_exact_seen: dict[str, dict[str, None]] = {}
-    by_package_pypi_canonical_seen: dict[str, dict[str, None]] = {}
     by_id: dict[str, RegistryEntry] = {}
     by_text_exact_seen: dict[str, dict[str, ExactTextHit]] = {}
     fuzzy_corpus_seen: dict[tuple[str, str], None] = {}
@@ -438,7 +438,6 @@ def build_indexes(entries: list[RegistryEntry]) -> RegistryIndexes:
 
     return RegistryIndexes(
         by_package_exact=...,
-        by_package_pypi_canonical=...,
         by_id=by_id,
         by_text_exact=...,
         fuzzy_corpus=list(fuzzy_corpus_seen.keys()),
@@ -453,37 +452,35 @@ Build-time dedupe rules:
 
 ### 4.2 Resolution Algorithm
 
-Three tiers in priority order. Returns on the first successful tier.
+Three tiers in priority order. Exact package and exact text lookup always run before fuzzy.
 
 ```
-Step 0: Preprocess query (see Section 4.4)
-        - trim outer whitespace
-        - safe-strip trusted dependency syntax
-        - classify query
+Step 0: Detect unsupported input (see Section 4.4)
+        - source refs / URLs
+        - dependency modifiers such as extras, version specifiers, or npm tags
+        - if unsupported: return { matches: [], hint: UNSUPPORTED_QUERY_SYNTAX }
 
 Step 1: Exact package tier
-        definitely_python:
-          indexes.by_package_pypi_canonical.get(canonicalized_query)
-        definitely_npm:
-          indexes.by_package_exact.get(stripped_query)
-        maybe_python:
-          indexes.by_package_exact.get(stripped_query)
-          then indexes.by_package_pypi_canonical.get(canonicalized_query) on miss
-        generic:
-          indexes.by_package_exact.get(stripped_query)
-        github_like/source-spec:
-          return []
+        indexes.by_package_exact.get(normalized_package_query)
 
 Step 2: Exact text tier
         indexes.by_text_exact.get(normalized_text_query)
         returns exact library_id, name, or alias matches in that priority order
 
-Step 3: Fuzzy match (Levenshtein)
+Step 3: Merge exact hits
+        - dedupe by library_id
+        - if the same library appears in both tiers, keep the stronger match type
+        - package_name > library_id > name > alias
+        - order package hits before text hits
+        - if merged exact set is non-empty: return it
+
+Step 4: Fuzzy match (Levenshtein)
         rapidfuzz.process.extract against fuzzy_corpus terms
         "langchan" → "langchain" (distance 1)  ✓
         Returns ALL matches above threshold, ranked by relevance
+        May attach hint FUZZY_FALLBACK_USED
 
-Step 4: No match → return empty list
+Step 5: No match → return empty list
 ```
 
 ### 4.3 Fuzzy Matching
@@ -529,7 +526,6 @@ The same fuzzy-normalization helper is applied both when the corpus is built and
 
 - trim outer whitespace
 - lowercase
-- apply the same safe stripping used by exact lookup
 - collapse repeated internal whitespace
 
 **Score cutoff rationale**: 70% rejects clearly wrong matches while catching common typos (`"fastapi"` → `"fasapi"`, `"langchain"` → `"langchan"`). Exact matches in steps 1–2 always score `1.0`.
@@ -539,29 +535,24 @@ The same fuzzy-normalization helper is applied both when the corpus is built and
 Applied before every resolution attempt:
 
 ```python
-def strip_safe_query(raw: str) -> str:
+def normalize_package_key(raw: str) -> str:
     query = raw.strip()
-    if not query or is_source_spec_query(query):
-        return query
+    return query.lower()
 
-    # npm numeric semver/range suffixes
-    if scoped_or_unscoped_npm_version_match(query):
-        return extracted_package_name
-
-    # Python extras and version/range suffixes
-    if python_requirement_match(query):
-        return extracted_package_name
-
-    return query
+def normalize_text_key(raw: str) -> str:
+    return " ".join(raw.strip().lower().split())
 ```
 
-Classification happens after safe stripping:
+Unsupported-input detection is explicit and does not rewrite the query:
 
-- `definitely_python`: Python extras or version/range syntax was present
-- `definitely_npm`: scoped npm package or safe npm version stripping succeeded
-- `maybe_python`: plain package-like token where PEP 503 changes the key
-- `generic`: plain token where PEP 503 does not change the key
-- `github_like`: source-spec / GitHub-like input such as `https://github.com/...`, `git+https://github.com/...`, `github:user/repo`, or `name @ https://...`
+- Source refs / URLs: `https://github.com/...`, `git+https://...`, `github:user/repo`, `name @ https://...`
+- Dependency modifiers: Python extras/version specifiers and npm `@version` / `@tag` suffixes
+
+Hint policy:
+
+- `UNSUPPORTED_QUERY_SYNTAX` for unsupported dependency/source syntax; caller should retry with only the plain package or library name
+- `FUZZY_FALLBACK_USED` when the resolver returns fuzzy results instead of an exact match
+- no hint for exact multi-match results; those are valid exact outcomes and are left for the caller to interpret
 
 ---
 

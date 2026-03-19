@@ -4,21 +4,12 @@ from __future__ import annotations
 
 import re
 
-_PYPI_CANONICAL_SEPARATORS_RE = re.compile(r"[-_.]+")
-_PYTHON_EXTRAS_RE = re.compile(r"\[[^\]]*\]")
+_PYTHON_EXTRAS_ONLY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\[[^\]]+\]$")
 _PYTHON_VERSION_RE = re.compile(
-    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*"
-    r"(?P<operator>===|==|~=|!=|<=|>=|<|>)\s*.+$"
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]*\])?\s*(?:===|==|~=|!=|<=|>=|<|>)\s*.+$"
 )
-_SCOPED_NPM_VERSION_RE = re.compile(
-    r"^(?P<name>@[^/\s]+/[^@\s]+)@(?P<version>[~^]?\d[0-9A-Za-z.+-]*)$"
-)
-_UNSCOPED_NPM_VERSION_RE = re.compile(r"^(?P<name>[^@\s/]+)@(?P<version>[~^]?\d[0-9A-Za-z.+-]*)$")
-
-
-def canonicalize_pypi_name(name: str) -> str:
-    """Canonicalize a PyPI project name using PEP 503 rules."""
-    return _PYPI_CANONICAL_SEPARATORS_RE.sub("-", name.strip()).lower()
+_SCOPED_NPM_MODIFIER_RE = re.compile(r"^@[^/\s]+/[^@\s]+@.+$")
+_UNSCOPED_NPM_MODIFIER_RE = re.compile(r"^[^@\s/]+@.+$")
 
 
 def normalize_package_key(name: str) -> str:
@@ -27,37 +18,38 @@ def normalize_package_key(name: str) -> str:
 
 
 def normalize_text_key(text: str) -> str:
-    """Normalize free-form text keys for exact name, ID, and alias lookup."""
+    """Normalize free-form text keys for exact name, ID, alias, and fuzzy lookup."""
     return " ".join(text.strip().lower().split())
-
-
-def strip_safe_query(raw: str) -> str:
-    """Strip only dependency syntax that is safe to discard for lookup."""
-    query = raw.strip()
-    if not query or is_source_spec_query(query):
-        return query
-
-    npm_match = _SCOPED_NPM_VERSION_RE.fullmatch(query)
-    if npm_match is not None:
-        return npm_match.group("name")
-
-    npm_match = _UNSCOPED_NPM_VERSION_RE.fullmatch(query)
-    if npm_match is not None:
-        return npm_match.group("name")
-
-    python_match = _PYTHON_VERSION_RE.fullmatch(query)
-    if python_match is not None:
-        return python_match.group("name")
-
-    stripped_extras = _PYTHON_EXTRAS_RE.sub("", query)
-    return stripped_extras.strip()
 
 
 def normalize_fuzzy_term(raw: str) -> str:
     """Normalize a term for fuzzy matching symmetrically across index and query."""
-    return normalize_text_key(strip_safe_query(raw))
+    return normalize_text_key(raw)
 
 
 def is_source_spec_query(raw: str) -> bool:
     """Return true when a query is a source spec we intentionally do not resolve."""
-    return " @ " in raw or "://" in raw or raw.startswith(("git+", "github:"))
+    query = raw.strip()
+    return " @ " in query or "://" in query or query.startswith(("git+", "github:"))
+
+
+def has_dependency_modifier_syntax(raw: str) -> bool:
+    """Return true when a query contains dependency modifiers instead of a plain name."""
+    query = raw.strip()
+    if not query or is_source_spec_query(query):
+        return False
+
+    return (
+        _PYTHON_EXTRAS_ONLY_RE.fullmatch(query) is not None
+        or _PYTHON_VERSION_RE.fullmatch(query) is not None
+        or _SCOPED_NPM_MODIFIER_RE.fullmatch(query) is not None
+        or _UNSCOPED_NPM_MODIFIER_RE.fullmatch(query) is not None
+    )
+
+
+def is_unsupported_resolve_query(raw: str) -> bool:
+    """Return true when resolve_library should reject the query with a hint."""
+    query = raw.strip()
+    if not query:
+        return False
+    return is_source_spec_query(query) or has_dependency_modifier_syntax(query)

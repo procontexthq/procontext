@@ -71,21 +71,19 @@ ProContext exposes four MCP tools. All tools are async and return structured JSO
 
 | Parameter  | Type   | Required | Description                                                                                                                    |
 | ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `query`    | string | Yes      | Library name, package name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"langchain[openai]>=0.3"`, `"LangChain"` |
+| `query`    | string | Yes      | Plain library name, package name, display name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"LangChain"`, `"Babel Core"` |
 | `language` | string | No       | Optional language preference (e.g., `"python"`, `"javascript"`). When provided, results are sorted so libraries matching the preferred language appear first. Does not filter — all matches are still returned. |
 
 **Processing**:
 
-1. Preprocess input: trim whitespace and safely strip Python extras/version syntax or npm numeric `@version` suffixes
-2. Classify the query as definitely Python, definitely npm, maybe Python, generic, or source-spec / GitHub-like
-3. Exact package lookup
-   - definitely Python: PyPI canonical lookup only
-   - definitely npm: exact package lookup only
-   - maybe Python: exact package lookup, then PyPI canonical fallback
-   - generic: exact package lookup only
-4. Exact text lookup against library IDs, display names, and aliases
-5. Fuzzy match (Levenshtein) for typos
-6. If no match, or if the query is a source-spec / GitHub-like input: return empty list
+1. Trim and lowercase the query for package lookup; trim, lowercase, and collapse repeated internal whitespace for text lookup
+2. If the query contains dependency modifiers or source-spec syntax, return an empty result plus an `UNSUPPORTED_QUERY_SYNTAX` hint
+3. Run exact package lookup against published package names
+4. Run exact text lookup against library IDs, display names, and aliases
+5. Merge and deduplicate exact hits, returning package hits before text hits
+6. If there are no exact hits, run fuzzy match (Levenshtein) for typos
+7. If fuzzy results are returned, attach a `FUZZY_FALLBACK_USED` hint
+8. If there is still no match: return empty list with no hint
 
 All matching is against in-memory indexes loaded from the registry at startup. No network calls.
 
@@ -111,9 +109,15 @@ All matching is against in-memory indexes loaded from the registry at startup. N
       "matched_via": "package_name",
       "relevance": 1.0
     }
-  ]
+  ],
+  "hint": null
 }
 ```
+
+Top-level output fields:
+
+- `matches`: zero or more resolved libraries
+- `hint`: optional actionable guidance for recoverable non-error cases. Shape: `{ "code": string, "message": string }`
 
 | Field          | Description                                                                                                |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -132,7 +136,8 @@ All matching is against in-memory indexes loaded from the registry at startup. N
 - When `language` is provided, results are additionally sorted so libraries with a matching language in their `packages` entries appear first. The `language` parameter sorts but never filters — all matches are still returned.
 - Returns multiple matches when fuzzy matching produces several candidates above the similarity threshold.
 - An empty `matches` list means the library is not in the registry. The agent should inform the user.
-- Source-spec / GitHub-like inputs such as `https://github.com/user/repo`, `github:user/repo`, or `name @ https://...` return an empty `matches` list; the caller should ask for the package name instead.
+- `hint` is emitted only for actionable, recoverable non-error cases such as GitHub/source-spec input or fuzzy fallback. It is not emitted for exact multi-match results.
+- Modifier/spec inputs such as `langchain[openai]>=0.3`, `react@latest`, `https://github.com/user/repo`, `github:user/repo`, or `name @ https://...` return an empty `matches` list with an `UNSUPPORTED_QUERY_SYNTAX` hint telling the caller to provide only the plain package or library name.
 - The agent typically uses `index_url` with `read_page` to browse the documentation index, or with `search_page` to find specific topics within the index.
 
 ---
