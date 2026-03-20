@@ -2,7 +2,7 @@
 
 # ProContext
 
-**Accurate, live library documentation for AI coding agents.**
+**Current library documentation for MCP-based coding agents.**
 
 [![Website][website-badge]][website-url]
 [![License: MIT][license-badge]][license-url]
@@ -12,22 +12,9 @@
 
 </div>
 
-ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that gives AI coding agents - Claude Code, Cursor, Codex - accurate, up-to-date documentation for the libraries they write code with. It prevents hallucinated APIs by serving real documentation on demand from a curated, pre-validated registry.
+ProContext is an open-source [MCP](https://modelcontextprotocol.io) server for Claude Code, Cursor, Codex, Windsurf, and other MCP clients. It resolves libraries from a curated registry of known documentation sources, then serves live `llms.txt`, README, and documentation pages on demand so agents can work against current APIs instead of stale training data.
 
-**[procontext.dev](https://procontext.dev)**
-
----
-
-- [Quick Start](#quick-start)
-- [How It Works](#how-it-works)
-- [The Problem](#the-problem)
-- [Features](#features)
-- [Installation](#installation)
-- [Integrations](#integrations)
-- [Platform Support](#platform-support)
-- [Registry](#registry)
-- [Contributing](#contributing)
-- [License](#license)
+Project site: [procontext.dev](https://procontext.dev)
 
 [website-badge]: https://img.shields.io/badge/website-procontext.dev-blue.svg
 [website-url]: https://procontext.dev
@@ -42,21 +29,36 @@ ProContext is an open-source [MCP](https://modelcontextprotocol.io) server that 
 
 ---
 
+## Why ProContext
+
+Coding agents are good at deciding what documentation they need, but they still fail when the underlying library APIs have changed. ProContext keeps the navigation with the agent and makes the retrieval side predictable:
+
+- **Registry-first resolution**: library lookup runs against an in-memory index built from a curated registry of known documentation sources.
+- **Live documentation fetches**: agents read current `llms.txt`, README, and documentation pages instead of relying only on model memory.
+- **Shared cache with stale fallback**: fetched pages are cached in SQLite and reused across `read_page`, `search_page`, and `read_outline`.
+- **Constrained fetch surface**: documentation fetches are limited by an SSRF allowlist derived from the registry, with private IP ranges blocked.
+- **MCP-native transports**: supports stdio for local MCP clients and Streamable HTTP for shared deployments.
+- **Cross-platform defaults**: config, cache, and data paths resolve through `platformdirs` on macOS, Linux, and Windows.
+
 ## Quick Start
 
 Install ProContext:
 
 ### macOS and Linux
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
 ```
 
 ### Windows
+
+Run this in a PowerShell terminal:
+
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex"
+irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex
 ```
 
-Add to your MCP client config:
+Add ProContext to your MCP client config:
 
 ```json
 {
@@ -69,208 +71,52 @@ Add to your MCP client config:
 }
 ```
 
-Use the managed checkout path printed by the installer. If you prefer a manual checkout flow, see [Installation](#installation).
+The installer manages a local checkout and prints the path to use with `uv run --project ...`. For manual install, version pinning, troubleshooting, and installer options, see [docs/cli/installation.md](docs/cli/installation.md).
 
----
+## What ProContext Exposes
 
-## How It Works
+ProContext exposes four MCP tools:
 
-ProContext exposes four MCP tools. The agent drives the navigation — no server-side search, no intent guessing.
+- `resolve_library`: resolve a package, library name, or alias to a known documentation source.
+- `read_page`: read an `llms.txt` index, README, or documentation page with a compact outline and content window.
+- `search_page`: search within a documentation page and return matching lines plus outline context.
+- `read_outline`: page through a full outline when a page is too large for the compact outline returned by `read_page` or `search_page`.
 
-**Step 1 — Resolve the library**
+Typical flow:
 
-```
-resolve_library({ "query": "langchain-openai" })
+```text
+resolve_library("langchain-openai")
+  -> index_url
 
-→ {
-    "matches": [
-      {
-        "library_id": "langchain",
-        "name": "LangChain",
-        "index_url": "https://python.langchain.com/llms.txt",
-        "matched_via": "package_name",
-        "relevance": 1.0
-      }
-    ],
-    "hint": null
-  }
-```
+read_page(index_url)
+  -> documentation index / links
 
-**Step 2 — Read the documentation index (or any page)**
+search_page(page_url, "streaming")
+  -> matching lines and sections
 
-```
-read_page({ "url": "https://python.langchain.com/llms.txt" })
-
-→ {
-    "outline": "1:# LangChain\n3:## Concepts\n15:## How-to Guides\n...",
-    "total_lines": 45,
-    "content": "# LangChain\n\n## Concepts\n- [Chat Models](https://...)\n..."
-  }
+read_outline(page_url)
+  -> full structure for large pages
 ```
 
-**Step 3 — Browse the full page (or index) outline**
-
-```
-read_outline({ "url": "https://python.langchain.com/llms.txt" })
-
-→ {
-    "outline": "1:# LangChain\n3:## Concepts\n15:## How-to Guides\n...",
-    "total_entries": 18,
-    "has_more": false
-  }
-```
-
-**Step 4 — Search within a page**
-
-```
-search_page({ "url": "https://python.langchain.com/llms.txt", "query": "streaming" })
-
-→ {
-    "matches": "7:- [Streaming](https://...): Stream model outputs...\n22:- [How to stream responses](https://...): ...",
-    "has_more": false
-  }
-```
-
-The agent resolves a library, reads the index or pages directly, browses full outlines when needed, and searches within pages to jump to the right section. ProContext fetches from known, pre-validated sources and caches the results for subsequent calls.
-
----
-
-## The Problem
-
-AI coding agents hallucinate API details because their training data ages. A library ships a breaking change; the agent's weights don't reflect it; the generated code doesn't work.
-
-There are two common failure modes:
-
-- Server-side search requires the server to guess what the agent actually means, which gets expensive and brittle when the query is vague.
-- Agent-side RAG can work well, but every client has to rediscover, validate, and maintain documentation sources on its own.
-
-ProContext takes a different approach: build a curated registry of known-good documentation sources ahead of time, then serve those sources on demand at runtime. The agent's LLM already knows what it's looking for; ProContext gets it there reliably.
-
----
-
-## Features
-
-**Registry-first resolution**
-Library lookups complete in under 10ms from an in-memory index built at startup. Exact package, library ID, display name, and alias matching run before fuzzy typo fallback. Dependency specifiers and source URLs return a hint telling the caller to retry with the plain package or library name.
-
-**llms.txt native**
-Purpose-built for the [llms.txt standard](https://llmstxt.org) - the AI-optimized documentation format. Fetches tables of contents and individual pages on demand.
-
-**Efficient cache with stale fallback**
-First query: under 5 seconds (fetch + parse + cache). Repeat queries: under 100ms from SQLite. When cache expires, a synchronous re-fetch updates the content transparently. If the source is unreachable, stale content is served as fallback - the agent always gets a response.
-
-**SSRF protection**
-Initial documentation URLs must come from a domain allowlist derived from the registry. Private IP ranges are blocked unconditionally, including on redirect hops.
-
-**HTTP transport**
-Implements MCP Streamable HTTP (spec 2025-11-25) for shared or remote deployments. `MCPSecurityMiddleware` enforces origin validation (DNS rebinding protection), optional bearer key authentication, and protocol version checks.
-
-**Cross-platform**
-Config, cache, and data paths resolve automatically on Windows, macOS, and Linux via `platformdirs` - no manual path configuration.
-
----
-
-## Installation
-
-The supported installer entrypoints are the repository-root scripts [install.sh](install.sh) and [install.ps1](install.ps1).
-
-Quick install:
-
-### macOS and Linux
-```bash
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
-```
-
-### Windows
-```powershell
-powershell -c "irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex"
-```
-
-The installers clone or refresh a managed checkout from GitHub, ensure `git` and `uv` are available, sync a runtime-only environment with `uv sync --no-dev`, and run the one-time `procontext setup` step unless you skip it.
-
-Manual install is still available:
-
-```bash
-git clone https://github.com/procontexthq/procontext.git
-cd procontext
-uv sync --no-dev
-uv run --project . procontext setup
-```
-
-Full install and troubleshooting guide: [docs/cli/installation.md](docs/cli/installation.md)
-
-> **First-time setup**: `procontext setup` downloads and persists the library registry to your platform data directory. The server cannot start without it. If you skip this step, startup exits immediately with an actionable error telling you to run `procontext setup`.
-
-### stdio mode (default)
-
-Your MCP client (Claude Code, Cursor, Windsurf) spawns and manages the server process automatically - you don't need to run anything manually. The command below is only needed if you want to test the server directly, for example to verify your setup:
-
-```bash
-uv run --project /path/to/procontext procontext
-```
-
-### HTTP mode
-
-For shared or remote deployments. Runs a persistent HTTP server on `/mcp`.
-
-Copy the example config, set `transport: http`, and run:
-
-```bash
-cp procontext.example.yaml procontext.yaml
-```
-
-```yaml
-# procontext.yaml
-server:
-  transport: http
-  host: "127.0.0.1"
-  port: 8080
-  auth_enabled: false # set true to require a bearer key
-cache:
-  ttl_hours: 24
-```
-
-```bash
-uv run --project /path/to/procontext procontext
-```
-
-Alternatively, settings can be passed directly as environment variables using the `PROCONTEXT__` prefix:
-
-```bash
-PROCONTEXT__SERVER__TRANSPORT=http \
-PROCONTEXT__SERVER__HOST=127.0.0.1 \
-PROCONTEXT__SERVER__PORT=8080 \
-uv run --project /path/to/procontext procontext
-```
-
----
+For detailed request and response contracts, see [docs/specs/04-api-reference.md](docs/specs/04-api-reference.md).
 
 ## Integrations
 
-### stdio (Claude Code, Claude Desktop, Cursor, Windsurf, and others)
+### stdio
 
-Add to your MCP client config:
+Most MCP clients use the same stdio configuration shown in Quick Start. Use the managed checkout path printed by the installer.
 
-```json
-{
-  "mcpServers": {
-    "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"]
-    }
-  }
-}
-```
-
-For Claude Code, you can also add it from the CLI:
+For Claude Code:
 
 ```bash
-claude mcp add procontext -- uv run --project /path/to/procontext procontext
+claude mcp add procontext -- uv run --project /path/to/procontext-source procontext
 ```
 
-### HTTP mode (shared deployments)
+## HTTP / Deployment Note
 
-Point your MCP client at the server URL:
+ProContext also supports MCP Streamable HTTP for shared or remote deployments.
+
+Client configuration:
 
 ```json
 {
@@ -282,52 +128,45 @@ Point your MCP client at the server URL:
 }
 ```
 
-For Claude Code:
+Server configuration:
 
-```bash
-claude mcp add --transport http procontext http://your-server:8080/mcp
+```yaml
+server:
+  transport: http
+  host: "127.0.0.1"
+  port: 8080
 ```
 
----
+Then run:
 
-## Platform Support
+```bash
+uv run --project /path/to/procontext-source procontext
+```
 
-All filesystem paths (config, cache, data) resolve automatically via `platformdirs` - no manual configuration needed on any platform.
-
----
+For full installation, runtime, and troubleshooting details, see [docs/cli/installation.md](docs/cli/installation.md) and [docs/specs/04-api-reference.md](docs/specs/04-api-reference.md).
 
 ## Documentation
 
-Design decisions, architecture, and API reference are in [`docs/specs/`](docs/specs/).
-
----
+- [Installation guide](docs/cli/installation.md)
+- [CLI docs](docs/cli/README.md)
+- [API reference](docs/specs/04-api-reference.md)
+- [Technical spec](docs/specs/02-technical-spec.md)
+- [Project site](https://procontext.dev)
 
 ## Registry
 
 The library registry is maintained in a separate repository: **[procontexthq/procontexthq.github.io](https://github.com/procontexthq/procontexthq.github.io)**
 
-If you want to add a library or update an existing entry, open a PR there - not here. Registry PRs opened in this repository will be closed without review.
-
----
+If you want to add a library or update an existing entry, open a PR there rather than in this repository.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, development workflow, coding conventions, and how to submit a pull request.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contributor setup, development workflow, coding conventions, and pull request guidance.
 
 ## License
 
-MIT - see [LICENSE](LICENSE) for details. Free to use for individuals, teams, and organizations.
-
-A managed hosted version and enterprise self-deployable options are coming. If you're interested in early access, visit [procontext.dev](https://procontext.dev).
+MIT - see [LICENSE](LICENSE) for details.
 
 ---
 
-<div align="left">
-
 **Built with ❤️ for AI coding agents**
-
-[procontext.dev](https://procontext.dev) · [Specifications](docs/specs/) · [Issues](../../issues) · [Discussions](../../discussions) · [MCP](https://modelcontextprotocol.io) · [llms.txt](https://llmstxt.org)
-
-</div>
