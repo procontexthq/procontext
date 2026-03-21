@@ -343,6 +343,62 @@ class TestCompactOutline:
         result = compact_outline(entries, max_entries=20)
         assert result is None  # All H2, can't reduce below 30
 
+    def test_both_constraints_satisfied(self) -> None:
+        """Entry count and char count both satisfied."""
+        entries = self._make_entries(20, 2)  # 20 entries, small char count
+        result = compact_outline(entries, max_entries=50, max_chars=4000)
+        assert result == entries
+
+    def test_char_limit_triggers_compaction(self) -> None:
+        """Char limit exceeded even though entry count is OK."""
+        # Create 40 H2 entries with long headings to exceed char limit
+        long_heading = "## Very long heading with lots of descriptive text to exceed char limit"
+        entries = [
+            OutlineEntry(
+                line_number=i * 10,
+                text=f"{long_heading} {i}",
+                depth=2,
+                is_fence=False,
+                in_fence=False,
+            )
+            for i in range(1, 41)
+        ]
+        # With max_chars=1000, these 40 entries will exceed the limit
+        result = compact_outline(entries, max_entries=50, max_chars=1000)
+        # Should return None because all are H2 and can't be reduced
+        assert result is None
+
+    def test_char_limit_with_h6_removal(self) -> None:
+        """Removing H6 satisfies both entry count and char limit."""
+        h2 = self._make_entries(30, 2)
+        h6 = self._make_entries(25, 6)
+        entries = h2 + h6  # 55 entries
+        result = compact_outline(entries, max_entries=50, max_chars=10000)
+        assert result is not None
+        assert len(result) == 30
+        assert all(e.depth == 2 for e in result)
+
+    def test_char_limit_prevents_early_stopping(self) -> None:
+        """Compaction must continue even when entry count is satisfied if char limit exceeded."""
+        h2 = self._make_entries(45, 2)
+        h3 = self._make_entries(5, 3)
+        entries = h2 + h3  # 50 entries exactly
+        # Set a very tight char limit to force compaction
+        result = compact_outline(entries, max_entries=50, max_chars=100)
+        # Should return None because we have 50 entries of H2/H3, can't reduce further
+        assert result is None
+
+    def test_char_limit_blocks_oversized_outlines(self) -> None:
+        """Char limit can block an outline even under entry limit."""
+        h2 = self._make_entries(10, 2)
+        h3 = self._make_entries(5, 3)
+        entries = h2 + h3  # 15 entries, well under 50
+        # Set char limit very tight to force compaction
+        result = compact_outline(entries, max_entries=50, max_chars=50)
+        # Entry count is fine (15 < 50) but char count is not (~200+ chars)
+        # So compaction should try to reduce, returning None since H2/H3 can't be reduced
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # trim_outline_to_range

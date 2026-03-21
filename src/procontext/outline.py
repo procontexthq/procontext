@@ -156,52 +156,63 @@ def strip_empty_fences(entries: list[OutlineEntry]) -> list[OutlineEntry]:
 
 
 def compact_outline(
-    entries: list[OutlineEntry], max_entries: int = 50
+    entries: list[OutlineEntry],
+    *,
+    max_entries: int = 50,
+    max_chars: int = 4000,
 ) -> list[OutlineEntry] | None:
-    """Progressively reduce outline entries to fit within *max_entries*.
+    """Progressively reduce outline entries to fit within *max_entries* and *max_chars*.
 
-    Reduction stages (in order, stopping as soon as count ≤ max_entries):
+    Both constraints are active: compaction continues until the outline satisfies
+    both (entry count ≤ max_entries AND formatted string ≤ max_chars).
+
+    Reduction stages (in order, stopping as soon as both constraints are satisfied):
       1. Remove H6 headings
       2. Remove H5 headings
       3. Remove fenced content (in_fence entries) and their enclosing fence markers
       4. Remove H4 headings
       5. Remove H3 headings
 
-    Returns ``None`` if the outline cannot be reduced to ≤ max_entries
-    (only H1/H2 remain and still exceed the limit).
+    Returns ``None`` if the outline cannot be reduced to satisfy both constraints
+    (only H1/H2 remain and still exceed either limit).
     """
-    if len(entries) <= max_entries:
+    if len(entries) <= max_entries and _formatted_outline_size(entries) <= max_chars:
         return entries
 
     result = entries
 
     # Stage 1: Remove H6
     result = [e for e in result if e.depth != 6]
-    if len(result) <= max_entries:
+    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
         return result
 
     # Stage 2: Remove H5
     result = [e for e in result if e.depth != 5]
-    if len(result) <= max_entries:
+    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
         return result
 
     # Stage 3: Remove fenced content and fence markers
     result = [e for e in result if not e.in_fence and not e.is_fence]
-    if len(result) <= max_entries:
+    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
         return result
 
     # Stage 4: Remove H4
     result = [e for e in result if e.depth != 4]
-    if len(result) <= max_entries:
+    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
         return result
 
     # Stage 5: Remove H3
     result = [e for e in result if e.depth != 3]
-    if len(result) <= max_entries:
+    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
         return result
 
-    # Irreducible — only H1/H2 remain and still exceed max_entries
+    # Irreducible — only H1/H2 remain and still exceed at least one constraint
     return None
+
+
+def _formatted_outline_size(entries: list[OutlineEntry]) -> int:
+    """Return the character count of the formatted outline string."""
+    return len(format_outline(entries))
 
 
 # ---------------------------------------------------------------------------

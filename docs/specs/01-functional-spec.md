@@ -159,7 +159,7 @@ Top-level output fields:
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1. Apply minimal URL normalization first: trim outer whitespace, lowercase scheme and host, and remove default ports (`:80` for `http`, `:443` for `https`). Preserve path, query string, fragment, and trailing slash exactly.
 2. Check SQLite cache for `url_hash = sha256(normalized_url)` — if fresh, return from cache
 3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first. On any failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
-4. Compact outline for response (progressive depth reduction to ≤50 entries; status message if irreducible)
+4. Compact outline for response (progressive depth reduction to satisfy both ≤max_entries and ≤max_chars; status message if irreducible)
 5. Slice content to the requested window (`offset`/`limit`)
 6. Return compacted outline, windowed content, and pagination metadata
 
@@ -187,7 +187,7 @@ Top-level output fields:
 | Field          | Description                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`          | The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved exactly, so `/page` and `/page/` remain distinct. |
-| `outline`      | Compacted structural outline of the page (target: ≤50 entries). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3). When the page outline exceeds 50 entries even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. |
+| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND ≤max_chars characters). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. |
 | `total_lines`  | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`       | The 1-based line number the returned content starts from.                                                                                               |
 | `limit`        | The maximum number of lines requested.                                                                                                                  |
@@ -201,7 +201,7 @@ Top-level output fields:
 
 **Notes**:
 
-- The outline is compacted to ≤50 entries to save tokens. For the complete outline, use `read_outline`.
+- The outline is compacted to satisfy both max_entries (default ≤50) and max_chars (default ≤4000) constraints to save tokens and ensure readability. For the complete outline, use `read_outline`. These limits are configurable via settings.
 - The full page and outline are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
 - `search_page` and `read_outline` share the same cache — a page fetched by any tool is available to the others without a re-fetch.
 - URL normalization is intentionally minimal. Equivalent host-case and default-port variants share cache entries, but trailing slash differences do not.
@@ -211,7 +211,7 @@ Top-level output fields:
 
 ### 4.3 search_page
 
-**Purpose**: Search within a documentation page for lines matching a query. Returns the matching lines with their line numbers plus structural outline context. For smaller outlines (≤50 entries after empty-fence stripping), `search_page` returns the full outline. For larger outlines, it trims to the match range before compaction. The agent uses the outline and match locations to identify relevant sections, then calls `read_page` with `offset`/`limit` to read the full content.
+**Purpose**: Search within a documentation page for lines matching a query. Returns the matching lines with their line numbers plus structural outline context. For smaller outlines (≤max_entries entries AND ≤max_chars characters after empty-fence stripping), `search_page` returns the full outline. For larger outlines, it trims to the match range before compaction. The agent uses the outline and match locations to identify relevant sections, then calls `read_page` with `offset`/`limit` to read the full content.
 
 This tool is the equivalent of `grep` for documentation pages. It supports literal keyword search, regex patterns, smart case sensitivity, and word boundary matching.
 
@@ -234,8 +234,8 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 3. Starting from `offset`, scan each line for a match against `query` (respecting `mode`, `case_mode`, `whole_word`)
 4. Collect up to `max_results` matching lines
 5. If there are no matches, return an empty outline string
-6. If the full outline is already ≤50 entries after empty-fence stripping, return it unchanged
-7. Otherwise trim the outline to the range between first and last match line numbers, then compact it (progressive depth reduction to ≤50 entries; status message if irreducible)
+6. If the full outline already satisfies both ≤max_entries and ≤max_chars after empty-fence stripping, return it unchanged
+7. Otherwise trim the outline to the range between first and last match line numbers, then compact it (progressive depth reduction to satisfy both constraints; status message if irreducible)
 8. Return outline context, matching lines, and pagination metadata
 
 **Smart case** (default): If the query string is entirely lowercase, matching is case-insensitive. If the query contains any uppercase character, matching is case-sensitive. This mirrors ripgrep's default behaviour — searching `"redis"` finds `"Redis"`, `"REDIS"`, and `"redis"`; searching `"Redis"` finds only `"Redis"`.
@@ -259,7 +259,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 
 | Field          | Description                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `outline`      | Structural outline context for the search results. Empty string when no matches are found. If the full outline is already small enough (≤50 entries after empty-fence stripping), it is returned unchanged. Otherwise the outline is trimmed to the match range and compacted; if still irreducible, this field contains a status message directing the agent to `read_outline`. |
+| `outline`      | Structural outline context for the search results. Empty string when no matches are found. If the full outline already satisfies both max_entries and max_chars constraints after empty-fence stripping, it is returned unchanged. Otherwise the outline is trimmed to the match range and compacted; if still irreducible to both constraints, this field contains a status message directing the agent to `read_outline`. |
 | `matches`      | Matching lines formatted as `<line_number>:<content>`, one per line. Empty string when no matches found.                  |
 | `total_lines`  | Total number of lines in the page.                                                                                        |
 | `has_more`     | `true` if more matches exist beyond the returned set.                                                                     |

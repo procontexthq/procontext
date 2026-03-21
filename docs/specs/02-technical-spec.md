@@ -113,7 +113,7 @@ read_page("https://python.langchain.com/llms.txt")
   ├─ Fetch: HTTP GET url (30s timeout, initial URL allowlisted; private IPs blocked on redirect hops)
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
-  ├─ Compact outline (progressive depth reduction → ≤50 entries, or status message)
+  ├─ Compact outline (progressive depth reduction → ≤max_entries AND ≤max_chars, or status message)
   └─ Return: { outline: "...", content: "...", has_more: bool }
 
 search_page("https://python.langchain.com/llms.txt", "streaming")
@@ -124,9 +124,9 @@ search_page("https://python.langchain.com/llms.txt", "streaming")
   │    MISS → fetch and cache (same path as read_page)
   ├─ Build matcher from query + mode + case_mode + whole_word
   ├─ Scan lines from offset, collect up to max_results matches
-  ├─ If outline is already small (≤50 entries after empty-fence stripping), return it unchanged
+  ├─ If outline is already small (≤max_entries AND ≤max_chars after empty-fence stripping), return it unchanged
   ├─ Otherwise trim outline to match range (first match line → last match line)
-  ├─ Compact the oversized trimmed outline (progressive depth reduction → ≤50 entries)
+  ├─ Compact the oversized trimmed outline (progressive depth reduction → ≤max_entries AND ≤max_chars)
   └─ Return: { outline: "...", matches: [...], has_more: bool }
 
 read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
@@ -285,7 +285,7 @@ class ReadPageInput(BaseModel):
 
 class ReadPageOutput(BaseModel):
     url: str
-    outline: str              # Compacted outline (≤50 entries) or status message if too large
+    outline: str              # Compacted outline (≤max_entries AND ≤max_chars) or status message if too large
     total_lines: int
     offset: int
     limit: int
@@ -974,9 +974,9 @@ Algorithm: single pass, tracking fence opener positions. When a closer is found,
 
 ### 7.4 Outline Compaction
 
-`compact_outline(entries: list[OutlineEntry], max_entries: int = 50) -> list[OutlineEntry] | None`
+`compact_outline(entries: list[OutlineEntry], *, max_entries: int = 50, max_chars: int = 4000) -> list[OutlineEntry] | None`
 
-Progressive reduction applied to the outline for `read_page` and `search_page` responses. Removes entries in priority order, stopping as soon as the entry count drops to or below `max_entries`:
+Progressive reduction applied to the outline for `read_page` and `search_page` responses. Both constraints are active: compaction continues until entry count ≤ `max_entries` **AND** formatted string length ≤ `max_chars`. Removes entries in priority order, stopping as soon as both constraints are satisfied:
 
 1. Remove entries where `depth == 6` (H6 headings)
 2. Remove entries where `depth == 5` (H5 headings)
@@ -984,7 +984,11 @@ Progressive reduction applied to the outline for `read_page` and `search_page` r
 4. Remove entries where `depth == 4` (H4 headings)
 5. Remove entries where `depth == 3` (H3 headings)
 
-If the entry count still exceeds `max_entries` after all reductions (only H1/H2 remain), returns `None`. The caller renders a status message: `"[Outline too large (N entries). Use read_outline for paginated access.]"`
+After each stage, the formatted outline is checked against both constraints via `_formatted_outline_size(entries)`, which counts characters in the `"<lineno>:<text>"` format. If both constraints are satisfied, compaction stops.
+
+If the entry count still exceeds `max_entries` OR the formatted string exceeds `max_chars` after all reductions (only H1/H2 remain), returns `None`. The caller renders a status message: `"[Outline too large (N entries). Use read_outline for paginated access.]"`
+
+These limits are configurable via `settings.outline.max_entries` and `settings.outline.max_chars` (defaults: 50 entries, 4000 characters).
 
 ### 7.5 Match-Range Trimming
 
@@ -1523,6 +1527,10 @@ resolver:
   fuzzy_score_cutoff: 70 # minimum rapidfuzz score (0–100) for a fuzzy match to count
   fuzzy_max_results: 5 # maximum number of fuzzy candidates returned
 
+outline:
+  max_entries: 50 # maximum entry count in compacted outlines (read_page, search_page)
+  max_chars: 4000 # maximum character count in compacted outlines (as formatted string)
+
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
   format: json # json | text (text for local dev)
@@ -1568,6 +1576,10 @@ class ResolverSettings(BaseModel):
     fuzzy_score_cutoff: int = 70
     fuzzy_max_results: int = 5
 
+class OutlineSettings(BaseModel):
+    max_entries: int = 50 # maximum entry count in compacted outlines
+    max_chars: int = 4000 # maximum character count in compacted outlines
+
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     format: Literal["json", "text"] = "json"
@@ -1588,6 +1600,7 @@ class Settings(BaseSettings):
     cache: CacheSettings = CacheSettings()
     fetcher: FetcherSettings = FetcherSettings()
     resolver: ResolverSettings = ResolverSettings()
+    outline: OutlineSettings = OutlineSettings()
     logging: LoggingSettings = LoggingSettings()
 
     @classmethod
@@ -1605,7 +1618,7 @@ class Settings(BaseSettings):
         )
 ```
 
-`_find_config_file()` searches `procontext.yaml` in the current directory first, then the platform config directory (`platformdirs.user_config_dir("procontext")`), returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PROCONTEXT__` with `__` as the nested delimiter (e.g., `PROCONTEXT__SERVER__PORT=9090`, `PROCONTEXT__SERVER__AUTH_ENABLED=true`, `PROCONTEXT__CACHE__TTL_HOURS=48`).
+`_find_config_file()` searches `procontext.yaml` in the current directory first, then the platform config directory (`platformdirs.user_config_dir("procontext")`), returning the first path that exists or `None` (config file is optional). Environment variables use the prefix `PROCONTEXT__` with `__` as the nested delimiter (e.g., `PROCONTEXT__SERVER__PORT=9090`, `PROCONTEXT__SERVER__AUTH_ENABLED=true`, `PROCONTEXT__CACHE__TTL_HOURS=48`, `PROCONTEXT__OUTLINE__MAX_CHARS=8000`).
 
 ---
 

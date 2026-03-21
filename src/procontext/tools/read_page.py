@@ -51,7 +51,11 @@ async def handle(
     result = await fetch_or_cached_page(validated.url, state)
 
     # Compact the outline
-    compacted_outline = _compact_page_outline(result.outline)
+    compacted_outline = _compact_page_outline(
+        result.outline,
+        max_entries=state.settings.outline.max_entries,
+        max_chars=state.settings.outline.max_chars,
+    )
 
     return _build_output(
         url=result.url,
@@ -66,16 +70,16 @@ async def handle(
     )
 
 
-def _compact_page_outline(raw_outline: str) -> str:
+def _compact_page_outline(raw_outline: str, *, max_entries: int = 50, max_chars: int = 4000) -> str:
     """Parse, strip empty fences, and compact an outline for read_page output."""
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
 
-    if total_entries <= 50:
+    if total_entries <= max_entries and len(format_outline(entries)) <= max_chars:
         return format_outline(entries)
 
-    compacted = compact_outline(entries)
+    compacted = compact_outline(entries, max_entries=max_entries, max_chars=max_chars)
     if compacted is None:
         return (
             f"[Outline too large ({total_entries} entries). Use read_outline for paginated access.]"

@@ -98,7 +98,13 @@ async def handle(
     # Build compacted outline trimmed to match range
     first_line = raw_matches[0].line_number if raw_matches else None
     last_line = raw_matches[-1].line_number if raw_matches else None
-    outline = _compact_search_outline(result.outline, first_line, last_line)
+    outline = _compact_search_outline(
+        result.outline,
+        first_line,
+        last_line,
+        max_entries=state.settings.outline.max_entries,
+        max_chars=state.settings.outline.max_chars,
+    )
 
     output = SearchPageOutput(
         url=result.url,
@@ -115,7 +121,14 @@ async def handle(
     return output.model_dump(mode="json")
 
 
-def _compact_search_outline(raw_outline: str, first_line: int | None, last_line: int | None) -> str:
+def _compact_search_outline(
+    raw_outline: str,
+    first_line: int | None,
+    last_line: int | None,
+    *,
+    max_entries: int = 50,
+    max_chars: int = 4000,
+) -> str:
     """Trim and compact only oversized outlines for search_page output."""
     if first_line is None or last_line is None:
         return ""
@@ -126,16 +139,16 @@ def _compact_search_outline(raw_outline: str, first_line: int | None, last_line:
 
     # Small outlines fit inline already — preserve the full structure instead of
     # trimming to the match span, which can drop useful parent headings.
-    if total_entries <= 50:
+    if total_entries <= max_entries and len(format_outline(entries)) <= max_chars:
         return format_outline(entries)
 
     # Trim to match range
     trimmed = trim_outline_to_range(entries, first_line, last_line)
 
-    if len(trimmed) <= 50:
+    if len(trimmed) <= max_entries and len(format_outline(trimmed)) <= max_chars:
         return format_outline(trimmed)
 
-    compacted = compact_outline(trimmed)
+    compacted = compact_outline(trimmed, max_entries=max_entries, max_chars=max_chars)
     if compacted is None:
         return (
             f"[Outline too large ({total_entries} entries). Use read_outline for paginated access.]"

@@ -77,6 +77,12 @@ class ResolverSettings(BaseModel):
     fuzzy_max_results: int = 5
 
 
+class OutlineSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    max_entries: int = 50
+    max_chars: int = 4000
+
+
 class LoggingSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -98,6 +104,7 @@ class Settings(BaseSettings):
     cache: CacheSettings = CacheSettings()
     fetcher: FetcherSettings = FetcherSettings()
     resolver: ResolverSettings = ResolverSettings()
+    outline: OutlineSettings = OutlineSettings()
     logging: LoggingSettings = LoggingSettings()
 
     @classmethod
