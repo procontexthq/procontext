@@ -143,6 +143,18 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert init_result["protocolVersion"] in {"2025-11-25", "2025-03-26"}
     assert init_result["serverInfo"]["name"] == "procontext"
     assert "tools" in init_result["capabilities"]
+    assert "instructions" in init_result
+    instructions = init_result["instructions"]
+    # Verify key workflow elements are documented
+    assert "resolve_library" in instructions
+    assert "index_url" in instructions
+    assert "read_page" in instructions
+    assert "search_page" in instructions
+    assert "read_outline" in instructions
+    assert "Typical Workflow" in instructions
+    assert "compacted outline" in instructions
+    assert "pagination" in instructions
+    assert "cache" in instructions
 
     tools_response = next(response for response in responses if response.get("id") == 2)
     tools = tools_response["result"]["tools"]

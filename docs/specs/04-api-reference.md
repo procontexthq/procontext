@@ -2,7 +2,7 @@
 
 > **Document**: 04-api-reference.md
 > **Status**: Draft v2
-> **Last Updated**: 2026-03-20
+> **Last Updated**: 2026-03-21
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -98,6 +98,7 @@ Every MCP session begins with an `initialize` → `initialized` exchange. Client
       "tools": {},
       "resources": {}
     },
+    "instructions": "Use ProContext tools in this order: 1. Call resolve_library first...",
     "serverInfo": {
       "name": "procontext",
       "version": "0.1.0"
@@ -116,6 +117,14 @@ Every MCP session begins with an `initialize` → `initialized` exchange. Client
 ```
 
 After `notifications/initialized` is received, the server is ready to handle tool calls and resource reads.
+
+The `instructions` field provides detailed server-wide guidance for using the toolset together. ProContext instructions are advisory rather than mandatory, and include:
+
+- **Core workflow**: `resolve_library` returns the documentation index URL, which is then explored via `read_page` to browse the index structure. Links found in pages lead to deeper documentation.
+- **Outline navigation**: Both `read_page` and `search_page` return compacted outlines with line numbers for jumping to sections. `read_outline` provides full pagination when compacted outlines are too large.
+- **Input formatting**: `resolve_library` accepts plain library names without version specifiers. `read_page` and `search_page` accept URLs from `resolve_library` or discovered within pages.
+- **Search strategy**: Use `search_page` when searching for a known keyword; use `read_page` to browse structure; use `read_outline` for full pagination of large pages.
+- **Performance**: Calls to the same page are cached (< 100ms), making pagination and repeated reads safe and efficient.
 
 **Supported protocol versions**: `2025-11-25`, `2025-03-26`. If the client requests an unsupported version via the `MCP-Protocol-Version` header (HTTP mode), the server returns HTTP 400.
 

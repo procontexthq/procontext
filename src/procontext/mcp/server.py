@@ -31,7 +31,50 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-mcp = FastMCP("procontext", lifespan=lifespan)
+SERVER_INSTRUCTIONS = """
+ProContext provides four tools for navigating current library documentation:
+
+## Typical Workflow
+
+1. **Start with resolve_library(query)** to locate a library by name, package name, or alias.
+   Returns the library's documentation index URL (index_url) and package information.
+
+2. **Use read_page** to browse the documentation index (or any page).
+   Returns the first 500 lines of content and an outline of the page structure.
+
+3. **To search within a page (or index)**, use search_page(url, query) to find lines matching
+   a keyword or regex pattern. Returns matching lines plus outline context.
+
+4. **For large outlines**, read_page and search_page return compacted outlines (max 50 entries
+   or 4000 characters) to save tokens. If the outline is truncated, call read_outline(url)
+   to browse the full outline with pagination.
+
+5. **Navigation** - You can use outline or search_page to find the section you need quickly,
+   or you can simply paginate through the page with read_page by incrementing the offset.
+
+## Key Details
+
+- **resolve_library input**: Pass only the plain library name (e.g., "langchain", "openai").
+  Do not include version specifiers, extras, tags, or source URLs. Examples of supported input:
+  - "langchain", "langchain-openai" (package names)
+  - "LangChain", "OpenAI" (display names)
+  - Aliases defined in the registry
+
+- **read_page/search_page input**: Pass URLs from resolve_library (index_url) or links
+  found within previously fetched pages.
+
+- **Caching**: Repeated calls to the same page are served from cache (< 100ms).
+  Safe to paginate with read_page or call read_outline multiple times.
+
+## Pro Tips
+
+- It is generally recommended to use search_page or read_page directly first 
+  instead of read_outline.
+- Call read_outline only when the compacted outline exceeds the display
+  limits (max 50 entries or 4000 characters) or when you genuinely need the full outline.
+""".strip()
+
+mcp = FastMCP("procontext", instructions=SERVER_INSTRUCTIONS, lifespan=lifespan)
 # FastMCP doesn't expose a version kwarg — set it on the underlying Server
 # so the MCP initialize handshake reports our version, not the SDK's.
 mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]

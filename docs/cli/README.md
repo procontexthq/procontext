@@ -20,7 +20,7 @@ If the registry has not been downloaded yet, startup exits with an actionable er
 
 ### `procontext setup`
 
-Downloads the library registry from the configured metadata URL and saves it to the platform data directory.
+Downloads the library registry from the configured metadata URL and saves it to the platform data directory. You can also use this command to manually refresh the registry if required.
 
 ```bash
 uv run procontext setup
