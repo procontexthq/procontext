@@ -35,6 +35,7 @@ class RegistryEntry(BaseModel):
     packages: list[PackageEntry] = []
     aliases: list[str] = []
     llms_txt_url: str
+    llms_full_txt_url: str | None = None
 
     @field_validator("id")
     @classmethod
@@ -51,6 +52,10 @@ class LibraryMatch(BaseModel):
     name: str = Field(description="Human-readable library name.")
     description: str = Field(description="Short description of what the library does.")
     index_url: str = Field(description="URL of the library's documentation index (llms.txt).")
+    full_docs_url: str | None = Field(
+        default=None,
+        description="URL of the library's complete merged documentation (llms-full.txt).",
+    )
     packages: list[PackageEntry] = Field(
         description="Package groups by ecosystem with language, README, and repo metadata."
     )

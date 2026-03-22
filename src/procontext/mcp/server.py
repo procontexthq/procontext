@@ -32,14 +32,15 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 SERVER_INSTRUCTIONS = """
-ProContext acts as a documentation layer for software libraries.:
+ProContext works as a documentation layer for software libraries.
 
 ## Typical Workflow
 
 1. **Start with resolve_library(query)** to locate a library by name, package name, or alias.
-   Returns the library's documentation index URL (index_url) and package information.
+   Returns the library's documentation index URL (index_url), complete docs URL (full_docs_url
+   if available), and package information.
 
-2. **Use read_page** to browse the documentation index (or any page).
+2. **Use read_page** to browse the documentation index (or any page found within index).
    Returns the first 500 lines of content and an outline of the page structure.
 
 3. **To search within a page (or index)**, use search_page(url, query) to find lines matching
@@ -60,17 +61,17 @@ ProContext acts as a documentation layer for software libraries.:
   - "LangChain", "OpenAI" (display names)
   - Aliases defined in the registry
 
-- **read_page/search_page input**: Pass URLs from resolve_library (index_url) or links
-  found within previously fetched pages.
+- **read_page/search_page/read_outline input**: Pass URLs from resolve_library (index_url or 
+  full_docs_url) or links found within previously fetched pages.
 
 - **Caching**: Repeated calls to the same page are served from cache (< 100ms).
-  Safe to paginate with read_page or call read_outline multiple times.
+  Safe to paginate with read_page or call read_outline/search_page multiple times.
 
 ## Pro Tips
 
-- It is generally recommended to use search_page or read_page directly first 
-  instead of read_outline.
-- Call read_outline only when the compacted outline exceeds the display
+- For quick searches across entire documentation, you can pass full_docs_url to search_page.
+- It is generally recommended to use search_page or read_page directly first instead of 
+  read_outline. Call read_outline only when the compacted outline exceeds the display
   limits (max 50 entries or 4000 characters) or when you genuinely need the full outline.
 """.strip()
 
@@ -85,9 +86,8 @@ async def resolve_library(
     query: Annotated[
         str,
         Field(
-            description="Query string to identify a library and its documentation. "
-            "Can be a plain library name, package name or commonly known name."
-            "Must not include version specifiers, extras, tags, or source URLs."
+            description="Query string. Can be a plain library name, package name or commonly "
+            "known name. Must not include version specifiers, extras, tags, or source URLs."
         ),
     ],
     ctx: Context,
@@ -103,12 +103,20 @@ async def resolve_library(
 ) -> ResolveLibraryOutput:
     """Resolve a library name to its documentation source.
 
-    Accepts a plain library name, package name, display name, or alias.
-    Matched in priority order: exact package lookup, exact text lookup
-    (library ID, display name, alias), then fuzzy matching.
+    This is the starting point for the documentation retrieval flow. It provides
+    the documentation index URL and merged documentation URL (if available), plus
+    useful metadata about the library.
 
-    Always call this first to identify a library and obtain its documentation URLs.
-    Then pass the index_url to read_page to get the documentation index.
+    Index URL contains the links to all documentation pages. It can be passed as
+    input to read_page, search_page or read_outline.
+
+    Merged documentation URL (if available) contains the full content of all pages
+    merged into one, which can be useful for global search. This can be passed to
+    read_page, search_page, or read_outline as well, but note that it may be very large
+    and it is advisable to find the relevant section first instead of directly reading it.
+
+    README URLs are tied to specific package groups, if available they can be useful
+    for getting a quick overview for a package. Supported by all tools as well.
 
     Response:
       matches        — ranked list of results, sorted by relevance descending
@@ -117,7 +125,8 @@ async def resolve_library(
         library_id   — canonical library identifier
         name         — human-readable library name
         description  — brief description of the library
-        index_url    — URL of the documentation index (pass to read_page)
+        index_url    — URL of the documentation index/TOC
+        full_docs_url — URL of complete merged documentation if available
         packages     — list of package groups, each with:
           ecosystem    — "pypi" | "npm" | "conda" | "jsr"
           languages    — e.g. ["python"] or ["javascript", "typescript"]
@@ -126,9 +135,6 @@ async def resolve_library(
           repo_url     — source repository URL (may be null)
         matched_via  — "package_name" | "library_id" | "name" | "alias" | "fuzzy"
         relevance    — confidence score 0.0 (low) to 1.0 (high)
-
-    An empty matches list means the library is not in the registry unless hint explains
-    how to retry with a plain package or library name.
     """
     state: AppState = ctx.request_context.lifespan_context
     try:
@@ -147,7 +153,7 @@ async def resolve_library(
 async def read_page(
     url: Annotated[
         str,
-        Field(description="Documentation page URL."),
+        Field(description="Index or documentation page URL."),
     ],
     ctx: Context,
     offset: Annotated[
@@ -159,9 +165,13 @@ async def read_page(
         Field(description="Maximum number of content lines to return.", ge=1),
     ] = 500,
 ) -> ReadPageOutput:
-    """Fetch the outline and content of a documentation page.
+    """Fetch the content and outline of a documentation page.
 
-    Accepts any documentation URL — typically the index_url from
+    If the entire page's outline exceeds a certain limit, it will be compacted
+    to save tokens. In that case, if you feel necessary, you use read_outline to
+    browse the full outline with pagination.
+
+    Accepts any documentation URL - typically the index_url from
     resolve_library or a link found within a previously fetched page.
 
     Navigation: Use outline line numbers to identify the section you need,
@@ -186,6 +196,10 @@ async def read_page(
 
     If has_more is true, call again with offset=next_offset to continue
     reading. Repeated calls on the same URL are served from cache (sub-100ms).
+    The server uses a stale-while-revalidate strategy for caching. content_hash may
+    rarely change across calls if a new page is fetched in the background between calls.
+    This would indicate that the content has changed and you might have to refetch the
+    previous content window. Just be a little cautious for stale pages.
     """
     state: AppState = ctx.request_context.lifespan_context
     try:
@@ -226,7 +240,7 @@ async def read_outline(
     Response:
       url           — the URL of the fetched page
       outline       — paginated outline entries, e.g. "1:# Title\\n42:## Usage"
-      total_entries — total outline entries (after stripping empty fences)
+      total_entries — total outline entries
       has_more      — true if more entries exist beyond the current window
       next_offset   — entry index to pass as offset to continue; null if no more
       content_hash  — truncated SHA-256 (12 hex chars); compare across calls

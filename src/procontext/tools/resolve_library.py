@@ -27,7 +27,20 @@ async def handle(
     *,
     language: str | None = None,
 ) -> dict:
-    """Handle a resolve_library tool call."""
+    """Handle a resolve_library tool call.
+
+    Resolves a library name/package to its documentation.
+
+    Returns a dict with:
+    - matches: List of LibraryMatch objects, each containing:
+      - index_url: Table of contents (llms.txt)
+      - full_docs_url: Complete merged documentation (llms-full.txt) if available
+      - Other library metadata (name, description, packages, etc.)
+    - hint: Optional guidance for the user (e.g., if fuzzy matching was used)
+
+    Use index_url to navigate by sections, or full_docs_url to search the entire
+    library documentation at once.
+    """
     log = structlog.get_logger().bind(tool="resolve_library", query=query)
     log.info("handler_called")
 

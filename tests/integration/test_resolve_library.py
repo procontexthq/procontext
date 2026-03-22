@@ -38,6 +38,7 @@ class TestResolveLibraryHandler:
             "name",
             "description",
             "index_url",
+            "full_docs_url",
             "packages",
             "matched_via",
             "relevance",

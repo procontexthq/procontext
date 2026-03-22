@@ -67,6 +67,7 @@ def _match_from_entry(
         name=entry.name,
         description=entry.description,
         index_url=entry.llms_txt_url,
+        full_docs_url=entry.llms_full_txt_url,
         packages=entry.packages,
         matched_via=matched_via,
         relevance=relevance,
