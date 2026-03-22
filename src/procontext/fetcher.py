@@ -90,9 +90,13 @@ def extract_base_domains_from_content(content: str) -> frozenset[str]:
             hostname = urlparse(match.group()).hostname or ""
             if hostname:
                 domains.add(_base_domain(hostname))
-        except ValueError:
-            # Skip invalid URLs (e.g., malformed IPv6)
-            continue
+        except ValueError as e:
+            # Log malformed URLs for visibility (e.g., malformed IPv6)
+            log.warning(
+                "skipped_malformed_url",
+                url=match.group()[:100],  # truncate for logging
+                error=str(e),
+            )
     return frozenset(domains)
 
 
@@ -102,23 +106,16 @@ def expand_allowlist_from_content(
 ) -> frozenset[str]:
     """Extract discovered domains from content and optionally expand the live allowlist.
 
-    When ``allowlist_expansion == "registry"``, returns empty set (no extraction cost).
-    When ``allowlist_expansion == "discovered"``, extracts all domains and expands the
-    live allowlist with any new domains found.
-
-    The return value is used for cache persistence. In "registry" mode, the empty set
-    signals that no domain discovery occurred.
+    Always returns the full set of discovered domains for cache persistence,
+    regardless of expansion configuration. Only mutates ``state.allowlist`` when
+    ``settings.fetcher.allowlist_expansion == "discovered"``.
     """
-    # In strict "registry" mode, skip extraction entirely — allowlist is registry-only
-    if state.settings.fetcher.allowlist_expansion == "registry":
-        return frozenset()
-
-    # In "discovered" mode, extract and expand
     discovered_domains = extract_base_domains_from_content(content)
-    new_domains = discovered_domains - state.allowlist
-    if new_domains:
-        state.allowlist = state.allowlist | new_domains
-        log.info("allowlist_expanded", added_domains=len(new_domains))
+    if state.settings.fetcher.allowlist_expansion == "discovered":
+        new_domains = discovered_domains - state.allowlist
+        if new_domains:
+            state.allowlist = state.allowlist | new_domains
+            log.info("allowlist_expanded", added_domains=len(new_domains))
     return discovered_domains
 
 
