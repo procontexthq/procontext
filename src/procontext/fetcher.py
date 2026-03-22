@@ -86,9 +86,13 @@ def extract_base_domains_from_content(content: str) -> frozenset[str]:
     """
     domains: set[str] = set()
     for match in _URL_RE.finditer(content):
-        hostname = urlparse(match.group()).hostname or ""
-        if hostname:
-            domains.add(_base_domain(hostname))
+        try:
+            hostname = urlparse(match.group()).hostname or ""
+            if hostname:
+                domains.add(_base_domain(hostname))
+        except ValueError:
+            # Skip invalid URLs (e.g., malformed IPv6)
+            continue
     return frozenset(domains)
 
 

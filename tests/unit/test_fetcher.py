@@ -199,6 +199,13 @@ class TestExtractBaseDomainsFromContent:
         content = "ftp://files.example.com/archive"
         assert extract_base_domains_from_content(content) == frozenset()
 
+    def test_skips_invalid_urls(self) -> None:
+        # Malformed IPv6-like URLs that urlparse cannot handle should be skipped
+        content = "https://docs.example.com/page and some invalid https://[::1:bad] url"
+        result = extract_base_domains_from_content(content)
+        # Should extract the valid URL but skip the invalid one
+        assert "example.com" in result
+
 
 # ---------------------------------------------------------------------------
 # build_http_client
