@@ -409,7 +409,11 @@ class TestExpandAllowlistFromContent:
         assert "newdocs.io" in state.allowlist  # live allowlist was expanded
 
     def test_returns_domains_but_does_not_expand_when_registry(self) -> None:
-        """With expansion='registry', discovered domains are returned but allowlist is unchanged."""
+        """With expansion='registry', extraction is skipped and empty set is returned.
+
+        In strict registry mode, allowlist is purely registry-based. Domain extraction
+        is skipped entirely to avoid wasted CPU overhead (50-120ms per large file).
+        """
         state = _make_state_with_allowlist(
             allowlist_expansion="registry", allowlist=frozenset({"example.com"})
         )
@@ -418,7 +422,7 @@ class TestExpandAllowlistFromContent:
 
         discovered = expand_allowlist_from_content(content, state)
 
-        assert "newdocs.io" in discovered  # still returned for cache persistence
+        assert discovered == frozenset()  # extraction skipped, empty set returned
         assert state.allowlist == original_allowlist  # allowlist is NOT mutated
 
     def test_no_mutation_when_domain_already_in_allowlist(self) -> None:

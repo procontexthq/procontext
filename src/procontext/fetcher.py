@@ -102,16 +102,23 @@ def expand_allowlist_from_content(
 ) -> frozenset[str]:
     """Extract discovered domains from content and optionally expand the live allowlist.
 
-    Always returns the full set of discovered domains for cache persistence,
-    regardless of expansion configuration. Only mutates ``state.allowlist`` when
-    ``settings.fetcher.allowlist_expansion == "discovered"``.
+    When ``allowlist_expansion == "registry"``, returns empty set (no extraction cost).
+    When ``allowlist_expansion == "discovered"``, extracts all domains and expands the
+    live allowlist with any new domains found.
+
+    The return value is used for cache persistence. In "registry" mode, the empty set
+    signals that no domain discovery occurred.
     """
+    # In strict "registry" mode, skip extraction entirely — allowlist is registry-only
+    if state.settings.fetcher.allowlist_expansion == "registry":
+        return frozenset()
+
+    # In "discovered" mode, extract and expand
     discovered_domains = extract_base_domains_from_content(content)
-    if state.settings.fetcher.allowlist_expansion == "discovered":
-        new_domains = discovered_domains - state.allowlist
-        if new_domains:
-            state.allowlist = state.allowlist | new_domains
-            log.info("allowlist_expanded", added_domains=len(new_domains))
+    new_domains = discovered_domains - state.allowlist
+    if new_domains:
+        state.allowlist = state.allowlist | new_domains
+        log.info("allowlist_expanded", added_domains=len(new_domains))
     return discovered_domains
 
 
