@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 SERVER_INSTRUCTIONS = """
-ProContext provides four tools for navigating current library documentation:
+ProContext acts as a documentation layer for software libraries.:
 
 ## Typical Workflow
 
@@ -84,7 +84,11 @@ mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 async def resolve_library(
     query: Annotated[
         str,
-        Field(description="Plain library name, package name, display name, or alias."),
+        Field(
+            description="Query string to identify a library and its documentation. "
+            "Can be a plain library name, package name or commonly known name."
+            "Must not include version specifiers, extras, tags, or source URLs."
+        ),
     ],
     ctx: Context,
     language: Annotated[
