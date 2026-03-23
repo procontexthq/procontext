@@ -151,7 +151,7 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert "read_page" in instructions
     assert "search_page" in instructions
     assert "read_outline" in instructions
-    assert "Typical Workflow" in instructions
+    assert "Getting Started" in instructions
     assert "compacted outline" in instructions
     assert "pagination" in instructions
     assert "cache" in instructions

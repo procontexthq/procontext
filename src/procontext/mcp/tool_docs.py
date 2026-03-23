@@ -1,47 +1,51 @@
 """Centralized MCP-facing server and tool description strings."""
 
 SERVER_INSTRUCTIONS = """
-ProContext works as a documentation layer for software libraries.
+ProContext provides AI agents with accurate, up-to-date library documentation.
 
-## Typical Workflow
+## Getting Started
 
-1. **Start with resolve_library(query)** to locate a library by name, package name, or alias.
-   Returns the library's documentation index URL (index_url), complete docs URL (full_docs_url
-   if available), and package information.
+Use **resolve_library(query)** to find a library by name, package name, or alias.
+It returns:
+- **index_url** — documentation table of contents with links to individual pages
+- **full_docs_url** — complete documentation merged into a single page (if available)
+- **readme_url** — per-package README for a quick overview (if available)
 
-2. **Use read_page** to browse the documentation index (or any page found within index).
-   Returns the first 500 lines of content and an outline of the page structure.
+Pass only the plain library name (e.g., "langchain", "openai"). Do not include
+version specifiers, extras, tags, or source URLs.
 
-3. **To search within a page (or index)**, use search_page(url, query) to find lines matching
-   a keyword or regex pattern. Returns matching lines plus outline context.
+## Reading Documentation
 
-4. **For large outlines**, read_page and search_page return compacted outlines (max 50 entries
-   or 4000 characters) to save tokens. If the outline is truncated, call read_outline(url)
-   to browse the full outline with pagination.
+**read_page(url)** fetches content and a structural outline of any documentation page.
+Supports paginated reading — use offset and limit to navigate through large pages.
+When has_more is true, pass next_offset to continue reading.
 
-5. **Navigation** - You can use outline or search_page to find the section you need quickly,
-   or you can simply paginate through the page with read_page by incrementing the offset.
+You can start with the index_url to discover available pages, then read individual
+pages found within the index.
 
-## Key Details
+## Searching
 
-- **resolve_library input**: Pass only the plain library name (e.g., "langchain", "openai").
-  Do not include version specifiers, extras, tags, or source URLs. Examples of supported input:
-  - "langchain", "langchain-openai" (package names)
-  - "LangChain", "OpenAI" (display names)
-  - Aliases defined in the registry
+**search_page(url, query)** finds matching lines within a page. Supports literal
+and regex search, smart case sensitivity, and word boundary matching.
 
-- **read_page/search_page/read_outline input**: Pass URLs from resolve_library (index_url or 
-  full_docs_url) or links found within previously fetched pages.
+- Use **target="content"** (default) to search page content — returns matching
+  lines and a structural outline.
+- Use **target="outline"** to search only the structural outline entries.
+- For broad searches across all documentation, pass full_docs_url if available.
 
-- **Caching**: Repeated calls to the same page are served from cache (< 100ms).
-  Safe to paginate with read_page or call read_outline/search_page multiple times.
+Both targets support pagination via offset and max_results.
 
-## Pro Tips
+## Outlines
 
-- For quick searches across entire documentation, you can pass full_docs_url to search_page.
-- It is generally recommended to use search_page or read_page directly first instead of 
-  read_outline. Call read_outline only when the compacted outline exceeds the display
-  limits (max 50 entries or 4000 characters) or when you genuinely need the full outline.
+read_page and search_page include a smartly compacted outline in their response. 
+If the full page outline is needed, **read_outline(url)** provides paginated access
+to the full outline.
+
+## Caching
+
+Repeated calls to the same page are served from cache (sub-100ms), so paginating
+or searching the same page multiple times is inexpensive. Compare content_hash
+across paginated calls to detect if the underlying page changed between requests.
 """.strip()
 
 
@@ -95,6 +99,10 @@ lines returned will be a sum of before and limit.
 It accepts full_docs_url as well but note that it may be very large and it is
 advisable to find the relevant section first instead of directly reading it.
 You can use search_page and read_outline to find the relevant sections.
+
+Set include_outline to false to omit the outline from the response. This is
+useful when paginating through a page where the outline is already known from
+the first call, saving tokens on subsequent requests.
 
 Response:
   url          — the URL of the fetched page
