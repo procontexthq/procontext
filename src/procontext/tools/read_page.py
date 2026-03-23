@@ -70,7 +70,7 @@ async def handle(
             max_chars=state.settings.outline.max_chars,
         )
         if validated.include_outline
-        else ""
+        else None
     )
 
     return _build_output(
@@ -110,7 +110,7 @@ def _build_output(
     *,
     url: str,
     content: str,
-    outline: str,
+    outline: str | None,
     offset: int,
     limit: int,
     before: int,

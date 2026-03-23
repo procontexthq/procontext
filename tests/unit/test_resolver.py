@@ -133,6 +133,14 @@ class TestResolveLibraryStep5NoMatch:
 
 
 class TestResolveLibraryInputBoundary:
+    def test_query_at_3_chars_accepted(self) -> None:
+        validated = ResolveLibraryInput(query="abc")
+        assert validated.query == "abc"
+
+    def test_query_below_3_chars_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least 3 characters"):
+            ResolveLibraryInput(query="ab")
+
     def test_query_at_500_chars_accepted(self) -> None:
         validated = ResolveLibraryInput(query="a" * 500)
         assert len(validated.query) == 500
@@ -142,7 +150,7 @@ class TestResolveLibraryInputBoundary:
             ResolveLibraryInput(query="a" * 501)
 
     def test_whitespace_only_query_raises(self) -> None:
-        with pytest.raises(ValueError, match="empty"):
+        with pytest.raises(ValueError, match="at least 3 characters"):
             ResolveLibraryInput(query="   ")
 
 

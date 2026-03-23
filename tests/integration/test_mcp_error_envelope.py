@@ -64,4 +64,4 @@ def test_procontext_error_serializes_to_structured_tool_error(
 
     text = tool_response["result"]["content"][0]["text"]
     assert "INVALID_INPUT" in text
-    assert "query must not be empty" in text
+    assert "query must be at least 3 characters" in text

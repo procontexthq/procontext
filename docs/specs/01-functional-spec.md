@@ -71,7 +71,7 @@ ProContext exposes four MCP tools. All tools are async and return structured JSO
 
 | Parameter  | Type   | Required | Description                                                                                                                    |
 | ---------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `query`    | string | Yes      | Plain library name, package name, display name, or alias. Examples: `"langchain"`, `"langchain-openai"`, `"LangChain"`, `"Babel Core"` |
+| `query`    | string | Yes      | Plain library name, package name, display name, or alias. Must be 3-500 characters after trimming. Examples: `"langchain"`, `"langchain-openai"`, `"LangChain"`, `"Babel Core"` |
 | `language` | string | No       | Optional language preference (e.g., `"python"`, `"javascript"`). When provided, results are sorted so libraries matching the preferred language appear first. Does not filter — all matches are still returned. |
 
 **Processing**:
@@ -144,7 +144,7 @@ Top-level output fields:
 
 ### 4.2 read_page
 
-**Purpose**: Fetch the content of any documentation URL — llms.txt indexes, README files, or documentation pages — with line-number navigation. Returns a compacted structural outline and a windowed slice of the content controlled by `offset`, `limit`, and optional backward context via `before`.
+**Purpose**: Fetch the content of any documentation URL — llms.txt indexes, README files, or documentation pages — with line-number navigation. Returns a compacted structural outline and a windowed slice of the content controlled by `offset`, `limit`, optional backward context via `before`, and optional outline suppression via `include_outline`.
 
 **Input**:
 
@@ -154,13 +154,14 @@ Top-level output fields:
 | `offset`  | integer | No       | 1       | 1-based line number to start reading from. Use a heading's line number to jump to that section. |
 | `limit`   | integer | No       | 500     | Maximum number of lines to return from the offset.                                              |
 | `before`  | integer | No       | 0       | Number of additional lines to include before `offset` for backward context.                     |
+| `include_outline` | boolean | No | `true` | When `false`, skip outline generation and return `outline: null`. Useful for later pagination calls when the outline is already known. |
 
 **Processing**:
 
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1, `before` >= 0. Apply minimal URL normalization first: trim outer whitespace, lowercase scheme and host, and remove default ports (`:80` for `http`, `:443` for `https`). Preserve path, query string, fragment, and trailing slash exactly.
 2. Check SQLite cache for `url_hash = sha256(normalized_url)` — if fresh, return from cache
 3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first. On any failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
-4. Compact outline for response (progressive depth reduction to satisfy both ≤max_entries and ≤max_chars; status message if irreducible)
+4. If `include_outline=true`, compact outline for response (progressive depth reduction to satisfy both ≤max_entries and ≤max_chars; status message if irreducible). Otherwise set `outline=null`.
 5. Slice content to the requested window: start at `max(1, offset - before)` and end at `min(total_lines, offset + limit - 1)`
 6. Return compacted outline, windowed content, and pagination metadata
 
@@ -190,7 +191,7 @@ Top-level output fields:
 | Field          | Description                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`          | The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved exactly, so `/page` and `/page/` remain distinct. |
-| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND ≤max_chars characters). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. |
+| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND ≤max_chars characters). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. `null` when `include_outline=false`. |
 | `total_lines`  | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`       | The 1-based line number the returned content actually starts from after applying `before` and clamping to line 1.                                     |
 | `limit`        | The maximum number of forward lines requested from the input `offset`.                                                                                  |
@@ -501,7 +502,7 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 ### Input Validation
 
 - All tool inputs are validated with Pydantic before processing
-- String inputs are trimmed and length-capped (resolve_library query: 500 chars, search_page query: 200 chars, URL: 2048 chars)
+- String inputs are trimmed and length-capped (resolve_library query: 3-500 chars, search_page query: 1-200 chars, URL: 2048 chars)
 - Library IDs are validated against a strict pattern (`[a-z0-9_-]+`)
 
 ### Content Sanitization

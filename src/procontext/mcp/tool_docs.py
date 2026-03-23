@@ -100,7 +100,8 @@ It accepts full_docs_url as well but note that it may be very large and it is
 advisable to find the relevant section first instead of directly reading it.
 You can use search_page and read_outline to find the relevant sections.
 
-Set include_outline to false to omit the outline from the response. This is
+Set include_outline to false to omit the outline from the response. In that
+case the outline field is returned as null. This is
 useful when paginating through a page where the outline is already known from
 the first call, saving tokens on subsequent requests.
 
@@ -111,6 +112,7 @@ Response:
                  1-based line numbers, e.g. "1:# Title\\n42:## Usage"
                  use read_outline to browse the full outline with pagination.
                  it will be clearly indicated if the outline is truncated.
+                 null when include_outline is false.
   total_lines  — total line count of the full page
   offset       — 1-based line number where the returned content window starts
   limit        — maximum forward lines requested from the input offset;

@@ -174,6 +174,7 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert read_page_schema["properties"]["offset"]["type"] == "integer"
     assert read_page_schema["properties"]["limit"]["type"] == "integer"
     assert read_page_schema["properties"]["before"]["type"] == "integer"
+    assert read_page_schema["properties"]["include_outline"]["type"] == "boolean"
 
     read_outline_schema = tools_by_name["read_outline"]["inputSchema"]
     assert read_outline_schema["type"] == "object"
@@ -200,6 +201,10 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
         "FUZZY_FALLBACK_USED",
     ]
     assert "outline" in tools_by_name["read_page"]["outputSchema"]["properties"]
+    assert tools_by_name["read_page"]["outputSchema"]["properties"]["outline"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
 
 
 def test_resolve_library_wire_success(subprocess_env: dict[str, str]) -> None:
@@ -322,6 +327,52 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
     assert payload["outline"] == outline
     assert payload["total_lines"] == 5
     assert payload["content"] == "# Title\n\n## Section\nLine A"
+
+
+def test_read_page_wire_include_outline_false_returns_null(
+    tmp_path: Path, subprocess_env: dict[str, str]
+) -> None:
+    url = "https://python.langchain.com/docs/concepts/cached.md"
+    content = "# Title\n\n## Section\nLine A\nLine B"
+    outline = "1:# Title\n3:## Section"
+    _seed_page_cache(tmp_path, url=url, content=content, outline=outline)
+
+    responses = _run_mcp_exchange(
+        subprocess_env,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_page",
+                    "arguments": {
+                        "url": url,
+                        "offset": 1,
+                        "limit": 2,
+                        "include_outline": False,
+                    },
+                },
+            },
+        ],
+    )
+
+    tool_response = next(response for response in responses if response.get("id") == 2)
+    assert tool_response["result"]["isError"] is False
+
+    payload = json.loads(tool_response["result"]["content"][0]["text"])
+    assert payload["outline"] is None
 
 
 def test_read_page_wire_error_envelope(subprocess_env: dict[str, str]) -> None:

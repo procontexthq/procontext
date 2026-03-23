@@ -235,7 +235,7 @@ Tool authors and MCP client implementors need to handle both. The agent should o
       "query": {
         "type": "string",
         "description": "Plain library name, package name, display name, or alias. Examples: 'langchain', 'langchain-openai', 'LangChain', 'Babel Core'.",
-        "minLength": 1,
+        "minLength": 3,
         "maxLength": 500
       },
       "language": {
@@ -514,7 +514,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ### 2.4 Error Cases
 
-`resolve_library` does not raise tool-level errors for recoverable lookup outcomes. An unrecognised library returns an empty list. Recoverable unsupported-input cases may return a `hint` instead of an error. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. empty string, query over 500 characters).
+`resolve_library` does not raise tool-level errors for recoverable lookup outcomes. An unrecognised library returns an empty list. Recoverable unsupported-input cases may return a `hint` instead of an error. The only failure path is `INVALID_INPUT` if the input fails Pydantic validation (e.g. query under 3 characters or over 500 characters).
 
 ---
 
@@ -553,6 +553,11 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
         "minimum": 0,
         "default": 0,
         "description": "Number of extra lines to include before offset for backward context. Defaults to 0."
+      },
+      "include_outline": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, omit the outline from the response and return outline as null. Useful when paginating and the outline is already known."
       }
     },
     "required": ["url"]
@@ -565,6 +570,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 2. Find the heading closest to the section you need and note its line number.
 3. Call again with `offset=<that line number>` to read the section.
 4. Add `before` when you need some backward context before that line without reducing the forward `limit`.
+5. Set `include_outline=false` on later pagination calls if you already have the page structure and want to save tokens.
 
 For pages where the outline is replaced by a status message (very large pages), use `read_outline` to browse the full outline with pagination.
 
@@ -579,8 +585,8 @@ For pages where the outline is replaced by a status message (very large pages), 
       "description": "The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved, so '/page' and '/page/' remain distinct."
     },
     "outline": {
-      "type": "string",
-      "description": "Compacted structural outline of the page (target ≤50 entries). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries."
+      "type": ["string", "null"],
+      "description": "Compacted structural outline of the page (target ≤50 entries). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries. Null when include_outline=false."
     },
     "total_lines": {
       "type": "integer",
@@ -1258,7 +1264,7 @@ This envelope is returned inside the MCP `result` content with `isError: true` �
 | `PAGE_FETCH_FAILED`     | `read_page`, `search_page`, `read_outline` | Network error, timeout, or non-200/404 HTTP response (excluding redirect exhaustion)           | `true`        |
 | `TOO_MANY_REDIRECTS`    | `read_page`, `search_page`, `read_outline` | Redirect chain exceeded the 3-hop safety limit                                                 | `false`       |
 | `URL_NOT_ALLOWED`       | `read_page`, `search_page`, `read_outline` | Initial URL domain is not in the SSRF allowlist, or any hop targets a private IP range         | `false`       |
-| `INVALID_INPUT`         | Any tool                     | Input failed Pydantic validation (empty query, URL too long, invalid regex pattern, etc.)      | `false`       |
+| `INVALID_INPUT`         | Any tool                     | Input failed Pydantic validation (query too short, URL too long, invalid regex pattern, etc.)  | `false`       |
 
 **On `recoverable: true`**: The same request may succeed if retried after a brief delay. Network errors and upstream failures are the typical cause. The agent should inform the user rather than retry indefinitely.
 

@@ -8,7 +8,7 @@ import pytest
 
 from procontext.models.registry import PackageEntry, RegistryEntry
 from procontext.registry import build_indexes
-from procontext.resolver import resolve_library
+from procontext.resolver import _fuzzy_search, resolve_library
 
 if TYPE_CHECKING:
     from procontext.models.registry import LibraryMatch, RegistryIndexes
@@ -288,6 +288,41 @@ class TestFuzzyFallback:
 
         assert matches[0].library_id == "langchain"
         assert matches[0].matched_via == "fuzzy"
+
+    def test_fuzzy_limit_is_applied_after_library_deduplication(self) -> None:
+        entries = [
+            RegistryEntry(
+                id=f"lib{i}",
+                name=f"Library {i}",
+                description="Synthetic fuzzy candidate.",
+                packages=[],
+                aliases=[],
+                llms_txt_url=f"https://example.com/lib{i}/llms.txt",
+            )
+            for i in range(1, 7)
+        ]
+        by_id = {entry.id: entry for entry in entries}
+        corpus = [
+            ("langchain variant", "lib1"),
+            ("langchain variat", "lib1"),
+            ("langchain variants", "lib2"),
+            ("langchain varint", "lib2"),
+            ("langchain vart", "lib3"),
+            ("langchain vrt", "lib4"),
+            ("langchn vrt", "lib5"),
+            ("langch vrt", "lib6"),
+        ]
+
+        matches = _fuzzy_search(
+            "langchain variant",
+            corpus,
+            by_id,
+            limit=5,
+            score_cutoff=0,
+        )
+
+        assert len(matches) == 5
+        assert len({match.library_id for match in matches}) == 5
 
 
 def test_registry_entries_keep_original_package_names(

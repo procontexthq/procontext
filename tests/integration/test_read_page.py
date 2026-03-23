@@ -418,11 +418,11 @@ class TestReadPageHandler:
         assert result["outline"] != ""
 
     @respx.mock
-    async def test_include_outline_false_returns_empty_outline(self, app_state: AppState) -> None:
+    async def test_include_outline_false_returns_null_outline(self, app_state: AppState) -> None:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state, include_outline=False)
-        assert result["outline"] == ""
+        assert result["outline"] is None
         assert result["content"] != ""
 
     @respx.mock

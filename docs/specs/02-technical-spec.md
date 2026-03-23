@@ -240,8 +240,8 @@ class ResolveLibraryInput(BaseModel):
     @classmethod
     def validate_query(cls, v: str) -> str:
         v = v.strip()
-        if not v:
-            raise ValueError("query must not be empty")
+        if len(v) < 3:
+            raise ValueError("query must be at least 3 characters")
         if len(v) > 500:
             raise ValueError("query must not exceed 500 characters")
         return v
@@ -259,6 +259,7 @@ class ReadPageInput(BaseModel):
     offset: int = 1
     limit: int = 500
     before: int = 0
+    include_outline: bool = True
 
     @field_validator("url")
     @classmethod
@@ -293,7 +294,7 @@ class ReadPageInput(BaseModel):
 
 class ReadPageOutput(BaseModel):
     url: str
-    outline: str              # Compacted outline (≤max_entries AND ≤max_chars) or status message if too large
+    outline: str | None       # Compacted outline, status message if too large, or None when include_outline=False
     total_lines: int
     offset: int               # Actual first returned content line after applying before
     limit: int                # Forward lines requested from the input offset

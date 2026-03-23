@@ -27,8 +27,8 @@ class ResolveLibraryInput(BaseModel):
     @classmethod
     def validate_query(cls, v: str) -> str:
         v = v.strip()
-        if not v:
-            raise ValueError("query must not be empty")
+        if len(v) < 3:
+            raise ValueError("query must be at least 3 characters")
         if len(v) > 500:
             raise ValueError("query must not exceed 500 characters")
         return v
@@ -98,10 +98,11 @@ class ReadPageInput(BaseModel):
 class ReadPageOutput(BaseModel):
     url: str = Field(description="The URL of the fetched page.")
     content: str = Field(description="Content window lines.")
-    outline: str = Field(
+    outline: str | None = Field(
         description=(
             "Compacted structural outline (target ≤50 entries). "
-            "Each entry formatted as '<line_number>:<original line>'."
+            "Each entry formatted as '<line_number>:<original line>'. "
+            "Null when include_outline=false."
         )
     )
     total_lines: int = Field(description="Total number of lines in the full page.")

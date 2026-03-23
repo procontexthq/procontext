@@ -51,7 +51,9 @@ async def handle(
         raise ProContextError(
             code=ErrorCode.INVALID_INPUT,
             message=str(exc),
-            suggestion="Provide a non-empty library name, package name, or alias (max 500 chars).",
+            suggestion=(
+                "Provide a library name, package name, or alias between 3 and 500 characters."
+            ),
             recoverable=False,
         ) from exc
 
