@@ -250,10 +250,10 @@ class SearchPageOutput(BaseModel):
             "Empty string when no matches found."
         )
     )
-    outline: str = Field(
+    outline: str | None = Field(
         description=(
             "Compacted outline trimmed to match range in content mode. "
-            "Empty string when no matches found or when target='outline'."
+            "Null when target='outline' (matches already are outline entries)."
         )
     )
     total_lines: int = Field(description="Total number of lines in the page.")

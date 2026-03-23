@@ -66,12 +66,15 @@ class TestSearchPageHandler:
         assert exc_info.value.code == ErrorCode.INVALID_INPUT
 
     @respx.mock
-    async def test_search_no_matches_returns_empty(self, app_state: AppState) -> None:
+    async def test_search_no_matches_returns_empty_matches_with_outline(
+        self, app_state: AppState
+    ) -> None:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await search_page_handle(SAMPLE_URL, "xyzzy_nonexistent", app_state)
         assert result["matches"] == ""
-        assert result["outline"] == ""
+        assert result["outline"] is not None
+        assert result["outline"] != ""
         assert result["has_more"] is False
         assert result["next_offset"] is None
 
@@ -107,7 +110,7 @@ class TestSearchPageHandler:
         result = await search_page_handle(SAMPLE_URL, "Chat Models", app_state, target="outline")
 
         assert result["matches"] == "7:## Streaming with Chat Models"
-        assert result["outline"] == ""
+        assert result["outline"] is None
         assert result["has_more"] is False
         assert result["next_offset"] is None
 
@@ -123,7 +126,7 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == ""
-        assert result["outline"] == ""
+        assert result["outline"] is None
         assert result["has_more"] is False
         assert result["next_offset"] is None
 
@@ -162,7 +165,7 @@ class TestSearchPageHandler:
         result = await search_page_handle(SAMPLE_URL, "7", app_state, target="outline")
 
         assert result["matches"] == ""
-        assert result["outline"] == ""
+        assert result["outline"] is None
 
     @respx.mock
     async def test_outline_target_supports_regex(self, app_state: AppState) -> None:
@@ -177,7 +180,7 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == "11:### Using .stream()\n15:### Using .astream()"
-        assert result["outline"] == ""
+        assert result["outline"] is None
 
     @respx.mock
     async def test_outline_target_supports_whole_word(self, app_state: AppState) -> None:
@@ -192,7 +195,7 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == "11:### Using .stream()"
-        assert result["outline"] == ""
+        assert result["outline"] is None
 
     @respx.mock
     async def test_outline_target_matches_normalized_setext_headings(
@@ -203,7 +206,7 @@ class TestSearchPageHandler:
         result = await search_page_handle(SETEXT_URL, "Section Title", app_state, target="outline")
 
         assert result["matches"] == "4:## Section Title"
-        assert result["outline"] == ""
+        assert result["outline"] is None
 
     @respx.mock
     async def test_search_output_contains_all_fields(self, app_state: AppState) -> None:

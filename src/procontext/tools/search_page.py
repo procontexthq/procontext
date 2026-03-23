@@ -86,6 +86,7 @@ async def handle(
         ) from exc
 
     total_lines = len(result.content.splitlines())
+    outline: str | None
     if validated.target == "outline":
         search_result = _search_outline_lines(
             result.outline,
@@ -95,7 +96,7 @@ async def handle(
         )
         raw_matches = search_result.matches
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
-        outline = ""
+        outline = None
     else:
         # Run the search against page content
         search_result = search_lines(
@@ -195,9 +196,6 @@ def _compact_search_outline(
     max_chars: int = 4000,
 ) -> str:
     """Trim and compact only oversized outlines for search_page output."""
-    if first_line is None or last_line is None:
-        return ""
-
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
@@ -206,6 +204,17 @@ def _compact_search_outline(
     # trimming to the match span, which can drop useful parent headings.
     if total_entries <= max_entries and len(format_outline(entries)) <= max_chars:
         return format_outline(entries)
+
+    # No match range — compact without trimming to a span.
+    if first_line is None or last_line is None:
+        compacted = compact_outline(entries, max_entries=max_entries, max_chars=max_chars)
+        if compacted is None:
+            return (
+                f"[Outline too large ({total_entries} entries)."
+                " Use read_outline for paginated access.]"
+            )
+        note = build_compaction_note(compacted, total_entries)
+        return note + "\n" + format_outline(compacted)
 
     # Trim to match range
     trimmed = trim_outline_to_range(entries, first_line, last_line)
