@@ -102,12 +102,28 @@ async def read_page(
             ge=0,
         ),
     ] = 0,
+    include_outline: Annotated[
+        bool,
+        Field(
+            description=(
+                "Set to false to omit the outline from the response. "
+                "Useful when paginating and the outline is already known."
+            )
+        ),
+    ] = True,
 ) -> ReadPageOutput:
     """Fetch the content and outline of a documentation page."""
     state: AppState = ctx.request_context.lifespan_context
     try:
         return ReadPageOutput.model_validate(
-            await t_read_page.handle(url, offset, limit, state, before=before)
+            await t_read_page.handle(
+                url,
+                offset,
+                limit,
+                state,
+                before=before,
+                include_outline=include_outline,
+            )
         )
     except ProContextError as exc:
         log.warning("tool_error", tool="read_page", code=exc.code, message=exc.message)

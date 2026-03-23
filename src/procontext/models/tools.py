@@ -66,6 +66,7 @@ class ReadPageInput(BaseModel):
     offset: int = 1
     limit: int = 500
     before: int = 0
+    include_outline: bool = True
 
     @field_validator("url")
     @classmethod

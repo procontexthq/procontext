@@ -418,6 +418,22 @@ class TestReadPageHandler:
         assert result["outline"] != ""
 
     @respx.mock
+    async def test_include_outline_false_returns_empty_outline(self, app_state: AppState) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(SAMPLE_URL, 1, 500, app_state, include_outline=False)
+        assert result["outline"] == ""
+        assert result["content"] != ""
+
+    @respx.mock
+    async def test_include_outline_default_returns_outline(self, app_state: AppState) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+        assert result["outline"] != ""
+        assert "# Streaming" in result["outline"]
+
+    @respx.mock
     async def test_setext_headings_are_normalized_in_outline(self, app_state: AppState) -> None:
         respx.get(SETEXT_URL).mock(return_value=httpx.Response(200, text=SETEXT_PAGE))
 

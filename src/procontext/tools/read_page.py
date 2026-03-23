@@ -34,6 +34,7 @@ async def handle(
     state: AppState,
     *,
     before: int = 0,
+    include_outline: bool = True,
 ) -> dict:
     """Handle a read_page tool call."""
     log = structlog.get_logger().bind(tool="read_page", url=url)
@@ -41,7 +42,13 @@ async def handle(
 
     # Validate input
     try:
-        validated = ReadPageInput(url=url, offset=offset, limit=limit, before=before)
+        validated = ReadPageInput(
+            url=url,
+            offset=offset,
+            limit=limit,
+            before=before,
+            include_outline=include_outline,
+        )
     except ValueError as exc:
         raise ProContextError(
             code=ErrorCode.INVALID_INPUT,
@@ -55,11 +62,15 @@ async def handle(
 
     result = await fetch_or_cached_page(validated.url, state)
 
-    # Compact the outline
-    compacted_outline = _compact_page_outline(
-        result.outline,
-        max_entries=state.settings.outline.max_entries,
-        max_chars=state.settings.outline.max_chars,
+    # Compact the outline (skip when caller opts out to save tokens)
+    compacted_outline = (
+        _compact_page_outline(
+            result.outline,
+            max_entries=state.settings.outline.max_entries,
+            max_chars=state.settings.outline.max_chars,
+        )
+        if validated.include_outline
+        else ""
     )
 
     return _build_output(
