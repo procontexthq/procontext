@@ -494,6 +494,8 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - If remote version differs: download, validate checksum, rebuild indexes
 - Checksum mismatch: log warning, keep existing registry
 - Successful update persists both `known-libraries.json` and `registry-state.json`
+- When metadata advertises additional-info, setup/update attempts to persist `additional-info.json` best-effort; failure warns but does not fail the main registry update
+- Additional-info metadata changes are applied even when the main registry version does not change
 - Local registry pair (`known-libraries.json` + `registry-state.json`) is validated at startup; missing/invalid pair exits immediately with actionable setup guidance
 - `save_registry_to_disk()` uses temp files + fsync + atomic replace (no partially written destination files)
 - Simulated interrupted write leaves startup in a safe state (either previous valid pair or a clean startup failure with setup guidance)

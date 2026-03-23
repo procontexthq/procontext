@@ -1298,16 +1298,17 @@ Command modules are imported inside the `if/elif/else` branches to avoid loading
 
 ### 8A.2 Doctor Command
 
-`procontext doctor` runs four sequential health checks and reports results. Each check is an independent async function with signature `async def check_*(settings, *, fix=False) -> CheckResult`.
+`procontext doctor` runs five sequential health checks and reports results. Each check is an independent async function with signature `async def check_*(settings, *, fix=False) -> CheckResult`.
 
 **Checks (in order)**:
 
 1. **Data directory** — existence, read/write/execute permissions, registry subdirectory
 2. **Registry** — files present, JSON parseable, checksum matches state file
-3. **Cache database** — parent directory writable, SQLite openable, WAL mode, schema matches expected
-4. **Network** — HEAD request to registry metadata URL
+3. **Registry additional info** — optional `additional-info.json` present and checksum-valid when advertised by `registry-state.json`; missing/invalid sidecar is a warning, not a failure
+4. **Cache database** — parent directory writable, SQLite openable, WAL mode, schema matches expected
+5. **Network** — HEAD request to registry metadata URL
 
-**`--fix` behavior**: When a check fails and is fixable, the check attempts repair before returning. Fixable: missing directories (`mkdir`), missing/corrupt registry (re-download), cache journal mode drift (`PRAGMA journal_mode=WAL`), and missing cache tables/columns (create missing tables / `ALTER TABLE ... ADD COLUMN` in place). Not fixable: permission errors, unreadable/corrupt cache databases, incompatible cache column definitions, and network failures. For non-fixable cache problems, doctor suggests the destructive fallback command `procontext db recreate`.
+**`--fix` behavior**: When a check fails and is fixable, the check attempts repair before returning. Fixable: missing directories (`mkdir`), missing/corrupt registry (re-download), missing/invalid advertised additional-info sidecar (re-download sidecar only), cache journal mode drift (`PRAGMA journal_mode=WAL`), and missing cache tables/columns (create missing tables / `ALTER TABLE ... ADD COLUMN` in place). Not fixable: permission errors, unreadable/corrupt cache databases, incompatible cache column definitions, and network failures. Additional-info repair failures remain warnings. For non-fixable cache problems, doctor suggests the destructive fallback command `procontext db recreate`.
 
 **Auto-derived schema validation**: The cache schema check creates an in-memory SQLite database, runs `Cache.init_db()`, and compares the resulting `PRAGMA table_info` against the on-disk database. This stays in sync with `cache.py` automatically — no separate schema definition to maintain.
 
@@ -1327,12 +1328,13 @@ The registry update system keeps the in-memory library index fresh without inter
 
 ### 9.1 Registry Files
 
-Two registry artefacts live on disk:
+Three registry artefacts may live on disk:
 
 | Artefact             | Location                                   | Purpose                                                                                          |
 | -------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | **Local registry**   | `<data_dir>/registry/known-libraries.json` | Downloaded by `procontext setup` and updated by the background scheduler.                        |
-| **Local state file** | `<data_dir>/registry/registry-state.json`  | Stores `version`, `sha256` checksum, `updated_at`, and `last_checked_at` for the local registry. |
+| **Local state file** | `<data_dir>/registry/registry-state.json`  | Stores `version`, `sha256` checksum, `updated_at`, `last_checked_at`, and optional additional-info metadata for the local registry. |
+| **Additional info**  | `<data_dir>/registry/additional-info.json` | Optional sidecar containing `useful_md_probe_base_urls`, which gates `.md` probing by exact normalized origin. |
 
 `<data_dir>` defaults to `platformdirs.user_data_dir("procontext")` and can be overridden via `PROCONTEXT__DATA_DIR`.
 
@@ -1343,12 +1345,15 @@ Two registry artefacts live on disk:
   "version": "2026-02-24",
   "checksum": "sha256:abc123...",
   "updated_at": "2026-02-24T07:10:00Z",
-  "last_checked_at": "2026-02-25T08:00:00Z"
+  "last_checked_at": "2026-02-25T08:00:00Z",
+  "additional_info_download_url": "https://registry.example/additional-info.json",
+  "additional_info_checksum": "sha256:def456..."
 }
 ```
 
 - `updated_at` — set only when a new registry version is actually downloaded and persisted.
 - `last_checked_at` — set after every successful update check, even when the registry is already current. Used by both transports to gate checks: if the gap between now and `last_checked_at` is less than `registry.poll_interval_hours`, the startup check (stdio) or first poll (HTTP) is skipped to avoid redundant metadata fetches on frequent restarts or immediately after `procontext setup`.
+- `additional_info_download_url` / `additional_info_checksum` — optional metadata advertising the registry additional-info sidecar. The sidecar is fetched best-effort during setup and background update checks. Failure to fetch or validate it never fails the main registry update; runtime `.md` probing is simply disabled until a valid local sidecar is available again.
 
 The local registry pair (both files together) is the consistency unit. If either file is missing, cannot be parsed, or the checksum in the state file does not match `sha256(known-libraries.json)`, the pair is considered invalid and the server treats it as if no registry exists.
 
@@ -1364,7 +1369,7 @@ procontext setup
 uvx procontext setup
 ```
 
-It fetches the registry metadata, downloads the full registry, validates the checksum, and saves the local registry pair to `<data_dir>/registry/`. Exits with a clear error if the fetch fails.
+It fetches the registry metadata, downloads the full registry, validates the checksum, and saves the local registry pair to `<data_dir>/registry/`. When the metadata also advertises `additional_info_download_url` and `additional_info_checksum`, setup attempts to download `<data_dir>/registry/additional-info.json` as well. Failure to fetch or validate that sidecar does not fail setup.
 
 `setup` uses the same split HTTP timeout as all registry fetches: **5s to connect** (fail fast if unreachable), **5 minutes to read** (patient once the transfer has started).
 

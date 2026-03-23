@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Doctor performs deep validation of every component ProContext depends on at runtime: filesystem paths, registry integrity, cache database schema, and network connectivity. Each check explains what it found and — when something is wrong — tells you exactly how to fix it.
+Doctor performs deep validation of every component ProContext depends on at runtime: filesystem paths, registry integrity, the optional registry additional-info sidecar, cache database schema, and network connectivity. Each check explains what it found and — when something is wrong — tells you exactly how to fix it.
 
 ## Checks
 
@@ -21,6 +21,14 @@ Validates that registry files (`known-libraries.json`, `registry-state.json`) ar
 
 - **Auto-fixable**: missing or corrupt registry is re-downloaded via `attempt_registry_setup()`
 - **Not auto-fixable**: network errors during download (reports the error)
+
+### Registry Additional Info
+
+Validates the optional `additional-info.json` sidecar when it is advertised by `registry-state.json`. This file contains `useful_md_probe_base_urls`, which gates `.md` probing by exact normalized origin.
+
+- **Status `ok`**: the sidecar is not advertised, or it is present, parseable, and checksum-valid
+- **Status `warn`**: the sidecar is advertised but missing, invalid, or checksum-mismatched; `.md` probing is disabled until repaired
+- **Auto-fixable**: `doctor --fix` attempts to re-download only the sidecar, not the full registry
 
 ### Cache Database
 
@@ -53,6 +61,7 @@ procontext doctor --fix
 When `--fix` is passed, each failing check that is auto-fixable attempts repair:
 - If repair succeeds, the check shows `FIXED` with a description of what was done
 - If repair fails, the check shows `FAIL` with the error
+- Registry additional-info warnings remain `WARN` on failed repair; they do not become fatal
 - Checks that cannot be auto-fixed always show a `fix_hint` explaining manual steps
 - Cache repair is intentionally non-destructive: doctor preserves existing rows where possible and only suggests `procontext db recreate` when a clean repair is not possible
 
@@ -73,6 +82,7 @@ Use it when:
 |-------|-------------|------------|
 | Data dir missing | Yes | Create directories |
 | Registry missing/corrupt | Yes | Re-download from configured URL |
+| Registry additional-info missing/invalid | Yes | Re-download only `additional-info.json` |
 | Cache parent dir missing | Yes | Create directory |
 | Cache DB journal mode disabled | Yes | Enable WAL mode in place |
 | Cache DB missing tables/columns | Yes | Create missing tables / add missing columns in place |
@@ -89,6 +99,8 @@ ProContext Doctor
 
   Data directory ...... ok (~/.local/share/procontext)
   Registry ............ ok (918 libraries, v2026-03-04)
+  Registry additional info ... WARN
+    advertised but missing: ~/.local/share/procontext/registry/additional-info.json
   Cache ............... ok (~/.local/share/procontext/cache.db, schema valid)
   Network ............. ok (registry reachable)
 
@@ -117,6 +129,7 @@ ProContext Doctor (--fix)
 
   Data directory ...... ok (~/.local/share/procontext)
   Registry ............ FIXED (downloaded 918 libraries, v2026-03-04)
+  Registry additional info ... FIXED (downloaded additional-info sidecar)
   Cache ............... FIXED (enabled WAL mode; added columns to page_cache: outline, discovered_domains, last_checked_at)
   Network ............. ok (registry reachable)
 

@@ -160,7 +160,7 @@ Top-level output fields:
 
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1, `before` >= 0. Apply minimal URL normalization first: trim outer whitespace, lowercase scheme and host, and remove default ports (`:80` for `http`, `:443` for `https`). Preserve path, query string, fragment, and trailing slash exactly.
 2. Check SQLite cache for `url_hash = sha256(normalized_url)` — if fresh, return from cache
-3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first. On any failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
+3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first only when both conditions hold: (a) the URL shape still passes the existing probe heuristic (no query string, no trailing slash, no alphabetic file extension), and (b) the URL's normalized origin exactly matches one of the `useful_md_probe_base_urls` loaded from the optional registry additional-info sidecar. On any probe failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. If the additional-info sidecar is missing or invalid, `.md` probing is disabled. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
 4. If `include_outline=true`, compact outline for response (progressive depth reduction to satisfy both ≤max_entries and ≤max_chars; status message if irreducible). Otherwise set `outline=null`.
 5. Slice content to the requested window: start at `max(1, offset - before)` and end at `min(total_lines, offset + limit - 1)`
 6. Return compacted outline, windowed content, and pagination metadata
@@ -421,10 +421,12 @@ The library registry (`known-libraries.json`) is the data backbone of ProContext
 **Local state sidecar** (`registry-state.json`):
 
 - Stores metadata for the currently active local registry copy: `version`, `checksum`, `updated_at`, `last_checked_at`
+- May also store optional registry additional-info metadata: `additional_info_download_url`, `additional_info_checksum`
 - `updated_at` is written whenever a background registry update is accepted (new version downloaded)
 - `last_checked_at` is written after every successful update check — even when the registry is already current — and is used to gate the startup check in stdio mode (see below)
 - Is persisted atomically with `known-libraries.json` as a consistency unit (temp file + fsync + atomic rename)
 - Is used as the source of truth for `registry_version` on startup when loading from disk
+- The additional-info sidecar itself is stored separately at `<data_dir>/registry/additional-info.json`. It is best-effort: setup and background updates try to download it when advertised, but a failure does not fail registry setup/update. When the file is missing, invalid, or checksum-mismatched, `.md` probing is disabled and `procontext doctor` reports a warning.
 
 **Update scheduling policy**:
 
