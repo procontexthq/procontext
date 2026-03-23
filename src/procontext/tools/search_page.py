@@ -33,6 +33,7 @@ async def handle(
     query: str,
     state: AppState,
     *,
+    target: str = "content",
     mode: str = "literal",
     case_mode: str = "smart",
     whole_word: bool = False,
@@ -48,6 +49,7 @@ async def handle(
         validated = SearchPageInput(
             url=url,
             query=query,
+            target=target,  # type: ignore[arg-type]
             mode=mode,  # type: ignore[arg-type]
             case_mode=case_mode,  # type: ignore[arg-type]
             whole_word=whole_word,
@@ -58,7 +60,9 @@ async def handle(
         raise ProContextError(
             code=ErrorCode.INVALID_INPUT,
             message=str(exc),
-            suggestion="Check url, query, mode, case_mode, offset, and max_results values.",
+            suggestion=(
+                "Check url, query, target, mode, case_mode, offset, and max_results values."
+            ),
             recoverable=False,
         ) from exc
 
@@ -81,30 +85,40 @@ async def handle(
             recoverable=False,
         ) from exc
 
-    # Run the search
-    search_result = search_lines(
-        result.content,
-        matcher,
-        offset=validated.offset,
-        max_results=validated.max_results,
-    )
-
     total_lines = len(result.content.splitlines())
+    if validated.target == "outline":
+        search_result = _search_outline_lines(
+            result.outline,
+            matcher,
+            offset=validated.offset,
+            max_results=validated.max_results,
+        )
+        raw_matches = search_result.matches
+        matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
+        outline = ""
+    else:
+        # Run the search against page content
+        search_result = search_lines(
+            result.content,
+            matcher,
+            offset=validated.offset,
+            max_results=validated.max_results,
+        )
 
-    # Format matches as "line_number:content" string
-    raw_matches = search_result.matches
-    matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
+        # Format matches as "line_number:content" string
+        raw_matches = search_result.matches
+        matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
 
-    # Build compacted outline trimmed to match range
-    first_line = raw_matches[0].line_number if raw_matches else None
-    last_line = raw_matches[-1].line_number if raw_matches else None
-    outline = _compact_search_outline(
-        result.outline,
-        first_line,
-        last_line,
-        max_entries=state.settings.outline.max_entries,
-        max_chars=state.settings.outline.max_chars,
-    )
+        # Build compacted outline trimmed to match range
+        first_line = raw_matches[0].line_number if raw_matches else None
+        last_line = raw_matches[-1].line_number if raw_matches else None
+        outline = _compact_search_outline(
+            result.outline,
+            first_line,
+            last_line,
+            max_entries=state.settings.outline.max_entries,
+            max_chars=state.settings.outline.max_chars,
+        )
 
     output = SearchPageOutput(
         url=result.url,
@@ -119,6 +133,57 @@ async def handle(
         cached_at=result.cached_at,
     )
     return output.model_dump(mode="json")
+
+
+def _search_outline_lines(
+    raw_outline: str,
+    matcher: re.Pattern[str],
+    *,
+    offset: int,
+    max_results: int,
+):
+    """Search raw outline lines, ignoring the numeric prefix for matching."""
+    from procontext.search import LineMatch, SearchResult
+
+    matches: list[LineMatch] = []
+    lines = [line for line in raw_outline.splitlines() if line]
+
+    for idx, raw_line in enumerate(lines):
+        colon_idx = raw_line.find(":")
+        if colon_idx == -1:
+            continue
+
+        line_number = int(raw_line[:colon_idx])
+        text = raw_line[colon_idx + 1 :]
+        if line_number < offset:
+            continue
+
+        if matcher.search(text):
+            matches.append(LineMatch(line_number=line_number, content=text))
+            if len(matches) == max_results:
+                has_more = any(
+                    _outline_line_matches(later_line, matcher=matcher, offset=line_number + 1)
+                    for later_line in lines[idx + 1 :]
+                )
+                return SearchResult(
+                    matches=matches,
+                    has_more=has_more,
+                    next_offset=line_number + 1 if has_more else None,
+                )
+
+    return SearchResult(matches=matches, has_more=False, next_offset=None)
+
+
+def _outline_line_matches(raw_line: str, *, matcher: re.Pattern[str], offset: int) -> bool:
+    colon_idx = raw_line.find(":")
+    if colon_idx == -1:
+        return False
+
+    line_number = int(raw_line[:colon_idx])
+    if line_number < offset:
+        return False
+
+    return matcher.search(raw_line[colon_idx + 1 :]) is not None
 
 
 def _compact_search_outline(

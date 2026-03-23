@@ -246,6 +246,51 @@ class TestReadPageHandler:
         assert result["limit"] == 3
 
     @respx.mock
+    async def test_before_includes_backward_context_without_reducing_limit(
+        self, app_state: AppState
+    ) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(SAMPLE_URL, 7, 3, app_state, before=2)
+
+        assert result["offset"] == 5
+        assert result["limit"] == 3
+        assert result["content"].split("\n") == [
+            "LangChain supports streaming.",
+            "",
+            "## Streaming with Chat Models",
+            "",
+            "Details here.",
+        ]
+        assert result["next_offset"] == 10
+
+    @respx.mock
+    async def test_before_clamps_window_start_at_top_of_file(self, app_state: AppState) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(SAMPLE_URL, 2, 2, app_state, before=10)
+
+        assert result["offset"] == 1
+        assert result["content"].split("\n") == ["# Streaming", "", "## Overview"]
+        assert result["next_offset"] == 4
+
+    @respx.mock
+    async def test_before_near_eof_keeps_next_offset_null(self, app_state: AppState) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(SAMPLE_URL, 20, 5, app_state, before=2)
+
+        assert result["offset"] == 18
+        assert result["has_more"] is False
+        assert result["next_offset"] is None
+        assert result["content"].split("\n") == [
+            "",
+            "## Streaming with Chains",
+            "",
+            "Chain streaming details.",
+        ]
+
+    @respx.mock
     async def test_has_more_true_when_content_remains(self, app_state: AppState) -> None:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 

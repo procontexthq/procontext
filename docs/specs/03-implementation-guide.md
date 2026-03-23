@@ -422,7 +422,7 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - SSRF: redirect to private IP still raises `URL_NOT_ALLOWED`
 - Page is cached on first fetch; subsequent calls with different offsets are served from cache without re-fetch
 - `content_hash` is stable while content is unchanged and changes when the underlying cached content changes
-- `offset` and `limit` correctly window the content
+- `offset`, `limit`, and optional `before` correctly window the content
 - `outline` returned by `read_page` is compacted to ≤ 50 entries; if irreducible, replaced by a status message directing the agent to `read_outline`
 
 ---
@@ -518,8 +518,8 @@ Each subsection defines the expected behaviours for a module. These serve as the
 - `compact_outline()` returns `None` if the outline cannot be reduced to ≤ 50 entries after all compaction stages
 - `trim_outline_to_range()` filters entries to those between a start and end line number (inclusive); used by `search_page` to trim to match range
 - `format_outline()` converts structured entries back to the formatted string (`"line_number:content\nline_number2:content2..."`)
-- `read_outline` tool returns paginated outline entries (offset = 1-based entry index, limit = max entries, default 1000) with empty fences pre-stripped
-- `read_outline` with offset beyond total entries returns empty outline with correct metadata, not an error
+- `read_outline` tool returns stripped outline entries within a page-line window (offset = 1-based page line, limit = forward page-line span, optional `before` = backward page-line context)
+- `read_outline` with offset beyond the last page line containing any outline entry returns empty outline with correct metadata, not an error
 - `read_page` compacted outline replaces full outline in output; if irreducible, output contains status string `"[Outline too large (N entries). Use read_outline for paginated access.]"`
 - `search_page` returns the full outline for small pages; oversized pages are range-trimmed then compacted; zero matches → empty string
 

@@ -173,6 +173,17 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert "url" in read_page_schema["required"]
     assert read_page_schema["properties"]["offset"]["type"] == "integer"
     assert read_page_schema["properties"]["limit"]["type"] == "integer"
+    assert read_page_schema["properties"]["before"]["type"] == "integer"
+
+    read_outline_schema = tools_by_name["read_outline"]["inputSchema"]
+    assert read_outline_schema["type"] == "object"
+    assert read_outline_schema["properties"]["offset"]["type"] == "integer"
+    assert read_outline_schema["properties"]["limit"]["type"] == "integer"
+    assert read_outline_schema["properties"]["before"]["type"] == "integer"
+
+    search_page_schema = tools_by_name["search_page"]["inputSchema"]
+    assert search_page_schema["type"] == "object"
+    assert search_page_schema["properties"]["target"]["enum"] == ["content", "outline"]
 
     # Each tool must advertise its outputSchema.
     for tool_name in ("resolve_library", "read_page"):
@@ -293,7 +304,7 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
                 "method": "tools/call",
                 "params": {
                     "name": "read_page",
-                    "arguments": {"url": url, "offset": 3, "limit": 2},
+                    "arguments": {"url": url, "offset": 3, "limit": 2, "before": 2},
                 },
             },
         ],
@@ -306,11 +317,11 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
     assert payload["url"] == url
     assert payload["cached"] is True
     assert payload["stale"] is False
-    assert payload["offset"] == 3
+    assert payload["offset"] == 1
     assert payload["limit"] == 2
     assert payload["outline"] == outline
     assert payload["total_lines"] == 5
-    assert payload["content"] == "## Section\nLine A"
+    assert payload["content"] == "# Title\n\n## Section\nLine A"
 
 
 def test_read_page_wire_error_envelope(subprocess_env: dict[str, str]) -> None:

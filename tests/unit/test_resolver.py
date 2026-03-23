@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from procontext.models.tools import ReadPageInput, ResolveLibraryInput, SearchPageInput
+from procontext.models.tools import (
+    ReadOutlineInput,
+    ReadPageInput,
+    ResolveLibraryInput,
+    SearchPageInput,
+)
 from procontext.resolver import resolve_library
 
 if TYPE_CHECKING:
@@ -158,6 +163,18 @@ class TestReadPageInputBoundary:
         with pytest.raises(ValueError, match="limit"):
             ReadPageInput(url="https://example.com/page", offset=1, limit=0)
 
+    def test_before_at_0_accepted(self) -> None:
+        validated = ReadPageInput(url="https://example.com/page", offset=1, limit=10, before=0)
+        assert validated.before == 0
+
+    def test_before_positive_accepted(self) -> None:
+        validated = ReadPageInput(url="https://example.com/page", offset=5, limit=10, before=3)
+        assert validated.before == 3
+
+    def test_before_negative_rejected(self) -> None:
+        with pytest.raises(ValueError, match="before"):
+            ReadPageInput(url="https://example.com/page", offset=1, limit=10, before=-1)
+
     def test_url_exceeding_2048_chars_rejected(self) -> None:
         long_url = "https://example.com/" + "a" * 2030
         assert len(long_url) > 2048
@@ -189,11 +206,20 @@ class TestSearchPageInputBoundary:
     def test_valid_input(self) -> None:
         validated = SearchPageInput(url="https://example.com/page", query="test")
         assert validated.query == "test"
+        assert validated.target == "content"
         assert validated.mode == "literal"
         assert validated.case_mode == "smart"
         assert validated.whole_word is False
         assert validated.offset == 1
         assert validated.max_results == 20
+
+    def test_outline_target_accepted(self) -> None:
+        validated = SearchPageInput(
+            url="https://example.com/page",
+            query="test",
+            target="outline",
+        )
+        assert validated.target == "outline"
 
     def test_empty_query_rejected(self) -> None:
         with pytest.raises(ValueError, match="empty"):
@@ -223,6 +249,40 @@ class TestSearchPageInputBoundary:
         validated = SearchPageInput(url="HTTP://Example.com:80/page", query="test")
 
         assert validated.url == "http://example.com/page"
+
+    def test_invalid_target_rejected(self) -> None:
+        with pytest.raises(ValueError, match="target"):
+            SearchPageInput(url="https://example.com/page", query="test", target="bad")
+
+
+class TestReadOutlineInputBoundary:
+    def test_offset_at_1_accepted(self) -> None:
+        validated = ReadOutlineInput(url="https://example.com/page", offset=1, limit=10)
+        assert validated.offset == 1
+
+    def test_offset_zero_rejected(self) -> None:
+        with pytest.raises(ValueError, match="offset"):
+            ReadOutlineInput(url="https://example.com/page", offset=0, limit=10)
+
+    def test_limit_at_1_accepted(self) -> None:
+        validated = ReadOutlineInput(url="https://example.com/page", offset=1, limit=1)
+        assert validated.limit == 1
+
+    def test_limit_zero_rejected(self) -> None:
+        with pytest.raises(ValueError, match="limit"):
+            ReadOutlineInput(url="https://example.com/page", offset=1, limit=0)
+
+    def test_before_at_0_accepted(self) -> None:
+        validated = ReadOutlineInput(url="https://example.com/page", offset=1, limit=10, before=0)
+        assert validated.before == 0
+
+    def test_before_positive_accepted(self) -> None:
+        validated = ReadOutlineInput(url="https://example.com/page", offset=5, limit=10, before=3)
+        assert validated.before == 3
+
+    def test_before_negative_rejected(self) -> None:
+        with pytest.raises(ValueError, match="before"):
+            ReadOutlineInput(url="https://example.com/page", offset=1, limit=10, before=-1)
 
 
 class TestMatchStructure:

@@ -65,6 +65,7 @@ class ReadPageInput(BaseModel):
     url: str
     offset: int = 1
     limit: int = 500
+    before: int = 0
 
     @field_validator("url")
     @classmethod
@@ -85,6 +86,13 @@ class ReadPageInput(BaseModel):
             raise ValueError("limit must be >= 1")
         return v
 
+    @field_validator("before")
+    @classmethod
+    def validate_before(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("before must be >= 0")
+        return v
+
 
 class ReadPageOutput(BaseModel):
     url: str = Field(description="The URL of the fetched page.")
@@ -96,8 +104,12 @@ class ReadPageOutput(BaseModel):
         )
     )
     total_lines: int = Field(description="Total number of lines in the full page.")
-    offset: int = Field(description="1-based line number where the content window starts.")
-    limit: int = Field(description="Maximum number of lines in the content window.")
+    offset: int = Field(
+        description="1-based line number where the returned content window actually starts."
+    )
+    limit: int = Field(
+        description="Maximum number of forward lines requested starting at the input offset."
+    )
     has_more: bool = Field(description="True if more content exists beyond the current window.")
     next_offset: int | None = Field(
         description="Line number to pass as offset to continue reading. Null if no more content."
@@ -125,6 +137,7 @@ class ReadOutlineInput(BaseModel):
     url: str
     offset: int = 1
     limit: int = 1000
+    before: int = 0
 
     @field_validator("url")
     @classmethod
@@ -145,6 +158,13 @@ class ReadOutlineInput(BaseModel):
             raise ValueError("limit must be >= 1")
         return v
 
+    @field_validator("before")
+    @classmethod
+    def validate_before(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("before must be >= 0")
+        return v
+
 
 class ReadOutlineOutput(BaseModel):
     url: str = Field(description="The URL of the fetched page.")
@@ -154,7 +174,10 @@ class ReadOutlineOutput(BaseModel):
     total_entries: int = Field(description="Total outline entries after stripping empty fences.")
     has_more: bool = Field(description="True if more entries exist beyond the current window.")
     next_offset: int | None = Field(
-        description="Entry index to pass as offset to continue. Null if no more entries."
+        description=(
+            "Page line number to pass as offset to continue browsing the outline. "
+            "Null if no more outline entries exist beyond the returned window."
+        )
     )
     content_hash: str = Field(
         description=(
@@ -178,6 +201,7 @@ class ReadOutlineOutput(BaseModel):
 class SearchPageInput(BaseModel):
     url: str
     query: str
+    target: Literal["content", "outline"] = "content"
     mode: Literal["literal", "regex"] = "literal"
     case_mode: Literal["smart", "insensitive", "sensitive"] = "smart"
     whole_word: bool = False
@@ -220,12 +244,14 @@ class SearchPageOutput(BaseModel):
     matches: str = Field(
         description=(
             "Matching lines formatted as '<line_number>:<content>', one per line. "
+            "In outline mode, these are matching outline entries. "
             "Empty string when no matches found."
         )
     )
     outline: str = Field(
         description=(
-            "Compacted outline trimmed to match range. Empty string when no matches found."
+            "Compacted outline trimmed to match range in content mode. "
+            "Empty string when no matches found or when target='outline'."
         )
     )
     total_lines: int = Field(description="Total number of lines in the page.")

@@ -32,6 +32,8 @@ async def handle(
     offset: int,
     limit: int,
     state: AppState,
+    *,
+    before: int = 0,
 ) -> dict:
     """Handle a read_page tool call."""
     log = structlog.get_logger().bind(tool="read_page", url=url)
@@ -39,12 +41,15 @@ async def handle(
 
     # Validate input
     try:
-        validated = ReadPageInput(url=url, offset=offset, limit=limit)
+        validated = ReadPageInput(url=url, offset=offset, limit=limit, before=before)
     except ValueError as exc:
         raise ProContextError(
             code=ErrorCode.INVALID_INPUT,
             message=str(exc),
-            suggestion="Provide a valid URL (http/https, max 2048 chars), offset >= 1, limit >= 1.",
+            suggestion=(
+                "Provide a valid URL (http/https, max 2048 chars), "
+                "offset >= 1, limit >= 1, before >= 0."
+            ),
             recoverable=False,
         ) from exc
 
@@ -63,6 +68,7 @@ async def handle(
         outline=compacted_outline,
         offset=validated.offset,
         limit=validated.limit,
+        before=validated.before,
         content_hash=result.content_hash,
         cached=result.cached,
         cached_at=result.cached_at,
@@ -96,6 +102,7 @@ def _build_output(
     outline: str,
     offset: int,
     limit: int,
+    before: int,
     content_hash: str,
     cached: bool,
     cached_at: datetime | None,
@@ -105,10 +112,12 @@ def _build_output(
     all_lines = content.splitlines()
     total_lines = len(all_lines)
 
-    windowed = all_lines[offset - 1 : offset - 1 + limit]
+    start = max(1, offset - before)
+    end = min(total_lines, offset + limit - 1)
+
+    windowed = all_lines[start - 1 : end]
     windowed_content = "\n".join(windowed)
 
-    end = offset - 1 + limit
     has_more = end < total_lines
     next_offset = end + 1 if has_more else None
 
@@ -116,7 +125,7 @@ def _build_output(
         url=url,
         outline=outline,
         total_lines=total_lines,
-        offset=offset,
+        offset=start,
         limit=limit,
         content=windowed_content,
         has_more=has_more,

@@ -258,6 +258,7 @@ class ReadPageInput(BaseModel):
     url: str
     offset: int = 1
     limit: int = 500
+    before: int = 0
 
     @field_validator("url")
     @classmethod
@@ -283,13 +284,20 @@ class ReadPageInput(BaseModel):
             raise ValueError("limit must be >= 1")
         return v
 
+    @field_validator("before")
+    @classmethod
+    def validate_before(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("before must be >= 0")
+        return v
+
 class ReadPageOutput(BaseModel):
     url: str
     outline: str              # Compacted outline (≤max_entries AND ≤max_chars) or status message if too large
     total_lines: int
-    offset: int
-    limit: int
-    content: str              # Page markdown for the requested window
+    offset: int               # Actual first returned content line after applying before
+    limit: int                # Forward lines requested from the input offset
+    content: str              # Page markdown for the returned window
     has_more: bool             # True if more content exists beyond the current window
     next_offset: int | None    # Line number to pass as offset to continue; None if no more
     content_hash: str          # Truncated SHA-256 (12 hex chars) of full page content
@@ -300,6 +308,7 @@ class ReadPageOutput(BaseModel):
 class SearchPageInput(BaseModel):
     url: str
     query: str
+    target: Literal["content", "outline"] = "content"
     mode: Literal["literal", "regex"] = "literal"
     case_mode: Literal["smart", "insensitive", "sensitive"] = "smart"
     whole_word: bool = False
@@ -343,8 +352,8 @@ class SearchPageInput(BaseModel):
 class SearchPageOutput(BaseModel):
     url: str
     query: str
-    outline: str              # Full outline for small pages; otherwise range-trimmed + compacted; empty string if no matches
-    matches: str              # Matching lines as "line_number:content", one per line; empty if none
+    outline: str              # Content-mode outline context; empty if no matches or target="outline"
+    matches: str              # Matching lines as "line_number:content"; outline mode returns matching outline entries in the same format
     total_lines: int
     has_more: bool
     next_offset: int | None   # Line number for next search call; None if no more matches
@@ -354,18 +363,19 @@ class SearchPageOutput(BaseModel):
 
 class ReadOutlineInput(BaseModel):
     url: str
-    offset: int = 1           # 1-based outline entry index
-    limit: int = 1000         # Max entries to return
+    offset: int = 1           # 1-based page line number
+    limit: int = 1000         # Forward page-line span from offset
+    before: int = 0           # Backward page-line context before offset
 
     # Same url validator as ReadPageInput
-    # offset >= 1, limit >= 1
+    # offset >= 1, limit >= 1, before >= 0
 
 class ReadOutlineOutput(BaseModel):
     url: str
     outline: str              # Paginated outline entries: "<line>:<text>\n..."
     total_entries: int        # Total entries after stripping empty fences
     has_more: bool
-    next_offset: int | None   # Entry index to continue; None if no more
+    next_offset: int | None   # Page line number to continue; None if no more
     content_hash: str          # Truncated SHA-256 (12 hex chars) of full page content
     cached: bool
     cached_at: datetime | None
@@ -1111,9 +1121,15 @@ async def resolve_library(query: str, ctx: Context) -> dict:
     return await t_resolve.handle(query, state)
 
 @mcp.tool()
-async def read_page(url: str, ctx: Context, offset: int = 1, limit: int = 500) -> dict:
+async def read_page(
+    url: str,
+    ctx: Context,
+    offset: int = 1,
+    limit: int = 500,
+    before: int = 0,
+) -> dict:
     state: AppState = ctx.request_context.lifespan_context
-    return await t_read_page.handle(url, offset, limit, state)
+    return await t_read_page.handle(url, offset, limit, state, before=before)
 
 @mcp.tool()
 async def search_page(url: str, query: str, ctx: Context) -> dict:

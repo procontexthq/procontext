@@ -1,7 +1,7 @@
 """Tool handler for read_outline.
 
 Validates input, delegates fetching to the shared helper, strips empty fences,
-paginates outline entries by entry index, and returns the formatted result.
+filters outline entries by source page line window, and returns the formatted result.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ async def handle(
     offset: int,
     limit: int,
     state: AppState,
+    *,
+    before: int = 0,
 ) -> dict:
     """Handle a read_outline tool call."""
     log = structlog.get_logger().bind(tool="read_outline", url=url)
@@ -31,13 +33,14 @@ async def handle(
 
     # Validate input
     try:
-        validated = ReadOutlineInput(url=url, offset=offset, limit=limit)
+        validated = ReadOutlineInput(url=url, offset=offset, limit=limit, before=before)
     except ValueError as exc:
         raise ProContextError(
             code=ErrorCode.INVALID_INPUT,
             message=str(exc),
             suggestion=(
-                "Provide a valid URL (http/https, max 2048 chars), offset >= 1, limit >= 1."
+                "Provide a valid URL (http/https, max 2048 chars), "
+                "offset >= 1, limit >= 1, before >= 0."
             ),
             recoverable=False,
         ) from exc
@@ -49,13 +52,12 @@ async def handle(
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
 
-    # Paginate by entry index (1-based offset)
-    start = validated.offset - 1
-    end = start + validated.limit
-    page = entries[start:end]
+    window_start = max(1, validated.offset - validated.before)
+    window_end = validated.offset + validated.limit - 1
+    page = [entry for entry in entries if window_start <= entry.line_number <= window_end]
 
-    has_more = end < total_entries
-    next_offset = end + 1 if has_more else None
+    has_more = any(entry.line_number > window_end for entry in entries)
+    next_offset = window_end + 1 if has_more else None
 
     output = ReadOutlineOutput(
         url=result.url,

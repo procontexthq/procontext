@@ -547,6 +547,12 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
         "minimum": 1,
         "default": 500,
         "description": "Maximum number of lines to return from the offset. Defaults to 500."
+      },
+      "before": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of extra lines to include before offset for backward context. Defaults to 0."
       }
     },
     "required": ["url"]
@@ -558,6 +564,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 1. Call `read_page` to get the compacted outline and the first 500 lines.
 2. Find the heading closest to the section you need and note its line number.
 3. Call again with `offset=<that line number>` to read the section.
+4. Add `before` when you need some backward context before that line without reducing the forward `limit`.
 
 For pages where the outline is replaced by a status message (very large pages), use `read_outline` to browse the full outline with pagination.
 
@@ -581,15 +588,15 @@ For pages where the outline is replaced by a status message (very large pages), 
     },
     "offset": {
       "type": "integer",
-      "description": "The 1-based line number the returned content starts from."
+      "description": "The 1-based line number the returned content actually starts from after applying before."
     },
     "limit": {
       "type": "integer",
-      "description": "The maximum number of lines requested."
+      "description": "The maximum number of forward lines requested from the input offset."
     },
     "content": {
       "type": "string",
-      "description": "Page markdown for the requested window (from offset, up to limit lines)."
+      "description": "Page markdown for the returned window. When before > 0, this includes backward context before the input offset."
     },
     "has_more": {
       "type": "boolean",
@@ -671,6 +678,33 @@ Result:
 }
 ```
 
+**Read a section with backward context**:
+
+Request arguments:
+
+```json
+{ "url": "https://docs.langchain.com/docs/concepts/streaming.md", "offset": 18, "before": 4, "limit": 10 }
+```
+
+Result:
+
+```json
+{
+  "url": "https://docs.langchain.com/docs/concepts/streaming.md",
+  "outline": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+  "total_lines": 42,
+  "offset": 14,
+  "limit": 10,
+  "content": "...\n### Using .stream()\n\nThe `.stream()` method returns an iterator...\n...",
+  "has_more": true,
+  "next_offset": 28,
+  "content_hash": "a1b2c3d4e5f6",
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z",
+  "stale": false
+}
+```
+
 ### 3.4 Error Cases
 
 | Condition                                | Error code           | `recoverable` |
@@ -682,7 +716,7 @@ Result:
 | Redirect chain exceeding 3 hops         | `TOO_MANY_REDIRECTS` | `false`       |
 | Redirect hop targets a private IP range  | `URL_NOT_ALLOWED`   | `false`       |
 | URL over 2048 characters                 | `INVALID_INPUT`      | `false`       |
-| `offset` < 1 or `limit` < 1             | `INVALID_INPUT`      | `false`       |
+| `offset` < 1, `limit` < 1, or `before` < 0 | `INVALID_INPUT`   | `false`       |
 
 **`URL_NOT_ALLOWED` example**:
 
@@ -701,7 +735,7 @@ Result:
 
 ## 4. Tool: search_page
 
-**Purpose**: Search within a documentation page for lines matching a query. Returns the page outline for structural context and the matching lines with their line numbers. The agent uses the outline and match locations to identify relevant sections, then calls `read_page` with `offset`/`limit` to read the full content.
+**Purpose**: Search within a documentation page for lines matching a query. In `target="content"` mode, returns page content matches plus outline context. In `target="outline"` mode, searches stored outline entries only and returns matching outline lines. The agent uses the returned line numbers to inspect context with `read_page` or `read_outline`.
 
 This tool is the equivalent of `grep` for documentation pages. It supports literal keyword search, regex patterns, smart case sensitivity, and word boundary matching.
 
@@ -710,7 +744,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 ```json
 {
   "name": "search_page",
-  "description": "Search within a documentation page for lines matching a query. Returns the page outline and matching lines with line numbers. Use the outline and match locations to identify relevant sections, then call read_page with the appropriate offset to read the full content. Supports literal and regex search, smart case sensitivity, and word boundary matching.",
+  "description": "Search within a documentation page for lines matching a query. target='content' searches page content and returns outline context. target='outline' searches stored outline entries only. Matches are returned with page line numbers in both modes. Supports literal and regex search, smart case sensitivity, and word boundary matching.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -724,6 +758,12 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
         "description": "Search term or regex pattern.",
         "minLength": 1,
         "maxLength": 200
+      },
+      "target": {
+        "type": "string",
+        "enum": ["content", "outline"],
+        "default": "content",
+        "description": "\"content\": search page content lines. \"outline\": search stored outline entries only."
       },
       "mode": {
         "type": "string",
@@ -778,11 +818,11 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
     },
     "outline": {
       "type": "string",
-      "description": "Structural outline context for the search results. Empty string when no matches found. If the full outline is already small enough (≤50 entries after empty-fence stripping), it is returned unchanged. Otherwise the outline is trimmed to the match range and compacted; if still irreducible, it contains a status message directing to read_outline."
+      "description": "Structural outline context for content-mode search results. Empty string when no matches found and always empty when target='outline'."
     },
     "matches": {
       "type": "string",
-      "description": "Matching lines formatted as '<line_number>:<content>', one per line. Empty string when no matches found."
+      "description": "Matching lines formatted as '<line_number>:<content>', one per line. In outline mode, these are matching outline entries in the same format. Empty string when no matches found."
     },
     "total_lines": {
       "type": "integer",
@@ -826,6 +866,31 @@ Result:
   "outline": "3:## Concepts\n15:## How-to Guides",
   "matches": "7:- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated.\n22:- [How to stream responses](https://docs.langchain.com/docs/how_to/streaming.md): Step-by-step guide to streaming.",
   "total_lines": 45,
+  "has_more": false,
+  "next_offset": null,
+  "content_hash": "a1b2c3d4e5f6",
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z"
+}
+```
+
+**Search stored outline entries**:
+
+Request arguments:
+
+```json
+{ "url": "https://python.langchain.com/docs/concepts/streaming.md", "query": "Chat Models", "target": "outline" }
+```
+
+Result:
+
+```json
+{
+  "url": "https://python.langchain.com/docs/concepts/streaming.md",
+  "query": "Chat Models",
+  "outline": "",
+  "matches": "7:## Streaming with Chat Models",
+  "total_lines": 21,
   "has_more": false,
   "next_offset": null,
   "content_hash": "a1b2c3d4e5f6",
@@ -888,14 +953,14 @@ Result contains the next batch of matches starting from line 8.
 
 ## 5. Tool: read_outline
 
-**Purpose**: Browse the full structural outline of a documentation page with pagination. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or to explore page structure without fetching content.
+**Purpose**: Browse the full structural outline of a documentation page using page-line windowing. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or to explore page structure without fetching content.
 
 ### 5.1 Input Schema
 
 ```json
 {
   "name": "read_outline",
-  "description": "Browse the full structural outline of a documentation page with pagination. Each entry shows a heading or fence marker with its line number in the page content. Use when read_page returns an outline status message for very large pages, or to explore page structure without fetching content.",
+  "description": "Browse the full structural outline of a documentation page using page-line windowing. Each entry shows a heading or fence marker with its line number in the page content. Use when read_page returns an outline status message for very large pages, or to explore page structure without fetching content.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -908,13 +973,19 @@ Result contains the next batch of matches starting from line 8.
         "type": "integer",
         "minimum": 1,
         "default": 1,
-        "description": "1-based outline entry index to start from."
+        "description": "1-based page line number to start browsing the outline from."
       },
       "limit": {
         "type": "integer",
         "minimum": 1,
         "default": 1000,
-        "description": "Maximum number of outline entries to return."
+        "description": "Maximum forward page lines to include from offset."
+      },
+      "before": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of extra page lines to include before offset for backward outline context."
       }
     },
     "required": ["url"]
@@ -946,7 +1017,7 @@ Result contains the next batch of matches starting from line 8.
     },
     "next_offset": {
       "type": ["integer", "null"],
-      "description": "Entry index to pass as offset to continue paginating. Null if no more entries."
+      "description": "Page line number to pass as offset to continue browsing. Null if no more outline entries exist beyond the returned window."
     },
     "content_hash": {
       "type": "string",
@@ -979,6 +1050,30 @@ Result:
   "total_entries": 847,
   "has_more": true,
   "next_offset": 1001,
+  "content_hash": "a1b2c3d4e5f6",
+  "cached": true,
+  "cached_at": "2026-02-23T10:00:00Z",
+  "stale": false
+}
+```
+
+**Browse outline context around a line**:
+
+Request arguments:
+
+```json
+{ "url": "https://docs.langchain.com/docs/api_reference.md", "offset": 200, "before": 40, "limit": 120 }
+```
+
+Result:
+
+```json
+{
+  "url": "https://docs.langchain.com/docs/api_reference.md",
+  "outline": "165:## Authentication\n188:### API Keys\n214:### OAuth",
+  "total_entries": 847,
+  "has_more": true,
+  "next_offset": 320,
   "content_hash": "a1b2c3d4e5f6",
   "cached": true,
   "cached_at": "2026-02-23T10:00:00Z",
