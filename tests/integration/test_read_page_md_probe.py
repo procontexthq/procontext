@@ -19,11 +19,16 @@ if TYPE_CHECKING:
 class TestReadPageMdProbe:
     """Tests for read_page .md probing behavior."""
 
+    @staticmethod
+    def _enable_md_probe(app_state: AppState, *base_urls: str) -> None:
+        app_state.md_probe_base_urls = frozenset(base_urls)
+
     @respx.mock
     async def test_non_md_url_fetches_md_variant(self, app_state: AppState) -> None:
         """A URL without .md suffix should transparently fetch url+.md."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(base_url, 1, 500, app_state)
@@ -39,6 +44,7 @@ class TestReadPageMdProbe:
         """Content fetched via .md probing is cached under the original URL."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         await read_page_handle(base_url, 1, 500, app_state)
@@ -52,6 +58,7 @@ class TestReadPageMdProbe:
         """If the .md variant returns 404, the original URL is fetched as fallback."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(404))
         respx.get(base_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
@@ -85,6 +92,7 @@ class TestReadPageMdProbe:
         """A URL whose last segment looks like a version should still be probed with .md."""
         base_url = "https://python.langchain.com/docs/v1.2"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(base_url, 1, 500, app_state)
@@ -98,6 +106,7 @@ class TestReadPageMdProbe:
         """Fragments must not end up inside the .md extension."""
         base_url = "https://python.langchain.com/docs/concepts/streaming#overview"
         expected_request_url = "https://python.langchain.com/docs/concepts/streaming.md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(expected_request_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(base_url, 1, 500, app_state)
@@ -111,6 +120,7 @@ class TestReadPageMdProbe:
         """HTML 200 from the probe is returned as-is without fallback."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         html_body = "<!DOCTYPE html><html><head></head><body>Not markdown</body></html>"
         respx.get(md_url).mock(return_value=httpx.Response(200, text=html_body))
 
@@ -124,6 +134,7 @@ class TestReadPageMdProbe:
     async def test_query_string_url_not_probed(self, app_state: AppState) -> None:
         """A URL with query parameters is fetched as-is."""
         url = "https://python.langchain.com/docs/concepts/streaming?v=latest"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(url, 1, 500, app_state)
@@ -136,6 +147,7 @@ class TestReadPageMdProbe:
     async def test_trailing_slash_url_not_probed(self, app_state: AppState) -> None:
         """A URL with a trailing slash is fetched as-is."""
         url = "https://python.langchain.com/docs/concepts/"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(url, 1, 500, app_state)
@@ -149,6 +161,7 @@ class TestReadPageMdProbe:
         """A 500 response from the .md probe triggers fallback to the original URL."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(500))
         respx.get(base_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
@@ -165,6 +178,7 @@ class TestReadPageMdProbe:
         """A timeout on the .md probe triggers fallback to the original URL."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(side_effect=httpx.TimeoutException("timed out"))
         respx.get(base_url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
@@ -179,6 +193,7 @@ class TestReadPageMdProbe:
         """If both the .md probe and the original URL fail, the error is propagated."""
         base_url = "https://python.langchain.com/docs/concepts/streaming"
         md_url = base_url + ".md"
+        TestReadPageMdProbe._enable_md_probe(app_state, "https://python.langchain.com")
         respx.get(md_url).mock(return_value=httpx.Response(404))
         respx.get(base_url).mock(return_value=httpx.Response(404))
 
@@ -186,3 +201,41 @@ class TestReadPageMdProbe:
             await read_page_handle(base_url, 1, 500, app_state)
 
         assert respx.calls.call_count == 2
+
+    @respx.mock
+    async def test_empty_base_urls_disables_probe_globally(self, app_state: AppState) -> None:
+        """When md_probe_base_urls is empty (default), probing is disabled for all URLs."""
+        url = "https://python.langchain.com/docs/concepts/streaming"
+        respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        assert app_state.md_probe_base_urls == frozenset()
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == url
+
+    @respx.mock
+    async def test_unlisted_base_url_skips_probe(self, app_state: AppState) -> None:
+        """An extensionless URL is fetched as-is when its base URL is not listed."""
+        url = "https://python.langchain.com/docs/concepts/streaming"
+        respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == url
+
+    @respx.mock
+    async def test_sibling_subdomain_skips_probe(self, app_state: AppState) -> None:
+        """Only exact normalized origins enable probing."""
+        url = "https://sub.python.langchain.com/docs/concepts/streaming"
+        app_state.md_probe_base_urls = frozenset({"https://python.langchain.com"})
+        respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == url

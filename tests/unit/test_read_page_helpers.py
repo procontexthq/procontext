@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from procontext.page.service import _should_probe_md, _with_md_extension
 
+_ALLOWED_BASE_URLS = frozenset({"https://example.com"})
+
 # ---------------------------------------------------------------------------
 # _should_probe_md
 # ---------------------------------------------------------------------------
@@ -18,99 +20,118 @@ class TestShouldProbeMd:
     # --- should probe ---
 
     def test_no_extension(self) -> None:
-        assert _should_probe_md("https://example.com/docs/streaming") is True
+        assert _should_probe_md("https://example.com/docs/streaming", _ALLOWED_BASE_URLS) is True
 
     def test_no_extension_deep_path(self) -> None:
-        assert _should_probe_md("https://example.com/a/b/c/d") is True
+        assert _should_probe_md("https://example.com/a/b/c/d", _ALLOWED_BASE_URLS) is True
 
     def test_no_extension_single_segment(self) -> None:
-        assert _should_probe_md("https://example.com/about") is True
+        assert _should_probe_md("https://example.com/about", _ALLOWED_BASE_URLS) is True
 
     def test_version_segment_major_minor(self) -> None:
         # v1.2 — the suffix .2 is numeric, not a real extension
-        assert _should_probe_md("https://example.com/docs/v1.2") is True
+        assert _should_probe_md("https://example.com/docs/v1.2", _ALLOWED_BASE_URLS) is True
 
     def test_version_segment_patch(self) -> None:
         # v1.2.3 — splitext gives .3 (numeric)
-        assert _should_probe_md("https://example.com/docs/v1.2.3") is True
+        assert _should_probe_md("https://example.com/docs/v1.2.3", _ALLOWED_BASE_URLS) is True
 
     def test_bare_version(self) -> None:
-        assert _should_probe_md("https://example.com/docs/1.0") is True
+        assert _should_probe_md("https://example.com/docs/1.0", _ALLOWED_BASE_URLS) is True
 
     def test_year_month(self) -> None:
         # 2024.01 — numeric suffix
-        assert _should_probe_md("https://example.com/releases/2024.01") is True
+        assert _should_probe_md("https://example.com/releases/2024.01", _ALLOWED_BASE_URLS) is True
 
     def test_mixed_alphanumeric_extension(self) -> None:
         # .v2rc — has a digit, not all alphabetic
-        assert _should_probe_md("https://example.com/page.v2rc") is True
+        assert _should_probe_md("https://example.com/page.v2rc", _ALLOWED_BASE_URLS) is True
 
     def test_h5_extension(self) -> None:
         # .h5 — has digit, treated as not a real doc extension
-        assert _should_probe_md("https://example.com/data.h5") is True
+        assert _should_probe_md("https://example.com/data.h5", _ALLOWED_BASE_URLS) is True
 
     def test_fragment_only(self) -> None:
         # Fragment is client-side — server sees the same path, still worth probing
-        assert _should_probe_md("https://example.com/docs/page#section") is True
+        assert _should_probe_md("https://example.com/docs/page#section", _ALLOWED_BASE_URLS) is True
 
     def test_hidden_file_dot_prefix(self) -> None:
         # splitext('.hidden') = ('.hidden', '') — treated as extensionless
-        assert _should_probe_md("https://example.com/docs/.hidden") is True
+        assert _should_probe_md("https://example.com/docs/.hidden", _ALLOWED_BASE_URLS) is True
+
+    def test_allowed_origin_with_default_port_matches(self) -> None:
+        allowed = frozenset({"https://example.com"})
+        assert _should_probe_md("https://example.com:443/docs/page", allowed) is True
+
+    def test_unlisted_origin_skips_probe(self) -> None:
+        assert _should_probe_md("https://other.example.com/docs/page", _ALLOWED_BASE_URLS) is False
+
+    def test_sibling_subdomain_does_not_match(self) -> None:
+        allowed = frozenset({"https://docs.example.com"})
+        assert _should_probe_md("https://api.docs.example.com/page", allowed) is False
 
     # --- should NOT probe ---
 
     def test_md_extension(self) -> None:
-        assert _should_probe_md("https://example.com/docs/page.md") is False
+        assert _should_probe_md("https://example.com/docs/page.md", _ALLOWED_BASE_URLS) is False
 
     def test_txt_extension(self) -> None:
-        assert _should_probe_md("https://example.com/llms.txt") is False
+        assert _should_probe_md("https://example.com/llms.txt", _ALLOWED_BASE_URLS) is False
 
     def test_html_extension(self) -> None:
-        assert _should_probe_md("https://example.com/docs/index.html") is False
+        assert _should_probe_md("https://example.com/docs/index.html", _ALLOWED_BASE_URLS) is False
 
     def test_css_extension(self) -> None:
-        assert _should_probe_md("https://example.com/style.css") is False
+        assert _should_probe_md("https://example.com/style.css", _ALLOWED_BASE_URLS) is False
 
     def test_json_extension(self) -> None:
-        assert _should_probe_md("https://example.com/openapi.json") is False
+        assert _should_probe_md("https://example.com/openapi.json", _ALLOWED_BASE_URLS) is False
 
     def test_rst_extension(self) -> None:
-        assert _should_probe_md("https://example.com/README.rst") is False
+        assert _should_probe_md("https://example.com/README.rst", _ALLOWED_BASE_URLS) is False
 
     def test_uppercase_extension(self) -> None:
-        assert _should_probe_md("https://example.com/CHANGELOG.MD") is False
-        assert _should_probe_md("https://example.com/index.HTML") is False
+        assert _should_probe_md("https://example.com/CHANGELOG.MD", _ALLOWED_BASE_URLS) is False
+        assert _should_probe_md("https://example.com/index.HTML", _ALLOWED_BASE_URLS) is False
 
     def test_compound_extension_tar_gz(self) -> None:
         # splitext gives .gz — alphabetic, skip probe
-        assert _should_probe_md("https://example.com/archive.tar.gz") is False
+        assert _should_probe_md("https://example.com/archive.tar.gz", _ALLOWED_BASE_URLS) is False
 
     def test_trailing_slash(self) -> None:
         # Empty last segment — appending .md would produce /docs/page/.md
-        assert _should_probe_md("https://example.com/docs/page/") is False
+        assert _should_probe_md("https://example.com/docs/page/", _ALLOWED_BASE_URLS) is False
 
     def test_trailing_slash_root(self) -> None:
-        assert _should_probe_md("https://example.com/") is False
+        assert _should_probe_md("https://example.com/", _ALLOWED_BASE_URLS) is False
 
     def test_domain_only_no_path(self) -> None:
-        assert _should_probe_md("https://example.com") is False
+        assert _should_probe_md("https://example.com", _ALLOWED_BASE_URLS) is False
 
     def test_query_string_skips_probe(self) -> None:
         # Query params → dynamic server, .md probe would always 404
-        assert _should_probe_md("https://example.com/docs/page?v=1") is False
+        assert _should_probe_md("https://example.com/docs/page?v=1", _ALLOWED_BASE_URLS) is False
 
     def test_query_string_multiple_params(self) -> None:
-        assert _should_probe_md("https://example.com/docs/page?a=1&b=2") is False
+        assert (
+            _should_probe_md("https://example.com/docs/page?a=1&b=2", _ALLOWED_BASE_URLS) is False
+        )
 
     def test_query_and_fragment(self) -> None:
-        assert _should_probe_md("https://example.com/docs/page?v=1#section") is False
+        assert (
+            _should_probe_md("https://example.com/docs/page?v=1#section", _ALLOWED_BASE_URLS)
+            is False
+        )
 
     def test_md_extension_with_query(self) -> None:
         # Already has extension AND query — both independently skip probe
-        assert _should_probe_md("https://example.com/docs/page.md?v=1") is False
+        assert _should_probe_md("https://example.com/docs/page.md?v=1", _ALLOWED_BASE_URLS) is False
 
     def test_md_extension_with_fragment(self) -> None:
-        assert _should_probe_md("https://example.com/docs/page.md#section") is False
+        assert (
+            _should_probe_md("https://example.com/docs/page.md#section", _ALLOWED_BASE_URLS)
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------

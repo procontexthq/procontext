@@ -73,6 +73,43 @@ def normalize_doc_url(raw: str) -> str:
     return urlunsplit((scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+def normalize_doc_origin(raw: str) -> str:
+    """Return the normalized origin for a documentation URL.
+
+    The returned string contains only ``scheme://host[:port]`` with the same
+    conservative normalization as ``normalize_doc_url``. Path, query, and
+    fragment are discarded.
+    """
+    url = normalize_doc_url(raw)
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("URL scheme must be http or https")
+    if parsed.hostname is None:
+        raise ValueError("URL must include a hostname")
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def normalize_exact_doc_origin(raw: str) -> str:
+    """Validate and normalize a base URL used for exact origin matching.
+
+    Accepted values must be origin-only HTTP(S) URLs with no path, query, or
+    fragment. A bare trailing slash is allowed and normalized away.
+    """
+    url = normalize_doc_url(raw)
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Base URL scheme must be http or https")
+    if parsed.hostname is None:
+        raise ValueError("Base URL must include a hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Base URL must not include userinfo")
+    if parsed.query or parsed.fragment:
+        raise ValueError("Base URL must not include query or fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("Base URL must not include a path")
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
 def is_source_spec_query(raw: str) -> bool:
     """Return true when a query is a source spec we intentionally do not resolve."""
     query = raw.strip()

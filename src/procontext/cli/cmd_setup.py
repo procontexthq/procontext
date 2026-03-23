@@ -6,7 +6,10 @@ import sys
 from typing import TYPE_CHECKING
 
 from procontext.config import registry_paths
-from procontext.registry import fetch_registry_for_setup
+from procontext.registry import (
+    fetch_registry_additional_info_for_setup,
+    fetch_registry_for_setup,
+)
 
 if TYPE_CHECKING:
     from procontext.config import Settings
@@ -15,6 +18,11 @@ if TYPE_CHECKING:
 async def attempt_registry_setup(settings: Settings) -> bool:
     """Try to fetch and persist the registry once. Returns True on success."""
     return await fetch_registry_for_setup(settings)
+
+
+async def attempt_registry_additional_info_setup(settings: Settings) -> bool:
+    """Try to fetch and persist registry additional-info once. Returns True on success."""
+    return await fetch_registry_additional_info_for_setup(settings)
 
 
 async def run_setup(settings: Settings) -> None:

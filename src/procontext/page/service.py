@@ -19,6 +19,7 @@ import structlog
 
 from procontext.errors import ErrorCode, ProContextError
 from procontext.fetcher import expand_allowlist_from_content, is_url_allowed
+from procontext.normalization import normalize_doc_origin
 from procontext.parser import parse_outline
 
 if TYPE_CHECKING:
@@ -218,7 +219,7 @@ async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchRes
 async def _fetch_with_md_probe(url: str, state: AppState) -> str:
     """Fetch page content, trying .md variant first when applicable."""
     assert state.fetcher is not None
-    if _should_probe_md(url):
+    if _should_probe_md(url, state.md_probe_base_urls):
         md_url = _with_md_extension(url)
         try:
             log.info("cache_miss_fetching", url=md_url)
@@ -238,8 +239,18 @@ def _with_md_extension(url: str) -> str:
     return urlunparse(parsed._replace(path=parsed.path + ".md"))
 
 
-def _should_probe_md(url: str) -> bool:
-    """Return True if the URL path looks extensionless and should try a .md probe."""
+def _should_probe_md(url: str, allowed_base_urls: frozenset[str]) -> bool:
+    """Return True if the URL is eligible for .md probing."""
+    if not allowed_base_urls:
+        return False
+
+    try:
+        origin = normalize_doc_origin(url)
+    except ValueError:
+        return False
+    if origin not in allowed_base_urls:
+        return False
+
     parsed = urlparse(url)
     if parsed.query:
         return False

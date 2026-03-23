@@ -5,13 +5,23 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+from procontext.cli import cmd_setup
 from procontext.cli.doctor.cache_check import check_cache
-from procontext.cli.doctor.checks import check_data_dir
-from procontext.cli.doctor.checks import check_network as _check_network
-from procontext.cli.doctor.checks import check_registry as _check_registry
+from procontext.cli.doctor.checks import (
+    check_data_dir,
+)
+from procontext.cli.doctor.checks import (
+    check_network as _check_network,
+)
+from procontext.cli.doctor.checks import (
+    check_registry as _check_registry,
+)
+from procontext.cli.doctor.checks import (
+    check_registry_additional_info as _check_registry_additional_info,
+)
 from procontext.cli.doctor.output import format_result
 from procontext.fetcher import build_http_client
-from procontext.registry import load_registry
+from procontext.registry import load_registry, load_registry_state
 
 if TYPE_CHECKING:
     from procontext.cli.doctor.models import CheckResult
@@ -36,6 +46,16 @@ async def check_network(settings: Settings, *, fix: bool = False) -> CheckResult
     )
 
 
+async def check_registry_additional_info(settings: Settings, *, fix: bool = False) -> CheckResult:
+    """Validate the optional registry additional-info sidecar."""
+    return await _check_registry_additional_info(
+        settings,
+        fix=fix,
+        load_registry_state_fn=load_registry_state,
+        repair_additional_info_fn=cmd_setup.attempt_registry_additional_info_setup,
+    )
+
+
 async def run_doctor(settings: Settings, *, fix: bool = False) -> None:
     """Run all health checks and print results."""
     header = "ProContext Doctor (--fix)" if fix else "ProContext Doctor"
@@ -44,6 +64,7 @@ async def run_doctor(settings: Settings, *, fix: bool = False) -> None:
     checks = [
         await check_data_dir(settings, fix=fix),
         await check_registry(settings, fix=fix),
+        await check_registry_additional_info(settings, fix=fix),
         await check_cache(settings, fix=fix),
         await check_network(settings, fix=fix),
     ]

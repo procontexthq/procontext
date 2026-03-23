@@ -132,3 +132,8 @@ def registry_paths(settings: Settings) -> tuple[Path, Path]:
         registry_dir / "known-libraries.json",
         registry_dir / "registry-state.json",
     )
+
+
+def registry_additional_info_path(settings: Settings) -> Path:
+    """Return the local additional-info.json path for the current runtime."""
+    return Path(settings.data_dir) / "registry" / "additional-info.json"

@@ -8,8 +8,13 @@ from procontext.fetcher import build_allowlist, build_http_client
 
 from . import storage as registry_storage
 from . import update as registry_update
-from .local import build_indexes, load_registry
-from .storage import registry_check_is_due, save_registry_to_disk
+from .local import build_indexes, load_registry, load_registry_additional_info, load_registry_state
+from .storage import (
+    registry_check_is_due,
+    save_additional_info_to_disk,
+    save_registry_to_disk,
+    write_registry_state,
+)
 from .update import (
     REGISTRY_INITIAL_BACKOFF_SECONDS,
     REGISTRY_MAX_BACKOFF_SECONDS,
@@ -31,8 +36,12 @@ __all__ = [
     "build_indexes",
     "check_for_registry_update",
     "fetch_registry_for_setup",
+    "fetch_registry_additional_info_for_setup",
     "load_registry",
+    "load_registry_additional_info",
+    "load_registry_state",
     "registry_check_is_due",
+    "save_additional_info_to_disk",
     "save_registry_to_disk",
 ]
 
@@ -44,6 +53,8 @@ async def check_for_registry_update(state: AppState) -> RegistryUpdateOutcome:
         build_indexes_fn=build_indexes,
         build_allowlist_fn=build_allowlist,
         save_registry_to_disk_fn=save_registry_to_disk,
+        save_additional_info_to_disk_fn=save_additional_info_to_disk,
+        write_registry_state_fn=write_registry_state,
         write_last_checked_at_fn=registry_storage.write_last_checked_at,
     )
 
@@ -54,9 +65,13 @@ async def fetch_registry_for_setup(settings: Settings) -> bool:
     Builds an HTTP client internally and closes it when done — callers
     do not need to manage transport-level resources.
     """
-    from procontext.config import registry_paths  # avoid circular import
+    from procontext.config import (
+        registry_additional_info_path,
+        registry_paths,
+    )  # avoid circular import
 
     registry_path, registry_state_path = registry_paths(settings)
+    additional_info_path = registry_additional_info_path(settings)
     http_client = build_http_client(settings.fetcher)
     try:
         return await registry_update.fetch_registry_for_setup(
@@ -64,7 +79,30 @@ async def fetch_registry_for_setup(settings: Settings) -> bool:
             metadata_url=settings.registry.metadata_url,
             registry_path=registry_path,
             registry_state_path=registry_state_path,
+            registry_additional_info_path=additional_info_path,
             save_registry_to_disk_fn=save_registry_to_disk,
+            save_additional_info_to_disk_fn=save_additional_info_to_disk,
+        )
+    finally:
+        await http_client.aclose()
+
+
+async def fetch_registry_additional_info_for_setup(settings: Settings) -> bool:
+    """Fetch and persist additional-info.json using the current local state."""
+    from procontext.config import (
+        registry_additional_info_path,
+        registry_paths,
+    )  # avoid circular import
+
+    _, registry_state_path = registry_paths(settings)
+    additional_info_path = registry_additional_info_path(settings)
+    http_client = build_http_client(settings.fetcher)
+    try:
+        return await registry_update.fetch_registry_additional_info_for_setup(
+            http_client=http_client,
+            registry_state_path=registry_state_path,
+            registry_additional_info_path=additional_info_path,
+            save_additional_info_to_disk_fn=save_additional_info_to_disk,
         )
     finally:
         await http_client.aclose()

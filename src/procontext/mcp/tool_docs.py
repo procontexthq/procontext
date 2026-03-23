@@ -74,10 +74,9 @@ Response:
     matched_via  — "package_name" | "library_id" | "name" | "alias" | "fuzzy"
     relevance    — confidence score 0.0 (low) to 1.0 (high)
 
-Index URL contains the links to all documentation pages. It can be passed as
-input to read_page, search_page or read_outline.
+Index URL contains the links to all documentation pages.
 
-Merged documentation URL (if available) contains the full content of all pages
+full_docs_url (if available) contains the full content of all documentation pages 
 merged into one, which can be useful for global search.
 
 README URLs are tied to specific package groups, if available they can be useful
@@ -86,33 +85,32 @@ for getting a quick overview for a package. Supported by all tools as well.
 
 
 READ_PAGE_DESCRIPTION = """
-Fetch the content and outline of a documentation page.
-
-Accepts any documentation URL - typically the index_url from
-resolve_library or a link found within a previously fetched page.
+Fetch the content and smart outline of a page.
 
 This tool supports paginated reading with the offset and limit parameters.
 You can use before parameter if you need extra backward context. Backward
 context is additive — it does not reduce the forward limit. Total number of
 lines returned will be a sum of before and limit.
 
-It accepts full_docs_url as well but note that it may be very large and it is
-advisable to find the relevant section first instead of directly reading it.
-You can use search_page and read_outline to find the relevant sections.
+For reading full documentation URLs, it is advisable to find the relevant 
+section first instead of directly reading it. You can use search_page and 
+read_outline to find the relevant sections.
 
-Set include_outline to false to omit the outline from the response. In that
-case the outline field is returned as null. This is
+Set include_outline to false to omit the smart outline from the response. In 
+that case the outline field is returned as null. This is
 useful when paginating through a page where the outline is already known from
 the first call, saving tokens on subsequent requests.
+
+This tool returns the complete outline if the outline is less than 50 entries
+and less than 4000 characters. Otherwise, it keep trimming the outline until
+it fits the limits, which is why it is called a smart outline. It will be clearly 
+indicated in the response if the outline is trimmed. If required, the full outline 
+can be retrieved with read_outline.
 
 Response:
   url          — the URL of the fetched page
   content      — the content window
-  outline      — compacted structural outline (target ≤50 entries) with
-                 1-based line numbers, e.g. "1:# Title\\n42:## Usage"
-                 use read_outline to browse the full outline with pagination.
-                 it will be clearly indicated if the outline is truncated.
-                 null when include_outline is false.
+  outline      — outline of the page or null when include_outline is false.
   total_lines  — total line count of the full page
   offset       — 1-based line number where the returned content window starts
   limit        — maximum forward lines requested from the input offset;
@@ -127,11 +125,6 @@ Response:
 
 If has_more is true, call again with offset=next_offset to continue
 reading. Repeated calls on the same URL are served from cache (sub-100ms).
-
-The server uses a stale-while-revalidate strategy for caching. content_hash may
-rarely change across calls if a new page is fetched in the background between calls.
-This would indicate that the content has changed and you might have to refetch the
-previous content window.
 """.strip()
 
 
@@ -139,12 +132,15 @@ READ_OUTLINE_DESCRIPTION = """
 Browse the full outline of a documentation page with page-line windowing.
 
 Returns paginated outline entries (headings and fence markers with line
-numbers). Use this when read_page reports that the outline is too large
-for inline display, or when you need to browse the complete page structure.
+numbers). Outline entries have empty fence pairs pre-stripped.
 
-Outline entries have empty fence pairs pre-stripped. offset is a page line
-number, limit is the forward page-line span from that line, and before adds
-backward page-line context without reducing limit.
+Generally the outlines are small enough to fit in smart outlines
+of read_page and search_page. You must directly call read_outlines for pages
+if we know for sure that the outline is large like the full documentation page.
+Otherwise it is suggested to call read_page or search_page first and use this
+tool as a fallback.
+
+before is additive similar to read_page.
 
 Response:
   url           — the URL of the fetched page
@@ -161,15 +157,12 @@ Response:
 
 
 SEARCH_PAGE_DESCRIPTION = """
-Search within a documentation page for lines matching a query.
+It returns the complete lines where the query matches are found. 
 
-content target:
-  Searches page content lines and returns matching lines plus compacted
-  outline context trimmed to the match range.
+You can use this tool to search across indexes, individual pages, 
+or even the full documentation if full_docs_url is available.
 
-outline target:
-  Searches stored outline entries only. Matches are returned as
-  'line_number:outline_text'.
+This tool also returns a smart outline similar to read_page.
 
 Supports literal and regex search, smart case sensitivity, and word
 boundary matching.

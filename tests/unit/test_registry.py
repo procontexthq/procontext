@@ -8,10 +8,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from procontext.models.registry import RegistryState
 from procontext.registry import load_registry, save_registry_to_disk
+from procontext.registry.local import load_registry_additional_info, load_registry_state
 from procontext.registry.storage import (
     _fsync_directory,
     registry_check_is_due,
+    save_additional_info_to_disk,
     write_last_checked_at,
 )
 
@@ -75,7 +78,7 @@ def test_load_registry_returns_none_on_checksum_mismatch(tmp_path: Path) -> None
         json.dumps(
             {
                 "version": "2026-02-25",
-                "checksum": "sha256:deadbeef",
+                "checksum": "sha256:" + ("d" * 64),
                 "updated_at": "2026-02-25T00:00:00Z",
             }
         ),
@@ -132,11 +135,73 @@ def test_load_registry_returns_none_on_corrupt_json(tmp_path: Path) -> None:
     state_path = tmp_path / "registry-state.json"
     registry_path.write_bytes(b"not valid json {{{")
     state_path.write_text(
-        json.dumps({"version": "1.0", "checksum": "sha256:abc"}),
+        json.dumps({"version": "1.0", "checksum": "sha256:" + ("a" * 64)}),
         encoding="utf-8",
     )
 
     assert load_registry(registry_path, state_path) is None
+
+
+def test_load_registry_state_reads_additional_info_metadata(tmp_path: Path) -> None:
+    state_path = tmp_path / "registry-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "version": "2026-03-24",
+                "checksum": "sha256:" + ("a" * 64),
+                "additional_info_download_url": "https://registry.example/additional-info.json",
+                "additional_info_checksum": "sha256:" + ("b" * 64),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = load_registry_state(state_path)
+
+    assert state is not None
+    assert state.additional_info_download_url == "https://registry.example/additional-info.json"
+    assert state.additional_info_checksum == "sha256:" + ("b" * 64)
+
+
+def test_load_registry_additional_info_uses_valid_local_sidecar(tmp_path: Path) -> None:
+    additional_info_path = tmp_path / "additional-info.json"
+    additional_info_bytes = b'{"useful_md_probe_base_urls":["https://docs.example.com/"]}'
+    checksum = _sha256_prefixed(additional_info_bytes)
+    additional_info_path.write_bytes(additional_info_bytes)
+
+    state = RegistryState(
+        version="2026-03-24",
+        checksum="sha256:" + ("a" * 64),
+        additional_info_download_url="https://registry.example/additional-info.json",
+        additional_info_checksum=checksum,
+    )
+
+    additional_info = load_registry_additional_info(
+        local_additional_info_path=additional_info_path,
+        registry_state=state,
+    )
+
+    assert additional_info is not None
+    assert additional_info.useful_md_probe_base_urls == ["https://docs.example.com"]
+
+
+def test_load_registry_additional_info_returns_none_on_checksum_mismatch(tmp_path: Path) -> None:
+    additional_info_path = tmp_path / "additional-info.json"
+    additional_info_path.write_bytes(b'{"useful_md_probe_base_urls":["https://docs.example.com"]}')
+
+    state = RegistryState(
+        version="2026-03-24",
+        checksum="sha256:" + ("a" * 64),
+        additional_info_download_url="https://registry.example/additional-info.json",
+        additional_info_checksum="sha256:" + ("b" * 64),
+    )
+
+    additional_info = load_registry_additional_info(
+        local_additional_info_path=additional_info_path,
+        registry_state=state,
+    )
+
+    assert additional_info is None
 
 
 def test_build_indexes_duplicate_ids_last_entry_wins(tmp_path: Path) -> None:
@@ -197,6 +262,42 @@ def test_save_registry_to_disk_writes_registry_pair(tmp_path: Path) -> None:
     assert "last_checked_at" in state_data
 
 
+def test_save_registry_to_disk_persists_additional_info_metadata(tmp_path: Path) -> None:
+    registry_bytes = b"[]"
+    checksum = _sha256_prefixed(registry_bytes)
+    registry_path = tmp_path / "registry" / "known-libraries.json"
+    state_path = tmp_path / "registry" / "registry-state.json"
+
+    save_registry_to_disk(
+        registry_bytes=registry_bytes,
+        version="2026-03-24",
+        checksum=checksum,
+        registry_path=registry_path,
+        state_path=state_path,
+        additional_info_download_url="https://registry.example/additional-info.json",
+        additional_info_checksum="sha256:" + ("b" * 64),
+    )
+
+    state_data = json.loads(state_path.read_text(encoding="utf-8"))
+    assert (
+        state_data["additional_info_download_url"]
+        == "https://registry.example/additional-info.json"
+    )
+    assert state_data["additional_info_checksum"] == "sha256:" + ("b" * 64)
+
+
+def test_save_additional_info_to_disk_writes_file(tmp_path: Path) -> None:
+    additional_info_path = tmp_path / "registry" / "additional-info.json"
+    payload = b'{"useful_md_probe_base_urls":["https://docs.example.com"]}'
+
+    save_additional_info_to_disk(
+        additional_info_bytes=payload,
+        additional_info_path=additional_info_path,
+    )
+
+    assert additional_info_path.read_bytes() == payload
+
+
 # ---------------------------------------------------------------------------
 # registry_check_is_due
 # ---------------------------------------------------------------------------
@@ -209,7 +310,7 @@ class TestRegistryCheckIsDue:
     def test_no_last_checked_at_field_returns_true(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
         state_file.write_text(
-            json.dumps({"version": "1", "checksum": "sha256:abc"}), encoding="utf-8"
+            json.dumps({"version": "1", "checksum": "sha256:" + ("a" * 64)}), encoding="utf-8"
         )
         assert registry_check_is_due(state_file, 24) is True
 
@@ -219,7 +320,7 @@ class TestRegistryCheckIsDue:
             json.dumps(
                 {
                     "version": "1",
-                    "checksum": "sha256:abc",
+                    "checksum": "sha256:" + ("a" * 64),
                     "last_checked_at": datetime.now(UTC).isoformat(),
                 }
             ),
@@ -230,10 +331,12 @@ class TestRegistryCheckIsDue:
     def test_stale_check_returns_true(self, tmp_path: Path) -> None:
         stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         state_file = tmp_path / "state.json"
-        state_file.write_text(
-            json.dumps({"version": "1", "checksum": "sha256:abc", "last_checked_at": stale}),
-            encoding="utf-8",
-        )
+        state_data = {
+            "version": "1",
+            "checksum": "sha256:" + ("a" * 64),
+            "last_checked_at": stale,
+        }
+        state_file.write_text(json.dumps(state_data), encoding="utf-8")
         assert registry_check_is_due(state_file, 24) is True
 
     def test_corrupt_state_file_returns_true(self, tmp_path: Path) -> None:
@@ -253,7 +356,7 @@ class TestWriteLastCheckedAt:
         state_path = tmp_path / "registry-state.json"
         original = {
             "version": "2026-02-20",
-            "checksum": "sha256:abc",
+            "checksum": "sha256:" + ("a" * 64),
             "updated_at": "2026-01-01T00:00:00Z",
             "last_checked_at": "2026-01-01T00:00:00Z",
         }
@@ -265,7 +368,7 @@ class TestWriteLastCheckedAt:
 
         state_data = json.loads(state_path.read_text(encoding="utf-8"))
         assert state_data["version"] == "2026-02-20"
-        assert state_data["checksum"] == "sha256:abc"
+        assert state_data["checksum"] == "sha256:" + ("a" * 64)
         assert state_data["updated_at"] == "2026-01-01T00:00:00Z"
         last_checked = datetime.fromisoformat(state_data["last_checked_at"])
         assert before <= last_checked <= after

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,10 +11,12 @@ import httpx
 
 from procontext.cli import cmd_setup
 from procontext.cli.doctor.models import CheckResult
-from procontext.config import registry_paths
+from procontext.config import registry_additional_info_path, registry_paths
+from procontext.models.registry import RegistryAdditionalInfo, RegistryState
+from procontext.registry.local import advertised_additional_info
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from procontext.config import FetcherSettings, Settings
     from procontext.models.registry import RegistryEntry
@@ -171,3 +174,81 @@ async def check_network(
         return CheckResult("Network", "fail", str(exc))
     finally:
         await http_client.aclose()
+
+
+async def check_registry_additional_info(
+    settings: Settings,
+    *,
+    fix: bool = False,
+    load_registry_state_fn: Callable[[Path | None], RegistryState | None],
+    repair_additional_info_fn: Callable[[Settings], Awaitable[bool]],
+) -> CheckResult:
+    """Validate the optional additional-info sidecar when it is advertised locally."""
+    additional_info_path = registry_additional_info_path(settings)
+    _, registry_state_path = registry_paths(settings)
+
+    state = load_registry_state_fn(registry_state_path)
+    if state is None:
+        return CheckResult("Registry additional info", "ok", "not advertised")
+
+    advertised = advertised_additional_info(state)
+    if advertised == "not_advertised":
+        return CheckResult("Registry additional info", "ok", "not advertised")
+    if advertised == "incomplete":
+        return CheckResult(
+            "Registry additional info",
+            "warn",
+            "additional-info metadata is incomplete; .md probing is disabled",
+        )
+
+    validation = _validate_registry_additional_info(additional_info_path, advertised[1])
+    if validation is None:
+        return CheckResult("Registry additional info", "ok", "available")
+
+    if fix:
+        success = await repair_additional_info_fn(settings)
+        if success:
+            revalidation = _validate_registry_additional_info(additional_info_path, advertised[1])
+            if revalidation is None:
+                return CheckResult(
+                    "Registry additional info",
+                    "ok",
+                    "downloaded additional-info sidecar",
+                    fixed=True,
+                )
+        return CheckResult(
+            "Registry additional info",
+            "warn",
+            validation,
+        )
+
+    return CheckResult(
+        "Registry additional info",
+        "warn",
+        validation,
+        fix_hint="run 'procontext doctor --fix' to re-download additional-info",
+    )
+
+
+def _validate_registry_additional_info(
+    additional_info_path: Path,
+    expected_checksum: str,
+) -> str | None:
+    if not additional_info_path.exists():
+        return f"advertised but missing: {additional_info_path}"
+
+    try:
+        content = additional_info_path.read_bytes()
+    except OSError as exc:
+        return f"advertised but unreadable: {exc}"
+
+    actual_checksum = "sha256:" + hashlib.sha256(content).hexdigest()
+    if actual_checksum != expected_checksum:
+        return "advertised but checksum mismatch"
+
+    try:
+        RegistryAdditionalInfo.model_validate_json(content)
+    except Exception:
+        return "advertised but invalid"
+
+    return None

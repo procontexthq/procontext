@@ -13,9 +13,14 @@ import structlog
 
 from procontext import __version__
 from procontext.cache import Cache
-from procontext.config import Settings, registry_paths
+from procontext.config import Settings, registry_additional_info_path, registry_paths
 from procontext.fetcher import Fetcher, build_allowlist, build_http_client
-from procontext.registry import build_indexes, load_registry
+from procontext.registry import (
+    build_indexes,
+    load_registry,
+    load_registry_additional_info,
+    load_registry_state,
+)
 from procontext.schedulers import (
     run_cache_cleanup_scheduler,
     run_cache_startup_cleanup,
@@ -71,6 +76,7 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
     )
 
     registry_path, registry_state_path = registry_paths(settings)
+    additional_info_path = registry_additional_info_path(settings)
 
     # Registry availability is guaranteed by main() before the server starts.
     registry = load_registry(
@@ -84,6 +90,11 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
         )
 
     entries, version = registry
+    registry_state = load_registry_state(registry_state_path)
+    additional_info = load_registry_additional_info(
+        local_additional_info_path=additional_info_path,
+        registry_state=registry_state,
+    )
     log.info(
         "registry_loaded",
         source="disk",
@@ -118,10 +129,20 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
         registry_version=version,
         registry_path=registry_path,
         registry_state_path=registry_state_path,
+        registry_additional_info_path=additional_info_path,
+        registry_additional_info_download_url=(
+            registry_state.additional_info_download_url if registry_state is not None else None
+        ),
+        registry_additional_info_checksum=(
+            registry_state.additional_info_checksum if registry_state is not None else None
+        ),
         http_client=http_client,
         cache=cache,
         fetcher=fetcher,
         allowlist=allowlist,
+        md_probe_base_urls=frozenset(
+            additional_info.useful_md_probe_base_urls if additional_info is not None else []
+        ),
     )
 
     # In stdio mode, install the stdout guard to prevent accidental writes

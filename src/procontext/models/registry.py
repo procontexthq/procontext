@@ -6,6 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from procontext.normalization import normalize_exact_doc_origin
+
+_SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
 
 class PackageEntry(BaseModel):
     """Package group within a registry entry, scoped by ecosystem."""
@@ -43,6 +47,74 @@ class RegistryEntry(BaseModel):
         if not re.match(r"^[a-z0-9][a-z0-9_-]*$", v):
             raise ValueError(f"Invalid library ID: {v!r}")
         return v
+
+
+class RegistryState(BaseModel):
+    """Persisted metadata stored in registry-state.json."""
+
+    version: str
+    checksum: str
+    updated_at: str | None = None
+    last_checked_at: str | None = None
+    additional_info_download_url: str | None = None
+    additional_info_checksum: str | None = None
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError("'version' must be a non-empty string")
+        return value
+
+    @field_validator("checksum")
+    @classmethod
+    def validate_checksum(cls, value: str) -> str:
+        if not _SHA256_RE.match(value):
+            raise ValueError("checksum must be in 'sha256:<hex>' format")
+        return value
+
+    @field_validator("additional_info_checksum")
+    @classmethod
+    def validate_additional_info_checksum(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _SHA256_RE.match(value):
+            raise ValueError("checksum must be in 'sha256:<hex>' format")
+        return value
+
+    @field_validator("additional_info_download_url")
+    @classmethod
+    def validate_additional_info_download_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("'additional_info_download_url' must be a non-empty string")
+        return value.strip()
+
+
+class RegistryAdditionalInfo(BaseModel):
+    """Optional registry sidecar metadata stored in additional-info.json."""
+
+    useful_md_probe_base_urls: list[str] = Field(
+        default=[],
+        description="Exact normalized base URLs where .md probing is allowed.",
+    )
+
+    @field_validator("useful_md_probe_base_urls")
+    @classmethod
+    def validate_base_urls(cls, value: list[str]) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError("'useful_md_probe_base_urls' must be an array of strings")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_url in value:
+            if not isinstance(raw_url, str):
+                raise ValueError("All useful_md_probe_base_urls entries must be strings")
+            base_url = normalize_exact_doc_origin(raw_url)
+            if base_url not in seen:
+                seen.add(base_url)
+                normalized.append(base_url)
+        return normalized
 
 
 class LibraryMatch(BaseModel):

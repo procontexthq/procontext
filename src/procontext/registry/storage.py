@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from procontext.models.registry import RegistryState
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
@@ -25,6 +27,8 @@ def save_registry_to_disk(
     checksum: str,
     registry_path: Path,
     state_path: Path,
+    additional_info_download_url: str | None = None,
+    additional_info_checksum: str | None = None,
     write_bytes_fsync_fn: Callable[[Path, bytes], None] | None = None,
     fsync_directory_fn: Callable[[Path], None] | None = None,
 ) -> None:
@@ -36,13 +40,16 @@ def save_registry_to_disk(
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
     now = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
-    state_payload = {
-        "version": version,
-        "checksum": checksum,
-        "updated_at": now,
-        "last_checked_at": now,
-    }
-    state_bytes = json.dumps(state_payload).encode("utf-8")
+    state_bytes = _state_bytes(
+        RegistryState(
+            version=version,
+            checksum=checksum,
+            updated_at=now,
+            last_checked_at=now,
+            additional_info_download_url=additional_info_download_url,
+            additional_info_checksum=additional_info_checksum,
+        )
+    )
 
     registry_tmp = registry_path.with_suffix(registry_path.suffix + ".tmp")
     state_tmp = state_path.with_suffix(state_path.suffix + ".tmp")
@@ -58,6 +65,46 @@ def save_registry_to_disk(
         for tmp_path in (registry_tmp, state_tmp):
             with suppress(OSError):
                 tmp_path.unlink(missing_ok=True)
+
+
+def save_additional_info_to_disk(
+    *,
+    additional_info_bytes: bytes,
+    additional_info_path: Path,
+    write_bytes_fsync_fn: Callable[[Path, bytes], None] | None = None,
+    fsync_directory_fn: Callable[[Path], None] | None = None,
+) -> None:
+    """Persist additional-info.json with atomic replace semantics."""
+    write_bytes_fsync = write_bytes_fsync_fn or _write_bytes_fsync
+    fsync_directory = fsync_directory_fn or _fsync_directory
+
+    additional_info_path.parent.mkdir(parents=True, exist_ok=True)
+    additional_info_tmp = additional_info_path.with_suffix(additional_info_path.suffix + ".tmp")
+    try:
+        write_bytes_fsync(additional_info_tmp, additional_info_bytes)
+        os.replace(additional_info_tmp, additional_info_path)
+        fsync_directory(additional_info_path.parent)
+    finally:
+        with suppress(OSError):
+            additional_info_tmp.unlink(missing_ok=True)
+
+
+def write_registry_state(
+    state_path: Path,
+    *,
+    state: RegistryState,
+    write_bytes_fsync_fn: Callable[[Path, bytes], None] | None = None,
+) -> None:
+    """Persist registry-state.json without rewriting known-libraries.json."""
+    write_bytes_fsync = write_bytes_fsync_fn or _write_bytes_fsync
+    state_bytes = _state_bytes(state)
+    state_tmp = state_path.with_suffix(state_path.suffix + ".tmp")
+    try:
+        write_bytes_fsync(state_tmp, state_bytes)
+        os.replace(state_tmp, state_path)
+    finally:
+        with suppress(OSError):
+            state_tmp.unlink(missing_ok=True)
 
 
 def registry_check_is_due(state_path: Path | None, poll_interval_hours: float) -> bool:
@@ -82,20 +129,20 @@ def write_last_checked_at(
     write_bytes_fsync_fn: Callable[[Path, bytes], None] | None = None,
 ) -> None:
     """Update last_checked_at in registry-state.json without touching other fields."""
-    write_bytes_fsync = write_bytes_fsync_fn or _write_bytes_fsync
     try:
-        state_data = json.loads(state_path.read_text(encoding="utf-8"))
-        state_data["last_checked_at"] = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
-        state_bytes = json.dumps(state_data).encode("utf-8")
-        state_tmp = state_path.with_suffix(state_path.suffix + ".tmp")
-        try:
-            write_bytes_fsync(state_tmp, state_bytes)
-            os.replace(state_tmp, state_path)
-        finally:
-            with suppress(OSError):
-                state_tmp.unlink(missing_ok=True)
+        state = RegistryState.model_validate_json(state_path.read_text(encoding="utf-8"))
+        state.last_checked_at = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+        write_registry_state(
+            state_path,
+            state=state,
+            write_bytes_fsync_fn=write_bytes_fsync_fn,
+        )
     except Exception:
         log.debug("registry_state_last_checked_at_update_failed", exc_info=True)
+
+
+def _state_bytes(state: RegistryState) -> bytes:
+    return json.dumps(state.model_dump(exclude_none=True)).encode("utf-8")
 
 
 def _write_bytes_fsync(path: Path, data: bytes) -> None:

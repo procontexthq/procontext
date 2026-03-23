@@ -82,7 +82,7 @@ async def resolve_library(
 async def read_page(
     url: Annotated[
         str,
-        Field(description="Index or documentation page URL."),
+        Field(description="Any URL - index, documentation page, or full documentation URL."),
     ],
     ctx: Context,
     offset: Annotated[
@@ -106,7 +106,7 @@ async def read_page(
         bool,
         Field(
             description=(
-                "Set to false to omit the outline from the response. "
+                "Set to false to omit the smart outline from the response. "
                 "Useful when paginating and the outline is already known."
             )
         ),
@@ -137,7 +137,7 @@ async def read_page(
 async def read_outline(
     url: Annotated[
         str,
-        Field(description="Documentation page URL."),
+        Field(description="Any URL - index, documentation page, or full documentation URL."),
     ],
     ctx: Context,
     offset: Annotated[
@@ -176,7 +176,7 @@ async def read_outline(
 async def search_page(
     url: Annotated[
         str,
-        Field(description="URL of the page to search."),
+        Field(description="URL of the page to search. Can be any URL."),
     ],
     query: Annotated[
         str,

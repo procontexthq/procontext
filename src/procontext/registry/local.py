@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
-from procontext.models.registry import ExactTextHit, RegistryEntry, RegistryIndexes, TextMatchType
+from procontext.models.registry import (
+    ExactTextHit,
+    RegistryAdditionalInfo,
+    RegistryEntry,
+    RegistryIndexes,
+    RegistryState,
+    TextMatchType,
+)
 from procontext.normalization import normalize_fuzzy_term, normalize_package_key, normalize_text_key
 
 if TYPE_CHECKING:
@@ -23,6 +30,87 @@ def load_registry(
 ) -> tuple[list[RegistryEntry], str] | None:
     """Load registry entries from the local registry pair."""
     return _load_local_registry_pair(local_registry_path, local_state_path)
+
+
+def load_registry_state(local_state_path: Path | None) -> RegistryState | None:
+    """Load and validate registry-state.json."""
+    if local_state_path is None or not local_state_path.is_file():
+        return None
+    try:
+        return RegistryState.model_validate_json(local_state_path.read_text(encoding="utf-8"))
+    except Exception:
+        log.warning(
+            "registry_state_invalid",
+            path_state=str(local_state_path),
+            exc_info=True,
+        )
+        return None
+
+
+def load_registry_additional_info(
+    *,
+    local_additional_info_path: Path | None,
+    registry_state: RegistryState | None,
+) -> RegistryAdditionalInfo | None:
+    """Load additional-info.json when advertised and checksum-valid."""
+    if registry_state is None:
+        return None
+
+    advertised = advertised_additional_info(registry_state)
+    if isinstance(advertised, str):
+        return None
+
+    if local_additional_info_path is None or not local_additional_info_path.is_file():
+        log.debug(
+            "registry_additional_info_missing",
+            path_additional_info=str(local_additional_info_path),
+        )
+        return None
+
+    expected_checksum = advertised[1]
+    try:
+        additional_info_bytes = local_additional_info_path.read_bytes()
+        actual_checksum = _sha256_prefixed(additional_info_bytes)
+        if actual_checksum != expected_checksum:
+            log.warning(
+                "registry_additional_info_invalid",
+                reason="checksum_mismatch",
+                path_additional_info=str(local_additional_info_path),
+                expected_checksum=expected_checksum,
+                actual_checksum=actual_checksum,
+            )
+            return None
+        return RegistryAdditionalInfo.model_validate_json(additional_info_bytes)
+    except Exception:
+        log.warning(
+            "registry_additional_info_invalid",
+            reason="invalid_content",
+            path_additional_info=str(local_additional_info_path),
+            exc_info=True,
+        )
+        return None
+
+
+AdditionalInfoStatus = Literal["not_advertised", "incomplete"]
+
+
+def advertised_additional_info(
+    state: RegistryState,
+) -> tuple[str, str] | AdditionalInfoStatus:
+    """Return advertised additional-info metadata, or a status string.
+
+    Returns:
+        tuple[str, str]: (download_url, checksum) when both fields are present.
+        "not_advertised": neither field is set.
+        "incomplete": only one of download_url/checksum is set.
+    """
+    download_url = state.additional_info_download_url
+    checksum = state.additional_info_checksum
+    if download_url is None and checksum is None:
+        return "not_advertised"
+    if download_url is None or checksum is None:
+        return "incomplete"
+    return download_url, checksum
 
 
 def _load_local_registry_pair(
@@ -47,13 +135,11 @@ def _load_local_registry_pair(
         raw_entries = json.loads(registry_bytes.decode("utf-8"))
         entries = [RegistryEntry(**entry) for entry in raw_entries]
 
-        state_data = json.loads(local_state_path.read_text(encoding="utf-8"))
-        version = state_data["version"]
-        expected_checksum = state_data["checksum"]
-        if not isinstance(version, str) or not version:
-            raise ValueError("registry-state.json 'version' must be a non-empty string")
-        if not isinstance(expected_checksum, str) or not expected_checksum.startswith("sha256:"):
-            raise ValueError("registry-state.json 'checksum' must be 'sha256:<hex>'")
+        state = load_registry_state(local_state_path)
+        if state is None:
+            return None
+        version = state.version
+        expected_checksum = state.checksum
 
         actual_checksum = _sha256_prefixed(registry_bytes)
         if actual_checksum != expected_checksum:

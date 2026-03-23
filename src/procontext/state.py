@@ -28,8 +28,12 @@ class AppState:
     registry_version: str = ""
     registry_path: Path | None = None
     registry_state_path: Path | None = None
+    registry_additional_info_path: Path | None = None
+    registry_additional_info_download_url: str | None = None
+    registry_additional_info_checksum: str | None = None
     http_client: httpx.AsyncClient | None = None
     cache: CacheProtocol | None = None
     fetcher: FetcherProtocol | None = None
     allowlist: frozenset[str] = field(default_factory=frozenset)
+    md_probe_base_urls: frozenset[str] = field(default_factory=frozenset)
     _refreshing: set[str] = field(default_factory=set)

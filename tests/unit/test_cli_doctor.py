@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -15,6 +17,7 @@ from procontext.cli.cmd_doctor import (
     check_data_dir,
     check_network,
     check_registry,
+    check_registry_additional_info,
     run_doctor,
 )
 from procontext.cli.doctor.cache_check import expected_schema
@@ -180,6 +183,91 @@ class TestCheckRegistry:
             result = await check_registry(Settings(), fix=True)
         assert result.status == "fail"
         assert "failed" in result.detail.lower()
+
+
+class TestCheckRegistryAdditionalInfo:
+    async def test_not_advertised_is_ok(self, tmp_path: Path) -> None:
+        settings = Settings(data_dir=str(tmp_path))
+        result = await check_registry_additional_info(settings)
+        assert result.status == "ok"
+
+    async def test_partial_metadata_warns(self, tmp_path: Path) -> None:
+        """Only one of download_url/checksum is present — incomplete metadata."""
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir(parents=True)
+        (registry_dir / "registry-state.json").write_text(
+            json.dumps(
+                {
+                    "version": "2026-03-24",
+                    "checksum": "sha256:" + ("a" * 64),
+                    "additional_info_download_url": "https://registry.example/additional-info.json",
+                    # missing additional_info_checksum
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        settings = Settings(data_dir=str(tmp_path))
+        result = await check_registry_additional_info(settings)
+
+        assert result.status == "warn"
+        assert "incomplete" in result.detail
+
+    async def test_advertised_missing_warns(self, tmp_path: Path) -> None:
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir(parents=True)
+        (registry_dir / "registry-state.json").write_text(
+            json.dumps(
+                {
+                    "version": "2026-03-24",
+                    "checksum": "sha256:" + ("a" * 64),
+                    "additional_info_download_url": "https://registry.example/additional-info.json",
+                    "additional_info_checksum": "sha256:" + ("b" * 64),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        settings = Settings(data_dir=str(tmp_path))
+        result = await check_registry_additional_info(settings)
+
+        assert result.status == "warn"
+        assert "missing" in result.detail
+
+    async def test_fix_repairs_sidecar(self, tmp_path: Path) -> None:
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir(parents=True)
+        sidecar_bytes = b'{"useful_md_probe_base_urls":["https://docs.example.com"]}'
+        checksum = "sha256:" + hashlib.sha256(sidecar_bytes).hexdigest()
+        state_path = registry_dir / "registry-state.json"
+        additional_info_path = registry_dir / "additional-info.json"
+        state_path.write_text(
+            (
+                "{"
+                '"version":"2026-03-24",'
+                '"checksum":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+                '"additional_info_download_url":"https://registry.example/additional-info.json",'
+                f'"additional_info_checksum":"{checksum}"'
+                "}"
+            ),
+            encoding="utf-8",
+        )
+
+        async def _repair(_settings: Settings) -> bool:
+            additional_info_path.write_bytes(sidecar_bytes)
+            return True
+
+        with patch(
+            "procontext.cli.cmd_setup.attempt_registry_additional_info_setup",
+            side_effect=_repair,
+        ):
+            result = await check_registry_additional_info(
+                Settings(data_dir=str(tmp_path)),
+                fix=True,
+            )
+
+        assert result.status == "ok"
+        assert result.fixed is True
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +529,10 @@ class TestRunDoctor:
                 return_value=CheckResult("Registry", "ok", "2 libraries"),
             ),
             patch(
+                "procontext.cli.cmd_doctor.check_registry_additional_info",
+                return_value=CheckResult("Registry additional info", "ok", "available"),
+            ),
+            patch(
                 "procontext.cli.cmd_doctor.check_cache",
                 return_value=CheckResult("Cache", "ok", "schema valid"),
             ),
@@ -460,6 +552,10 @@ class TestRunDoctor:
             patch(
                 "procontext.cli.cmd_doctor.check_registry",
                 return_value=CheckResult("Registry", "fail", "not found"),
+            ),
+            patch(
+                "procontext.cli.cmd_doctor.check_registry_additional_info",
+                return_value=CheckResult("Registry additional info", "ok", "available"),
             ),
             patch(
                 "procontext.cli.cmd_doctor.check_cache",
@@ -484,6 +580,10 @@ class TestRunDoctor:
                 return_value=CheckResult("Registry", "ok", "fixed", fixed=True),
             ),
             patch(
+                "procontext.cli.cmd_doctor.check_registry_additional_info",
+                return_value=CheckResult("Registry additional info", "ok", "available"),
+            ),
+            patch(
                 "procontext.cli.cmd_doctor.check_cache",
                 return_value=CheckResult("Cache", "ok", "valid"),
             ),
@@ -503,6 +603,10 @@ class TestRunDoctor:
             patch(
                 "procontext.cli.cmd_doctor.check_registry",
                 return_value=CheckResult("Registry", "fail", "network down"),
+            ),
+            patch(
+                "procontext.cli.cmd_doctor.check_registry_additional_info",
+                return_value=CheckResult("Registry additional info", "warn", "missing"),
             ),
             patch(
                 "procontext.cli.cmd_doctor.check_cache",
