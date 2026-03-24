@@ -271,3 +271,10 @@ class SearchPageOutput(BaseModel):
     cached_at: datetime | None = Field(
         description="When this page was last fetched. Null for fresh network fetches."
     )
+    stale: bool = Field(
+        default=False,
+        description=(
+            "True if the cache entry has expired. A background refresh has been"
+            " triggered. Content is stale but usable."
+        ),
+    )

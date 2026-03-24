@@ -132,6 +132,7 @@ async def handle(
         content_hash=result.content_hash,
         cached=result.cached,
         cached_at=result.cached_at,
+        stale=result.stale,
     )
     return output.model_dump(mode="json")
 

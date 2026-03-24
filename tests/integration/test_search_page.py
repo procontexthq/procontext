@@ -224,6 +224,7 @@ class TestSearchPageHandler:
             "content_hash",
             "cached",
             "cached_at",
+            "stale",
         }
 
     async def test_search_url_not_allowed_raises(self, app_state: AppState) -> None:
