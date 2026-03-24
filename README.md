@@ -16,6 +16,9 @@ ProContext is an open-source [MCP](https://modelcontextprotocol.io) server for C
 
 Project site: [procontext.dev](https://procontext.dev)
 
+Live registry: [procontexthq.github.io](https://procontexthq.github.io/)
+
+
 [website-badge]: https://img.shields.io/badge/website-procontext.dev-blue.svg
 [website-url]: https://procontext.dev
 [license-badge]: https://img.shields.io/badge/License-MIT-blue.svg
@@ -31,14 +34,17 @@ Project site: [procontext.dev](https://procontext.dev)
 
 ## Why ProContext
 
-Coding agents are good at deciding what documentation they need, but they still fail when the underlying library APIs have changed. ProContext keeps the navigation with the agent and makes the retrieval side predictable:
+Coding agents hallucinate API details when libraries update faster than training data. ProContext fixes this - your agent reads from a curated, verified source instead of guessing from memory.
 
-- **Registry-first resolution**: library lookup runs against an in-memory index built from a curated registry of known documentation sources.
-- **Live documentation fetches**: agents read current `llms.txt`, README, and documentation pages instead of relying only on model memory.
-- **Shared cache with stale fallback**: fetched pages are cached in SQLite and reused across `read_page`, `search_page`, and `read_outline`.
-- **Constrained fetch surface**: documentation fetches are limited by an SSRF allowlist derived from the registry, with private IP ranges blocked.
-- **MCP-native transports**: supports stdio for local MCP clients and Streamable HTTP for shared deployments.
-- **Cross-platform defaults**: config, cache, and data paths resolve through `platformdirs` on macOS, Linux, and Windows.
+- **First-class llms.txt support** - built around the [llms.txt](https://llmstxt.org/) standard with a growing registry of 650+ libraries and expanding. Documentation pages are served in whatever format they're published - the agent gets clean, structured content regardless of the source.
+- **Focused, curated documentation** - your agent pulls from a hand-picked registry of known documentation sources. No web scraping, no outdated search results - just the right docs.
+- **Always up to date** - the registry refreshes automatically in the background. No manual pulls, no stale library lists.
+- **Fast, cached retrievals** - every page is cached after the first fetch. Repeated reads, searches, and outline lookups return in milliseconds.
+- **Paginated to respect token limits** - large pages are served in windows, not dumped whole. Your agent reads only what it needs without blowing up its context.
+- **Jump straight to the right section** - search within a page or browse its outline to land on the exact function, class, or example - no scrolling through irrelevant content.
+- **Protected from unknown lookups** - fetches are restricted to known documentation domains. No arbitrary URL access, no accidental data leaks.
+- **Works with the agent you already use** - Claude Code, Cursor, Codex, VS Code, Windsurf, Amazon Q, and anything else that speaks MCP.
+- **Setup in seconds** - one command installs ProContext on macOS, Linux, or Windows. You're up and running before your coffee gets cold.
 
 ## Quick Start
 
@@ -71,7 +77,9 @@ Add ProContext to your MCP client config:
 }
 ```
 
-The installer manages a local checkout and prints the path to use with `uv run --project ...`. For manual install, version pinning, troubleshooting, and installer options, see [docs/cli/installation.md](docs/cli/installation.md).
+The installer manages a local checkout and prints the path to use with `uv run --project ...`. For tool-specific setup (Claude Code, Cursor, Codex, VS Code, Windsurf, and more), see the **[Setup Guide](docs/setup.md)**.
+
+For manual install, version pinning, troubleshooting, and installer options, see [docs/cli/installation.md](docs/cli/installation.md).
 
 ## What ProContext Exposes
 
@@ -102,52 +110,22 @@ For detailed request and response contracts, see [docs/specs/04-api-reference.md
 
 ## Integrations
 
-### stdio
+ProContext works with any MCP-compatible tool. The **[Setup Guide](docs/setup.md)** has copy-paste configurations for:
 
-Most MCP clients use the same stdio configuration shown in Quick Start. Use the managed checkout path printed by the installer.
+- **Claude Code** - CLI command or `.mcp.json`
+- **Claude Desktop** - `claude_desktop_config.json`
+- **Cursor** - `.cursor/mcp.json`
+- **Windsurf** - `mcp_config.json`
+- **VS Code (GitHub Copilot)** - `.vscode/mcp.json`
+- **OpenAI Codex CLI** - `config.toml`
+- **Amazon Q CLI** - `mcp.json`
 
-For Claude Code:
-
-```bash
-claude mcp add procontext -- uv run --project /path/to/procontext-source procontext
-```
-
-## HTTP / Deployment Note
-
-ProContext also supports MCP Streamable HTTP for shared or remote deployments.
-
-Client configuration:
-
-```json
-{
-  "mcpServers": {
-    "procontext": {
-      "url": "http://your-server:8080/mcp"
-    }
-  }
-}
-```
-
-Server configuration:
-
-```yaml
-server:
-  transport: http
-  host: "127.0.0.1"
-  port: 8080
-```
-
-Then run:
-
-```bash
-uv run --project /path/to/procontext-source procontext
-```
-
-For full installation, runtime, and troubleshooting details, see [docs/cli/installation.md](docs/cli/installation.md) and [docs/specs/04-api-reference.md](docs/specs/04-api-reference.md).
+Both stdio (local) and HTTP (shared/remote) transports are covered.
 
 ## Documentation
 
-- [Installation guide](docs/cli/installation.md)
+- [Setup guide](docs/setup.md) - install and connect to Claude Code, Cursor, Codex, VS Code, Windsurf, and more
+- [Installation guide](docs/cli/installation.md) - installer options, manual install, troubleshooting
 - [CLI docs](docs/cli/README.md)
 - [API reference](docs/specs/04-api-reference.md)
 - [Technical spec](docs/specs/02-technical-spec.md)
