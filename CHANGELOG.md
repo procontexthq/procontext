@@ -7,183 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-03-25
+
+First public release. A complete MCP server for agent-driven documentation
+navigation: resolve libraries, fetch pages, search content, and browse outlines
+— backed by a curated registry, SSRF protection, and a SQLite cache.
+
 ### Added
 
-- **`procontext doctor` command** — validates system health (data directory
-  permissions, registry integrity, cache database schema, network connectivity)
-  with actionable fix instructions. Use `--fix` to auto-repair detected issues
-  like missing directories, corrupt cache databases, or missing registry files.
-- **Stdout guard in stdio mode** — accidental writes to stdout from application
-  code are now intercepted and logged to stderr, preventing corruption of the
-  MCP JSON-RPC stream.
-- **`search_page` tool** — grep-like search within a documentation page.
-  Supports literal and regex modes, smart case sensitivity (ripgrep-style),
-  word boundary matching, and paginated results. Shares the same page cache
-  as `read_page` — a page fetched by one tool is immediately available to
-  the other without a re-fetch.
-- **`read_outline` tool** — browse the full structural outline of a
-  documentation page with entry-index pagination. Use when `read_page`
-  returns a compaction status message for very large pages, or to explore
-  page structure without fetching content.
-- **`read_page` pagination metadata** — `has_more` and `next_offset` fields
-  indicate whether more content exists beyond the current window and the
-  line number to continue from.
-- **`.md` URL probing** — `read_page` automatically tries appending `.md` to
-  URLs before falling back to the original, improving compatibility with
-  documentation sites that serve markdown at `.md` paths.
-- **`resolve_library` includes descriptions** — each match now includes a
-  `description` field summarising the library.
-- **`procontext setup` command** — one-time CLI command that downloads and
-  persists the registry to the platform data directory. Run this after
-  installing before starting the server for the first time.
-- **Auto-setup on first run** — if no local registry is found at startup, the
-  server attempts a one-time fetch automatically before failing with an
-  actionable error message pointing to `procontext setup`.
-- **New configurable settings** — fetch timeout, fuzzy match score cutoff,
-  fuzzy max results, and registry poll interval are now exposed via
-  `procontext.yaml` or `PROCONTEXT__*` environment variables.
-- **`last_checked_at` field in `registry-state.json`** — written after every
-  successful update check (even when the registry is already current). In stdio
-  mode, the startup check is skipped if this timestamp is within the configured
-  `poll_interval_hours`, avoiding redundant metadata fetches on frequent
-  restarts.
-- **`content_hash` field in tool responses** — `read_page`, `read_outline`, and
-  `search_page` now include a truncated SHA-256 hash of the page content,
-  allowing agents to detect when content changes between paginated calls.
-- **Anonymous client identity** — a random UUID is generated on first run and
-  persisted to the data directory. No hardware fingerprinting or PII — just a
-  stable identifier for future use in optional feedback and telemetry features.
-
-### Changed
-
-- **License changed from GPL-3.0 to MIT** — the project is now available under
-  the more permissive MIT license.
-- **`read_outline` default limit increased to 1,000** — the upper bound has been
-  removed, allowing agents to request arbitrarily large outlines in a single
-  call.
-- **`resolve_library` now returns documentation URLs** — each match includes
-  `index_url` and `readme_url`. The agent passes `index_url` directly to
-  `read_page` to browse the documentation index, eliminating the previous
-  `get_library_index` intermediate step.
-- **`get_library_index` tool removed** — its functionality is absorbed by
-  `resolve_library` (which now provides the index URL) combined with
-  `read_page` (which fetches any documentation page including llms.txt indexes).
+- **Four MCP tools** — `resolve_library` (fuzzy name resolution against a
+  curated registry), `read_page` (fetch documentation with offset/limit
+  windowing and compacted outlines), `search_page` (grep-like search with
+  literal/regex modes, smart case, and word boundaries), and `read_outline`
+  (paginated outline browsing for large pages).
+- **`before` parameter** — `read_page` and `read_outline` accept a `before`
+  argument for backward context lines. It is additive — the total lines
+  returned equals `before + limit`, and `next_offset` is unaffected.
+- **`include_outline` toggle** — `read_page` accepts `include_outline=false`
+  to omit the outline from paginated responses, saving tokens when the
+  outline is already known from the first call.
+- **Outline search** — `search_page` accepts `target="outline"` to search
+  only structural headings instead of page content. Both targets support
+  pagination.
+- **Full documentation URL** — `resolve_library` returns a `full_docs_url`
+  (llms-full.txt) for libraries that offer a single merged documentation
+  page, useful for broad search across all sections.
+- **Per-package metadata** — `resolve_library` returns `readme_url` and
+  `repo_url` per package group, giving agents quick access to READMEs and
+  source repositories.
+- **Language hint** — `resolve_library` accepts an optional `language`
+  parameter that sorts matching-language packages to the top of results
+  without filtering.
+- **Server instructions** — centralized MCP server instructions guide agents
+  through the documentation workflow (resolve → read/search → paginate),
+  embedded via the MCP `instructions` field.
+- **Two transport modes** — stdio (default, for local MCP clients) and HTTP
+  (MCP Streamable HTTP with bearer auth, origin validation, and protocol
+  version enforcement via pure ASGI middleware).
+- **CLI commands** — `procontext setup` for one-time registry bootstrap and
+  `procontext doctor` for environment, registry, cache, and network diagnostics
+  with `--fix` for automated repair.
+- **SQLite cache** — 24-hour TTL, WAL mode, stale-while-revalidate with
+  background refresh (15-minute cooldown, dedup of in-flight refreshes).
+  Periodic cleanup of entries expired beyond 7 days.
+- **SSRF protection** — domain allowlist derived from the registry at startup,
+  per-hop private IP blocking on redirects, and optional runtime expansion from
+  discovered domains in fetched content.
+- **Background registry updates** — one-shot startup check in stdio mode,
+  scheduled polling in HTTP mode. Bounded backoff for transient failures (max 8
+  fast retries, then 24-hour cadence). Atomic temp+fsync+rename persistence
+  with SHA-256 checksum validation.
+- **Registry sidecar (`additional-info.json`)** — optional checksum-validated
+  metadata file alongside the main registry, downloaded and verified during
+  setup and background updates. Currently provides an origin-based allowlist
+  for `.md` URL probing.
+- **Formalized registry state** — `registry-state.json` is validated via a
+  Pydantic model (`RegistryState`) with checksum format enforcement and
+  optional sidecar metadata pointers.
 - **Outline compaction** — `read_page` and `search_page` return compacted
-  outlines (≤50 entries via progressive depth reduction) instead of the full
-  outline. Pages with irreducibly large outlines show a status message
-  directing the agent to `read_outline` for paginated access.
-- **`view` parameter removed from `read_page`** — content is always returned
-  alongside the compacted outline. Use `read_outline` for outline-only
-  browsing.
-- **Compact wire format** — outline entries use `line_number:content` format
-  (no space after colon). `search_page` matches use the same format as a
-  newline-separated string instead of a JSON array.
-- **Parser captures full outline** — H5–H6 headings, single-level blockquote
-  headings (`> ## ...`), and fenced code block markers are now included in
-  page outlines, giving agents complete structural information.
-- **Stale cache handling** — expired cache entries are served immediately while
-  a background refresh runs asynchronously. If the refresh fails, the stale
-  content remains available with `stale: true`. Duplicate refresh tasks for the
-  same URL are deduplicated, and a 15-minute cooldown prevents retrying recently
-  checked URLs.
-- **`allowlist_depth` replaced with `allowlist_expansion`** — the three-level
-  integer setting (`0`, `1`, `2`) is replaced by a two-value string enum:
-  `"registry"` (default, strictest) or `"discovered"` (registry + domains
-  found in fetched content).
-- **Bundled registry snapshot removed** — the server no longer ships with an
-  embedded registry. Use `procontext setup` to initialise the registry before
-  first use (or let the auto-setup fallback handle it on the first run).
-- **HTTP requests use split connect/read timeouts** — network requests now apply
-  separate connect and read timeouts instead of a single wall-clock timeout,
-  giving more predictable behaviour on slow or unreliable connections.
-- **Startup errors suggest `procontext doctor --fix`** — when the server fails
-  to start due to a missing or corrupt registry, the error message now includes
-  a suggestion to run `procontext doctor --fix` for automated repair.
-- **Registry package model redesigned** — `RegistryPackages` (flat
-  `{pypi: [], npm: []}`) replaced by a list of `PackageEntry` objects, each
-  with `ecosystem`, `languages`, `package_names`, `readme_url`, and `repo_url`.
-  This allows multi-language SDKs (e.g., OpenAI Python + JS) to share a single
-  library ID while retaining per-language metadata. `resolve_library` now
-  returns all package entries in the response and accepts an optional `language`
-  parameter that sorts matching-language packages to the top without filtering.
-  Library-level `docs_url`, `readme_url`, `repo_url`, and `languages` fields
-  have been removed from the registry schema and response.
-
-### Fixed
-
-- **Registry metadata URL updated** — the default `metadata_url` now points to
-  `procontexthq.github.io`. Users who have not overridden this setting will
-  automatically use the correct endpoint after upgrading.
-- **Server exits cleanly when registry is missing** — previously, a missing
-  registry at startup caused an unhandled `BaseExceptionGroup` traceback.
-  The server now exits with code 1 and a clear message directing users to run
-  `procontext setup`.
-- **Cache write no longer raises `ValueError` on certain edge cases** — a
-  `ValueError` that could surface during cache writes under specific conditions
-  has been fixed.
-- **Heading parser now handles UTF-8 BOM and indented headings** — headings on
-  line 1 of pages served with a UTF-8 BOM are now correctly detected. The
-  parser also supports CommonMark-compliant indented headings (up to 3 leading
-  spaces), improving compatibility with a wider range of documentation pages.
-- **Config typos now fail loudly at startup** — unknown fields in
-  `procontext.yaml` are rejected with a clear, human-readable error message
-  rather than being silently ignored.
-- **IPv6 loopback origins accepted in HTTP transport** — the security
-  middleware now recognises `[::1]` origins alongside `127.0.0.1`, fixing
-  connection failures on systems that default to IPv6.
-- **`search_page` outline preserved for small pages** — pages with few outline
-  entries no longer had their outline incorrectly truncated in search results.
+  outlines (≤50 entries and ≤4000 chars via progressive depth reduction:
+  H6 → H5 → fenced content → H4 → H3). Both entry count and character
+  budget must be satisfied. Pages with irreducibly large outlines direct
+  the agent to `read_outline`.
+- **`.md` URL probing** — `read_page` tries appending `.md` to extensionless
+  URLs before falling back to the original, but only for documentation
+  origins in a registry-provided allowlist (`additional-info.json`),
+  reducing unnecessary failed probes.
+- **`content_hash` in tool responses** — truncated SHA-256 (12 hex chars) of
+  full page content, allowing agents to detect content changes between
+  paginated calls.
+- **Auto-setup on first run** — if no local registry is found at startup, the
+  server attempts a one-time fetch before failing with an actionable error
+  message pointing to `procontext setup`.
+- **Stdout guard in stdio mode** — writes to stdout from application code are
+  intercepted, preventing corruption of the MCP JSON-RPC stream.
+- **Anonymous client identity** — a random UUID generated on first run and
+  persisted to the data directory. No hardware fingerprinting or PII.
+- **Full configuration** — `procontext.yaml` with `PROCONTEXT__*` environment
+  variable overrides. Covers server, registry, cache, fetcher, resolver, and
+  logging settings. Unknown fields are rejected at startup.
+- **Cross-platform** — config and data paths resolve automatically on Linux,
+  macOS, and Windows via platformdirs.
+- **Structured logging** — JSON or text output to stderr via structlog.
 
 ### Security
 
-- **HTTP server binds to `127.0.0.1` by default** — `server.host` has changed
-  from `0.0.0.0` to `127.0.0.1`. The server no longer listens on all network
-  interfaces unless explicitly configured. Users who need network-wide access
-  must set `server.host: 0.0.0.0` in `procontext.yaml` or via
-  `PROCONTEXT__SERVER__HOST=0.0.0.0`.
-- **SLSA provenance attestation on releases** — release artifacts are now signed
-  with SLSA provenance attestations, enabling build provenance verification.
-- **PyJWT pinned to ≥2.12.0** — resolves CVE-2026-32597. Users on older
-  versions of PyJWT should upgrade.
+- **HTTP server binds to `127.0.0.1` by default** — does not listen on all
+  interfaces unless explicitly configured.
+- **SLSA provenance attestation on releases** — build provenance verification
+  for release artifacts.
+- **MIT license** — permissive open-source license.
 
-## [0.1.0] - 2026-02-28
+## [0.1.0] - 2026-02-28 (alpha)
 
-### Added
+Internal alpha. Initial implementation of the MCP server with `resolve_library`,
+`read_page`, registry loading, SQLite cache, stdio/HTTP transports, and SSRF
+protection. Not recommended for production use.
 
-- **Registry & Resolution** — bundled snapshot of known libraries, startup load
-  with SHA-256 checksum validation, atomic disk persistence, and background
-  update checks against a hosted registry. Fuzzy name/alias matching via
-  rapidfuzz (70 % threshold) with pip-specifier normalisation. `resolve_library`
-  MCP tool.
-- **Documentation fetcher** — httpx-based async fetcher with per-hop SSRF
-  validation (private-IP blocking + domain allowlist derived from the registry).
-  Manual redirect handling validates each hop before following. Configurable
-  allowlist depth (0 = registry only, 1 = expand from llms.txt links,
-  2 = expand from page links). Extra trusted domains configurable via
-  `procontext.yaml`.
-- **SQLite cache** — stale-while-revalidate cache (`page_cache`) with a 24-hour
-  TTL. WAL mode. Stores `discovered_domains` per entry for cross-restart
-  allowlist restoration. Periodic cleanup of entries expired more than 7 days
-  ago, gated by a `server_metadata` timestamp to avoid redundant runs on
-  frequent restarts.
-- **`get_library_docs` tool** — fetches the llms.txt table of contents for a
-  resolved library, with stale-while-revalidate background refresh.
-- **Heading parser** — extracts H1–H4 headings with 1-based line numbers from
-  fetched markdown pages.
-- **`read_page` tool** — fetches a documentation page with offset/limit windowing
-  and a full heading map, enabling agents to jump directly to relevant sections.
-- **stdio transport** — default transport; process lifecycle managed by the MCP
-  client. No authentication required.
-- **HTTP transport** — MCP Streamable HTTP (spec 2025-11-25) via FastMCP +
-  uvicorn. `MCPSecurityMiddleware` (pure ASGI) enforces optional bearer key
-  authentication, localhost-only origin validation (DNS rebinding protection),
-  and protocol version validation. Auto-generated bearer keys are logged to
-  stderr on startup and not persisted.
-- **Configuration** — `procontext.yaml` + `PROCONTEXT__*` environment variable
-  overrides via pydantic-settings. Platform-aware data/config paths via
-  platformdirs.
-- **Structured logging** — JSON or text output to stderr via structlog. stdout
-  is reserved for the MCP JSON-RPC stream in stdio mode.
-
-[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/procontexthq/procontext/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/procontexthq/procontext/releases/tag/v0.1.0

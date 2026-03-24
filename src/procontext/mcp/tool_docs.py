@@ -2,6 +2,8 @@
 
 SERVER_INSTRUCTIONS = """
 ProContext provides AI agents with accurate, up-to-date library documentation.
+Use ProContext when the task requires accurate or version-specific library/API
+documentation, especially for code generation, setup, or configuration.
 
 ## Getting Started
 

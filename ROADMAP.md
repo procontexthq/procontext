@@ -4,19 +4,22 @@
 
 ---
 
-## Where we are — v0.1.0
+## Where we are — v0.1.1
 
-v0.1.0 ships a complete MCP server with the core documentation workflow in place. An agent can resolve a library name, fetch its llms.txt table of contents, search within pages, browse full outlines when needed, and read specific sections — all from a curated registry with SSRF protection and a SQLite cache.
+v0.1.1 is the first public release. It ships a complete MCP server with the core documentation workflow in place. An agent can resolve a library name, fetch its llms.txt table of contents, search within pages, browse full outlines when needed, and read specific sections — all backed by a curated registry, SSRF protection, and a SQLite cache.
 
-- **`resolve_library`** — resolves a library name or pip specifier to a known documentation source via fuzzy matching against a curated registry; returns documentation URLs for use with `read_page` and `search_page`
-- **`read_page`** — fetches a documentation page (including llms.txt indexes) with offset/limit windowing and a compacted outline for section navigation
-- **`search_page`** — grep-like search within a documentation page; supports literal and regex modes, smart case sensitivity, word boundary matching, and paginated results
-- **`read_outline`** — returns the full paginated outline of a page for cases where the inline outline is too large to fit comfortably in `read_page`
+- **`resolve_library`** — resolves a library name, package name, or alias to its documentation source via exact and fuzzy matching against a curated registry. Returns `index_url` (llms.txt table of contents), `full_docs_url` (llms-full.txt merged documentation, when available), and per-package `readme_url`/`repo_url` metadata. An optional `language` hint sorts matching-language packages to the top.
+- **`read_page`** — fetches a documentation page with offset/limit windowing and a smart compacted outline (≤50 entries, ≤4000 chars). The `before` parameter adds backward context lines without reducing the forward limit. Set `include_outline=false` on pagination calls to skip the outline and save tokens.
+- **`search_page`** — grep-like search within a page; supports literal and regex modes, smart case sensitivity, word boundaries, and paginated results. Use `target="outline"` to search only structural headings instead of page content.
+- **`read_outline`** — paginated access to the full outline of a page, with page-line windowing and `before` for backward context. Used as a fallback when the smart outline in `read_page` or `search_page` indicates trimming.
+- **Server instructions** — centralized usage guidance embedded in the MCP server, teaching agents how to navigate the tool workflow (resolve → read/search → paginate)
 - **stdio transport** — default; process lifecycle managed by the MCP client
 - **HTTP transport** — MCP Streamable HTTP (spec 2025-11-25) with security middleware (bearer auth, origin validation, protocol version checks)
 - **CLI commands** — `procontext setup` for one-time registry bootstrap and `procontext doctor` for environment, registry, cache, and network diagnostics
-- **SQLite cache** — 24-hour TTL, WAL mode, synchronous refresh on stale entries, and stale fallback when the source is unavailable
+- **SQLite cache** — 24-hour TTL, WAL mode, stale-while-revalidate with background refresh (15-minute cooldown, dedup of in-flight refreshes), periodic cleanup of entries expired beyond 7 days
 - **SSRF protection** — domain allowlist derived from the registry, optional runtime allowlist expansion, and private IP blocking
+- **Registry sidecar (`additional-info.json`)** — optional checksum-validated metadata file alongside the main registry, currently providing an origin-based allowlist for `.md` URL probing
+- **Smarter `.md` probing** — `read_page` tries appending `.md` to extensionless URLs, but only for documentation origins in the registry-provided allowlist, reducing unnecessary failed probes
 - **Background registry updates** — startup checks in stdio mode and scheduled checks in long-running HTTP mode
 - **Cross-platform** — config and data paths resolve automatically on Linux, macOS, and Windows
 
@@ -37,8 +40,21 @@ The value of ProContext scales directly with the breadth and quality of the regi
 
 ### Tool quality
 
+- **Content size cap** — `read_page` limits by line count, not total content size. A page with 500 short lines is fine, but 500 lines of wide tables or long code signatures can blow up an agent's context window. A configurable character cap on the `content` field — truncating at the last complete line that fits, adjusting `has_more`/`next_offset`, and flagging `truncated: true` — adds a safety net beneath the existing line windowing without changing the pagination model.
 - **Additional documentation formats** — as the ecosystem evolves, the server should serve documentation from formats that emerge alongside or complement llms.txt
 - **Outline quality improvements** — there are known opportunities around setext headings, indented heading-like lines, and large-outline summarisation. These are intentionally deferred for now: the current outline pipeline is useful and stable, and any changes here need to earn their added complexity against real documentation examples rather than theory alone.
+
+### Annotations
+
+- **Agent annotations** — allow agents to attach notes to specific lines of a documentation page. When the same page is fetched in a future session, saved annotations are returned alongside the content. This gives agents a form of cross-conversation memory tied to documentation — for example, marking a function as deprecated, flagging a gotcha, or bookmarking a section for later use.
+
+### Custom documentation sources
+
+- **User-defined documentation** — allow operators to register their own documentation sources (internal libraries, private APIs, team-specific tools) without contributing to the public registry. A local configuration path (e.g., entries in `procontext.yaml`) that merges with the curated registry at startup, giving teams a way to use ProContext for their own stack alongside the public ecosystem.
+
+### Context hub
+
+- **Context hub integration** — support pulling documentation from Andrew Ng's [Context hub](https://github.com/andrewyng/context-hub), giving agents access to a broader range of curated documentation sources beyond the ProContext registry.
 
 ### Performance
 
