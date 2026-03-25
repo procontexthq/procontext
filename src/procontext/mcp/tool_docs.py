@@ -36,13 +36,12 @@ Response:
   matches        — ranked list of results, sorted by relevance descending
   hint           — optional guidance when input is unsupported or results are fuzzy
   Each match contains:
-    library_id   — canonical library identifier, library may also refer to frameworks,
+    library_id   — canonical library identifier; library may also refer to frameworks,
                    SDKs, protocols, standards, or specifications.
     name         — human-readable library name
     description  — brief description of the library
     index_url    — URL of the documentation index/TOC; contains links to all pages
-    full_docs_url — all documentation merged into one page; useful for broad search
-                   (null if unavailable)
+    full_docs_url — all documentation merged into one page (null if unavailable)
     packages     — list of package groups, each with:
       ecosystem    — "pypi" | "npm" | "conda" | "jsr"
       languages    — e.g. ["python"] or ["javascript", "typescript"]
@@ -59,10 +58,7 @@ Fetch the content and a smart outline of a documentation page.
 
 Supports paginated reading with offset and limit. Use the before parameter
 for extra backward context — it is additive and does not reduce the forward
-limit, so the total lines returned equals before + limit.
-
-For full documentation URLs, find the relevant section first using search_page
-or read_outline rather than reading from the beginning.
+limit, so the total lines returned is up to before + limit.
 
 Set include_outline to false to omit the outline from the response (the outline
 field is returned as null). This is useful when paginating through a page where
@@ -111,6 +107,8 @@ read_page and search_page. Use read_outline directly when you know the outline
 is large (for example, on a full documentation page), or as a fallback when the
 smart outline indicates it was trimmed.
 
+offset and next_offset use page line numbers and not outline entry index.
+
 Response:
   url           — the URL of the fetched page
   outline       — paginated outline entries, e.g. "1:# Title\\n42:## Usage"
@@ -126,11 +124,12 @@ Response:
 
 
 SEARCH_PAGE_DESCRIPTION = """
-Search within a documentation page and return complete matching lines.
+Search within a documentation page and return the full text of each matching line.
+Supports literal and regex search, smart case sensitivity, and word
+boundary matching.
 
-Works across indexes, individual pages, or the full documentation if
-full_docs_url is available. Supports literal and regex search, smart case
-sensitivity, and word boundary matching.
+Works across indexes, individual pages, or the full documentation if full_docs_url
+is available.
 
 Use target="content" (default) to search page content — the response includes
 a smart outline for structural context. Small outlines are returned in full;
