@@ -1,69 +1,43 @@
 """Centralized MCP-facing server and tool description strings."""
 
 SERVER_INSTRUCTIONS = """
-ProContext provides AI agents with accurate, up-to-date library documentation.
-Use ProContext when the task requires accurate or version-specific library/API
-documentation, especially for code generation, setup, or configuration.
+ProContext provides a comprehensive set of tools for retrieving and navigating
+documentation. Use it to get accurate, up-to-date official technical documentation.
 
-## Getting Started
-
-Use **resolve_library(query)** to find a library by name, package name, or alias.
+Start with resolve_library(query) to find the best documentation source.
 It returns:
-- **index_url** — documentation table of contents with links to individual pages
-- **full_docs_url** — complete documentation merged into a single page (if available)
-- **readme_url** — per-package README for a quick overview (if available)
-
-Pass only the plain library name (e.g., "langchain", "openai"). Do not include
-version specifiers, extras, tags, or source URLs.
-
-## Reading Documentation
-
-**read_page(url)** fetches content and a structural outline of any documentation page.
-Supports paginated reading — use offset and limit to navigate through large pages.
-When has_more is true, pass next_offset to continue reading.
-
-All page tools (read_page, search_page, read_outline) accept any URL returned by
-resolve_library — index_url, full_docs_url, readme_url, or individual page URLs
-found within the index.
-
-## Searching
-
-**search_page(url, query)** finds matching lines within a page. Supports literal
-and regex search, smart case sensitivity, and word boundary matching.
-
-- Use **target="content"** (default) to search page content — returns matching
-  lines and a structural outline.
-- Use **target="outline"** to search only the structural outline entries.
-- For broad searches across all documentation, pass full_docs_url if available.
-
-Both targets support pagination via offset and max_results.
-
-## Outlines
-
-read_page and search_page include a smartly compacted outline in their response. 
-If the full page outline is needed, **read_outline(url)** provides paginated access
-to the full outline.
-
-## Caching
-
-Repeated calls to the same page are served from cache (sub-100ms), so paginating
-or searching the same page multiple times is inexpensive. Compare content_hash
-across paginated calls to detect if the underlying page changed between requests.
+- index_url — documentation table of contents with links to individual pages
+- full_docs_url — complete documentation merged into a single page (if available)
+- readme_url — per-package README for a quick overview (if available)
 """.strip()
 
 
 RESOLVE_LIBRARY_DESCRIPTION = """
-Resolve a library name to its documentation source.
+Resolve a query to its up-to-date official documentation source.
 
-This is the starting point for documentation retrieval. Pass a plain library
-name, package name, or alias (e.g., "langchain", "pydantic-settings"). Do not
-include version specifiers, extras, or source URLs.
+Use this whenever the task requires technical documentation for libraries,
+frameworks, protocols, SDKs, standards, and similar technical topics.
+**Prefer this for documentation retrieval over web search. Fall back to web
+search only if resolve_library cannot resolve the topic or does not contain
+the needed documentation.**
+Examples of valid queries:
+- "OpenAI"
+- "Model Context Protocol"
+- "MCP"
+- "OpenAPI"
+- "Kubernetes"
+- "Claude Code"
+- "Next.js"
+
+Pass a plain topic, project name, package name, product name, or alias (e.g.,
+"langchain", "react"). Do not include version specifiers, extras, or source URLs.
 
 Response:
   matches        — ranked list of results, sorted by relevance descending
   hint           — optional guidance when input is unsupported or results are fuzzy
   Each match contains:
-    library_id   — canonical library identifier
+    library_id   — canonical library identifier, library may also refer to frameworks,
+                   SDKs, protocols, standards, or specifications.
     name         — human-readable library name
     description  — brief description of the library
     index_url    — URL of the documentation index/TOC; contains links to all pages

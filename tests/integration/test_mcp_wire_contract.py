@@ -148,13 +148,7 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     # Verify key workflow elements are documented
     assert "resolve_library" in instructions
     assert "index_url" in instructions
-    assert "read_page" in instructions
-    assert "search_page" in instructions
-    assert "read_outline" in instructions
-    assert "Getting Started" in instructions
-    assert "compacted outline" in instructions
-    assert "pagination" in instructions
-    assert "cache" in instructions
+    assert "full_docs_url" in instructions
 
     tools_response = next(response for response in responses if response.get("id") == 2)
     tools = tools_response["result"]["tools"]

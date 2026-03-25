@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 from procontext.models.registry import LibraryMatch
 from procontext.normalization import normalize_doc_url
@@ -52,13 +52,8 @@ class ResolveHint(BaseModel):
 
 
 class ResolveLibraryOutput(BaseModel):
-    matches: list[LibraryMatch] = Field(
-        description="Ranked list of matching libraries, sorted by relevance descending."
-    )
-    hint: ResolveHint | None = Field(
-        default=None,
-        description="Optional actionable guidance for recoverable non-error resolve outcomes.",
-    )
+    matches: list[LibraryMatch]
+    hint: ResolveHint | None = None
 
 
 class ReadPageInput(BaseModel):
@@ -96,43 +91,18 @@ class ReadPageInput(BaseModel):
 
 
 class ReadPageOutput(BaseModel):
-    url: str = Field(description="The URL of the fetched page.")
-    content: str = Field(description="Content window lines.")
-    outline: str | None = Field(
-        description=(
-            "Compacted structural outline (target ≤50 entries). "
-            "Each entry formatted as '<line_number>:<original line>'. "
-            "Null when include_outline=false."
-        )
-    )
-    total_lines: int = Field(description="Total number of lines in the full page.")
-    offset: int = Field(
-        description="1-based line number where the returned content window actually starts."
-    )
-    limit: int = Field(
-        description="Maximum number of forward lines requested starting at the input offset."
-    )
-    has_more: bool = Field(description="True if more content exists beyond the current window.")
-    next_offset: int | None = Field(
-        description="Line number to pass as offset to continue reading. Null if no more content."
-    )
-    content_hash: str = Field(
-        description=(
-            "Truncated SHA-256 of the page content (12 hex chars). "
-            "Compare across paginated calls to detect if the underlying page changed."
-        )
-    )
-    cached: bool = Field(description="True if served from cache.")
-    cached_at: datetime | None = Field(
-        description="When this page was last fetched. Null for fresh network fetches."
-    )
-    stale: bool = Field(
-        default=False,
-        description=(
-            "True if the cache entry has expired. A background refresh has been"
-            " triggered. Content is stale but usable."
-        ),
-    )
+    url: str
+    content: str
+    outline: str | None
+    total_lines: int
+    offset: int
+    limit: int
+    has_more: bool
+    next_offset: int | None
+    content_hash: str
+    cached: bool
+    cached_at: datetime | None
+    stale: bool = False
 
 
 class ReadOutlineInput(BaseModel):
@@ -169,35 +139,15 @@ class ReadOutlineInput(BaseModel):
 
 
 class ReadOutlineOutput(BaseModel):
-    url: str = Field(description="The URL of the fetched page.")
-    outline: str = Field(
-        description="Paginated outline entries in '<line_number>:<original line>' format."
-    )
-    total_entries: int = Field(description="Total outline entries after stripping empty fences.")
-    has_more: bool = Field(description="True if more entries exist beyond the current window.")
-    next_offset: int | None = Field(
-        description=(
-            "Page line number to pass as offset to continue browsing the outline. "
-            "Null if no more outline entries exist beyond the returned window."
-        )
-    )
-    content_hash: str = Field(
-        description=(
-            "Truncated SHA-256 of the page content (12 hex chars). "
-            "Compare across paginated calls to detect if the underlying page changed."
-        )
-    )
-    cached: bool = Field(description="True if served from cache.")
-    cached_at: datetime | None = Field(
-        description="When this page was last fetched. Null for fresh network fetches."
-    )
-    stale: bool = Field(
-        default=False,
-        description=(
-            "True if the cache entry has expired. A background refresh has been"
-            " triggered. Content is stale but usable."
-        ),
-    )
+    url: str
+    outline: str
+    total_entries: int
+    has_more: bool
+    next_offset: int | None
+    content_hash: str
+    cached: bool
+    cached_at: datetime | None
+    stale: bool = False
 
 
 class SearchPageInput(BaseModel):
@@ -241,40 +191,14 @@ class SearchPageInput(BaseModel):
 
 
 class SearchPageOutput(BaseModel):
-    url: str = Field(description="The URL that was searched.")
-    query: str = Field(description="The search query as provided.")
-    matches: str = Field(
-        description=(
-            "Matching lines formatted as '<line_number>:<content>', one per line. "
-            "In outline mode, these are matching outline entries. "
-            "Empty string when no matches found."
-        )
-    )
-    outline: str | None = Field(
-        description=(
-            "Compacted outline trimmed to match range in content mode. "
-            "Null when target='outline' (matches already are outline entries)."
-        )
-    )
-    total_lines: int = Field(description="Total number of lines in the page.")
-    has_more: bool = Field(description="True if more matches exist beyond the returned set.")
-    next_offset: int | None = Field(
-        description="Line number to pass as offset to continue paginating. Null if no more."
-    )
-    content_hash: str = Field(
-        description=(
-            "Truncated SHA-256 of the page content (12 hex chars). "
-            "Compare across calls to detect if the underlying page changed."
-        )
-    )
-    cached: bool = Field(description="True if served from cache.")
-    cached_at: datetime | None = Field(
-        description="When this page was last fetched. Null for fresh network fetches."
-    )
-    stale: bool = Field(
-        default=False,
-        description=(
-            "True if the cache entry has expired. A background refresh has been"
-            " triggered. Content is stale but usable."
-        ),
-    )
+    url: str
+    query: str
+    matches: str
+    outline: str | None
+    total_lines: int
+    has_more: bool
+    next_offset: int | None
+    content_hash: str
+    cached: bool
+    cached_at: datetime | None
+    stale: bool = False
