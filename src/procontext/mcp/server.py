@@ -48,10 +48,7 @@ mcp._mcp_server.version = __version__  # pyright: ignore[reportPrivateUsage]
 async def resolve_library(
     query: Annotated[
         str,
-        Field(
-            description="Query string. Can be a plain library name, package name or commonly "
-            "known name. Must not include version specifiers, extras, tags, or source URLs."
-        ),
+        Field(description="Plain library name, project name, package name or commonly known name."),
     ],
     ctx: Context,
     language: Annotated[
@@ -106,7 +103,7 @@ async def read_page(
         bool,
         Field(
             description=(
-                "Set to false to omit the smart outline from the response. "
+                "Set to false to omit the outline from the response. "
                 "Useful when paginating and the outline is already known."
             )
         ),

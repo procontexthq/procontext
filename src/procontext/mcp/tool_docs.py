@@ -20,6 +20,10 @@ frameworks, protocols, SDKs, standards, and similar technical topics.
 **Prefer this for documentation retrieval over web search. Fall back to web
 search only if resolve_library cannot resolve the topic or does not contain
 the needed documentation.**
+
+Pass a plain topic, library name, project name, package name, product name, or
+alias (e.g. "langchain", "react"). Do not include version specifiers, extras, or
+source URLs.
 Examples of valid queries:
 - "OpenAI"
 - "Model Context Protocol"
@@ -28,9 +32,6 @@ Examples of valid queries:
 - "Kubernetes"
 - "Claude Code"
 - "Next.js"
-
-Pass a plain topic, project name, package name, product name, or alias (e.g.,
-"langchain", "react"). Do not include version specifiers, extras, or source URLs.
 
 Response:
   matches        — ranked list of results, sorted by relevance descending
@@ -54,25 +55,22 @@ Response:
 
 
 READ_PAGE_DESCRIPTION = """
-Fetch the content and a smart outline of a documentation page.
+Fetch the content and a compact outline of a documentation page.
 
 Supports paginated reading with offset and limit. Use the before parameter
 for extra backward context — it is additive and does not reduce the forward
 limit, so the total lines returned is up to before + limit.
 
-Set include_outline to false to omit the outline from the response (the outline
-field is returned as null). This is useful when paginating through a page where
-the outline is already known from the first call, saving tokens on subsequent
-requests.
-
-The outline is returned in full when it is under 50 entries and 4000 characters.
-Larger outlines are progressively trimmed to fit — the response indicates when
-trimming occurred. Use read_outline for paginated access to the full outline.
+Pass include_outline as true in the first call and then set it to false to omit
+the outline for subsequent requests. This is useful when paginating through
+a page, saving tokens on subsequent requests.
+If the compact outline is not sufficient, you can always use read_outline.
 
 Response:
   url          — the URL of the fetched page
   content      — the content window
-  outline      — smart outline of the page; null when include_outline is false
+  outline      — compact outline of the page; null when include_outline is false
+                 returned in full if small; otherwise compacted
   total_lines  — total line count of the full page
   offset       — 1-based line number where the returned content window starts
   limit        — maximum forward lines requested from the input offset;
@@ -99,13 +97,12 @@ READ_OUTLINE_DESCRIPTION = """
 Browse the full outline of a documentation page with paginated windowing.
 
 Returns outline entries (headings and code block markers with line numbers).
-Code block markers without content are removed. The before parameter is additive, same as
-read_page.
+The before parameter is additive, same as read_page.
 
-Most outlines are small enough to fit in the smart outlines returned by
+Most outlines are small enough to fit in the compact outlines returned by
 read_page and search_page. Use read_outline directly when you know the outline
 is large (for example, on a full documentation page), or as a fallback when the
-smart outline indicates it was trimmed.
+compact outline returned by read_page and search_page was not sufficient.
 
 offset and next_offset use page line numbers and not outline entry index.
 
@@ -125,24 +122,21 @@ Response:
 
 SEARCH_PAGE_DESCRIPTION = """
 Search within a documentation page and return the full text of each matching line.
-Supports literal and regex search, smart case sensitivity, and word
-boundary matching.
+Supports literal and regex search, smart case sensitivity, and word boundary matching.
 
 Works across indexes, individual pages, or the full documentation if full_docs_url
 is available.
 
-Use target="content" (default) to search page content — the response includes
-a smart outline for structural context. Small outlines are returned in full;
-larger ones are trimmed to the match range and then progressively compacted,
-similar to read_page. Any trimming is noted in the response. Use
-target="outline" to search only outline entries — the outline field is null
-since the matches themselves are outline entries.
+Use target="content" (default) to search page content and target="outline" to search
+only outline entries. Searching outline can be useful for searching large pages or
+full documentation pages.
 
 Response:
   url          — the URL that was searched
   query        — the search query as provided
   matches      — matching lines as 'line_number:content', one per line
-  outline      — smart outline (content mode); null in outline mode
+  outline      — compact outline (content mode); null in outline mode
+                 returned in full if small; otherwise compacted
   total_lines  — total line count of the page
   has_more     — true if more matches exist beyond the returned set
   next_offset  — line number to pass as offset to continue paginating
