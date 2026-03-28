@@ -22,8 +22,9 @@ You must:
 4. **Commit by intent**. If something is a coherent unit (a feature, fix, refactor, doc update), it deserves its own commit. Avoid these two extremes:
    - ❌ One giant commit/day: hard to review, hard to revert, hard to bisect.
    - ❌ A commit for every tiny edit: noise, harder to understand history.
-5. Commit only the changes relevant to the current session. If there are other pending changes, ask the user whether you should commit them as well.
-6. **Run all checks before pushing**
+5. Make a branch for features, refactors, experiments, migrations, or anything that may take more than one sitting.
+6. Commit only the changes relevant to the current session. If there are other pending changes, ask the user whether you should commit them as well.
+7. **Run all checks before pushing**
    ```bash
    uv run ruff check src/ tests/
    uv run ruff format src/ tests/
