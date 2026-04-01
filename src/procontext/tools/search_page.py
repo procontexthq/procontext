@@ -22,7 +22,7 @@ from procontext.outline import (
     trim_outline_to_range,
 )
 from procontext.page import fetch_or_cached_page
-from procontext.search import build_matcher, search_lines
+from procontext.search import LineMatch, SearchResult, build_matcher, search_lines
 
 if TYPE_CHECKING:
     from procontext.state import AppState
@@ -145,8 +145,6 @@ def _search_outline_lines(
     max_results: int,
 ):
     """Search raw outline lines, ignoring the numeric prefix for matching."""
-    from procontext.search import LineMatch, SearchResult
-
     matches: list[LineMatch] = []
     lines = [line for line in raw_outline.splitlines() if line]
 
