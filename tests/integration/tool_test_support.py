@@ -71,6 +71,43 @@ def build_large_setext_page(extra_sections: int = 60) -> str:
     return "\n".join(lines)
 
 
+def build_compactable_page_no_match() -> str:
+    """Build a page whose outline exceeds max_entries but can be compacted.
+
+    Creates 20 H2 sections each with 2 H6 subheadings = 60 entries total.
+    Compaction removes H6 first, leaving 20 entries (under the 50 limit).
+    """
+    lines = ["# Top", ""]
+    for index in range(20):
+        lines.append(f"## Section {index}")
+        lines.append(f"###### Leaf A{index}")
+        lines.append(f"###### Leaf B{index}")
+        lines.append(f"Body {index}.")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_large_page_no_match(sections: int = 60) -> str:
+    """Build a page with a large outline but no content matching 'xyzzy'."""
+    lines = ["# Top", ""]
+    for index in range(sections):
+        lines.append(f"## Section {index}")
+        lines.append(f"Body content for section {index}.")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_dense_match_page(sections: int = 80) -> str:
+    """Build a page where many outline entries fall within the match range."""
+    lines = ["# Top", "", "needle_start", ""]
+    for index in range(sections):
+        lines.append(f"### Detail {index}")
+        lines.append(f"Content {index}.")
+        lines.append("")
+    lines.append("needle_end")
+    return "\n".join(lines)
+
+
 async def expire_cached_page(
     app_state: AppState,
     *,
