@@ -746,17 +746,155 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --dev --frozen
+
+      - name: Lint
+        run: uv run ruff check src/ tests/
+
+      - name: Format check
+        run: uv run ruff format --check src/ tests/
+
+      - name: Type check
+        run: uv run pyright src/
+
+  test:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
+
+      - name: Tests with coverage
+        run: |
+          uv run pytest tests/ \
+            --cov=src/procontext \
+            --cov-report=term-missing \
+            --cov-fail-under=90
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
+      - run: uv build
+      - run: |
+          python -m venv .pkg-smoke
+          ./.pkg-smoke/bin/pip install dist/*.whl
+          ./.pkg-smoke/bin/procontext --help
+          ./.pkg-smoke/bin/procontext doctor --help
+
+  smoke-platform:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: uv run procontext --help
+
+  audit:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
+      - run: uv run pip-audit --skip-editable
+```
+
+Validation, tests, packaging smoke, and cross-platform smoke now run as separate jobs. This keeps the feedback loop faster than a single serialized pipeline while preserving the required gates on Linux. Every job installs from the committed `uv.lock` in frozen mode, so CI and local debugging resolve the same dependency graph.
+
+### release.yml — Release Pipeline
+
+Runs on manual trigger (`workflow_dispatch`) while the release process is still maturing. The workflow now reruns the same validation gates as CI and adds a package smoke check before any version bump or publish step. This prevents manual dispatch from bypassing lint, type-checking, tests, or packaging sanity.
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history required for semantic-release
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --dev --frozen
 
       - name: Lint
         run: uv run ruff check src/ tests/
@@ -775,40 +913,50 @@ jobs:
             --cov-fail-under=90
 
       - name: Dependency audit
-        run: uv run pip-audit
-```
+        run: uv run pip-audit --skip-editable
 
-All steps run in sequence; a lint or type-check failure aborts the workflow before tests run, keeping the feedback loop fast.
+  package-smoke:
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
+      - run: uv build
+      - run: |
+          python -m venv .pkg-smoke
+          ./.pkg-smoke/bin/pip install dist/*.whl
+          ./.pkg-smoke/bin/procontext --help
+          ./.pkg-smoke/bin/procontext doctor --help
 
-### release.yml — Release Pipeline
-
-Runs on manual trigger (`workflow_dispatch`) while the release process is still maturing. Maintainers should trigger it only after CI is green on `main`. Uses `python-semantic-release` to automate version bumping/tagging, then builds, attests, and publishes the artifacts.
-
-```yaml
-# .github/workflows/release.yml
-name: Release
-
-on:
-  workflow_dispatch:
-
-jobs:
   release:
     runs-on: ubuntu-latest
+    needs: [validate, package-smoke]
     permissions:
-      id-token: write # Required for PyPI trusted publishing (OIDC)
-      contents: write # Required to push tags and update project version
-      attestations: write # Required for SLSA provenance attestation
-
+      id-token: write
+      contents: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Full history required for semantic-release
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install dependencies
-        run: uv sync --dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
 
       - name: Bump version and push tag
         env:
@@ -827,7 +975,43 @@ jobs:
         run: uv publish --trusted-publishing always
 ```
 
-`semantic-release version` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing.
+`semantic-release version` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing. Because the validation and smoke jobs run first, the release job is gated on the same checks used in CI.
+
+### audit.yml — Scheduled Security Audit
+
+Runs weekly and on manual dispatch. This separates the slower recurring dependency audit from developer-triggered CI while still keeping the audit command easy to run on demand.
+
+```yaml
+# .github/workflows/audit.yml
+name: Security Audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --dev --frozen
+      - run: uv run pip-audit --skip-editable
+```
 
 `actions/attest-build-provenance` generates a signed SLSA provenance attestation — a cryptographic record proving which source commit produced which artifact, via which build pipeline. This is attached to the GitHub release and is verifiable via `gh attestation verify`. Enterprise consumers increasingly require provenance before adopting a dependency.
 
