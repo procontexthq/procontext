@@ -861,6 +861,8 @@ Validation, tests, packaging smoke, and cross-platform smoke now run as separate
 
 Runs on manual trigger (`workflow_dispatch`) while the release process is still maturing. The workflow now reruns the same validation gates as CI and adds a package smoke check before any version bump or publish step. This prevents manual dispatch from bypassing lint, type-checking, tests, or packaging sanity.
 
+PyPI publishing is additionally guarded by a protected GitHub Actions environment named `pypi`. The validation and smoke jobs still run automatically, but the final publish job pauses for environment approval before `semantic-release` pushes the release tag and `uv publish` uploads artifacts. That keeps publishing manual twice: once at dispatch time and once at the final approval boundary.
+
 ```yaml
 # .github/workflows/release.yml
 name: Release
@@ -940,6 +942,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [validate, package-smoke]
+    environment:
+      name: pypi
     permissions:
       id-token: write
       contents: write
@@ -975,7 +979,7 @@ jobs:
         run: uv publish --trusted-publishing always
 ```
 
-`semantic-release version` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing. Because the validation and smoke jobs run first, the release job is gated on the same checks used in CI.
+`semantic-release version` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing. Because the validation and smoke jobs run first, the release job is gated on the same checks used in CI. The protected `pypi` environment adds one more safeguard: the publish job must be explicitly approved in GitHub before any tag push or PyPI upload proceeds.
 
 ### audit.yml — Scheduled Security Audit
 
