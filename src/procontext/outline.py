@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import structlog
+
 from procontext.parser import _FENCE_RE, _is_matching_fence_closer, _match_heading
+
+log = structlog.get_logger()
 
 
 @dataclass(frozen=True)
@@ -53,7 +57,10 @@ def parse_outline_entries(outline_string: str) -> list[OutlineEntry]:
             continue
 
         # Split on first ":"
-        colon_idx = raw_line.index(":")
+        colon_idx = raw_line.find(":")
+        if colon_idx == -1:
+            log.warning("outline_malformed_line", raw_line=raw_line)
+            continue
         line_number = int(raw_line[:colon_idx])
         text = raw_line[colon_idx + 1 :]
 
@@ -61,7 +68,6 @@ def parse_outline_entries(outline_string: str) -> list[OutlineEntry]:
         fence_match = _FENCE_RE.match(text)
 
         if not in_fence and fence_match is not None:
-            assert fence_match is not None
             marker = fence_match.group(1)
             char = marker[0]
             length = len(marker)
