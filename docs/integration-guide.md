@@ -1,51 +1,6 @@
-# Setup Guide
+# Integration Guide
 
-This guide covers installing ProContext and connecting it to your AI coding tool.
-
----
-
-## Install ProContext
-
-### One-line installer (recommended)
-
-The installer clones ProContext, installs dependencies, and downloads the library registry.
-
-**macOS / Linux:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex
-```
-
-The installer prints the checkout path when it finishes. You'll need this path for the next step.
-
-Default locations:
-
-| Platform | Path |
-|---|---|
-| macOS | `~/Library/Application Support/procontext-source` |
-| Linux | `~/.local/share/procontext-source` |
-| Windows | `%LOCALAPPDATA%\procontext-source` |
-
-### Manual install
-
-```bash
-git clone https://github.com/procontexthq/procontext.git
-cd procontext
-uv sync --no-dev
-uv run procontext setup
-```
-
-For installer options (version pinning, dry run, custom paths), see [installation.md](cli/installation.md).
-
----
-
-## Connect to your AI tool
+This guide covers connecting ProContext to your AI coding tool. For installation, see [installation.md](cli/installation.md).
 
 ProContext runs as a **stdio** server by default — your AI tool launches it as a subprocess. Every tool below uses the same underlying command:
 
