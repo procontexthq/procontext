@@ -7,6 +7,7 @@ so there are no platform-specific code paths and no PII concerns.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -26,6 +27,11 @@ def get_client_id(data_dir: str | Path = _DEFAULT_DATA_DIR) -> str:
     except FileNotFoundError:
         client_id = str(uuid.uuid4())
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(client_id)
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            os.write(fd, client_id.encode())
+            os.close(fd)
+        except FileExistsError:
+            return path.read_text().strip()
         log.info("client_id_created", path=str(path))
         return client_id
