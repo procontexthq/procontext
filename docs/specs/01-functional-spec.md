@@ -97,6 +97,7 @@ All matching is against in-memory indexes loaded from the registry at startup. N
       "name": "LangChain",
       "description": "Framework for building LLM-powered applications.",
       "index_url": "https://python.langchain.com/llms.txt",
+      "full_docs_url": "https://python.langchain.com/llms-full.txt",
       "packages": [
         {
           "ecosystem": "pypi",
@@ -125,6 +126,7 @@ Top-level output fields:
 | `name`         | Human-readable display name                                                                                |
 | `description`  | Short description of what the library does. May be empty for older registry entries                        |
 | `index_url`    | URL to the library's llms.txt documentation index. Pass to `read_page` to browse the table of contents     |
+| `full_docs_url` | URL to the library's merged full documentation (`llms-full.txt`) when available. May be `null`. Useful for searching or reading the complete documentation as one page. |
 | `packages`     | List of package ecosystem entries. Each entry contains `ecosystem`, `languages`, `package_names`, `readme_url`, and `repo_url`. Languages, README URLs, and repository URLs live here — not at the top level of the match. |
 | `matched_via`  | How the match was made: `"package_name"`, `"library_id"`, `"name"`, `"alias"`, `"fuzzy"`                   |
 | `relevance`    | 0.0–1.0. Exact matches are 1.0; fuzzy matches are proportional to edit distance                            |
@@ -242,7 +244,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 6. In `target="content"` mode, if there are no matches, return an empty outline string
 7. In `target="content"` mode, if the full outline already satisfies both ≤max_entries and ≤max_chars after empty-fence stripping, return it unchanged
 8. In `target="content"` mode, otherwise trim the outline to the range between first and last match line numbers, then compact it (progressive depth reduction to satisfy both constraints; status message if irreducible)
-9. In `target="outline"` mode, always return `outline=""`
+9. In `target="outline"` mode, always return `outline=null`
 10. Return matching lines and pagination metadata
 
 **Smart case** (default): If the query string is entirely lowercase, matching is case-insensitive. If the query contains any uppercase character, matching is case-sensitive. This mirrors ripgrep's default behaviour — searching `"redis"` finds `"Redis"`, `"REDIS"`, and `"redis"`; searching `"Redis"` finds only `"Redis"`.
@@ -266,7 +268,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 
 | Field          | Description                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `outline`      | Structural outline context for content-mode search results. Empty string when no matches are found and always empty in `target="outline"` mode. |
+| `outline`      | Structural outline context for content-mode search results. `null` in `target="outline"` mode because outline context is not applicable there. In content mode, may be an empty string when the page has no outline entries. |
 | `matches`      | Matching lines formatted as `<line_number>:<content>`, one per line. In `target="outline"` mode, these are matching outline entries in the same format. Empty string when no matches found. |
 | `total_lines`  | Total number of lines in the page.                                                                                        |
 | `has_more`     | `true` if more matches exist beyond the returned set.                                                                     |
