@@ -127,7 +127,9 @@ jobs:
       - name: Bump version and push tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uv run semantic-release version
+        # CHANGELOG.md is maintained manually; keep semantic-release limited to
+        # version stamping, commit creation, and tag push.
+        run: uv run semantic-release version --no-changelog
 
       - name: Build package
         run: uv build

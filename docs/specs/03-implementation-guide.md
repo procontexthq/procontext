@@ -863,6 +863,8 @@ Runs on manual trigger (`workflow_dispatch`) while the release process is still 
 
 PyPI publishing is additionally guarded by a protected GitHub Actions environment named `pypi`. The validation and smoke jobs still run automatically, but the final publish job pauses for environment approval before `semantic-release` pushes the release tag and `uv publish` uploads artifacts. That keeps publishing manual twice: once at dispatch time and once at the final approval boundary.
 
+`CHANGELOG.md` remains manually curated. The release workflow passes `--no-changelog` to `semantic-release`, so the tool updates the version and tag only; release notes must be prepared in the changelog before the release workflow is triggered.
+
 ```yaml
 # .github/workflows/release.yml
 name: Release
@@ -965,7 +967,7 @@ jobs:
       - name: Bump version and push tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: uv run semantic-release version
+        run: uv run semantic-release version --no-changelog
 
       - name: Build package
         run: uv build
@@ -979,7 +981,7 @@ jobs:
         run: uv publish --trusted-publishing always
 ```
 
-`semantic-release version` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing. Because the validation and smoke jobs run first, the release job is gated on the same checks used in CI. The protected `pypi` environment adds one more safeguard: the publish job must be explicitly approved in GitHub before any tag push or PyPI upload proceeds.
+`semantic-release version --no-changelog` inspects commit history since the last tag, determines the next version (patch/minor/major), updates the project version, creates a release commit, and pushes a Git tag without rewriting `CHANGELOG.md`. The workflow then builds the wheel/sdist with `uv build`, generates a provenance attestation for `dist/`, and publishes to PyPI with trusted publishing. Because the validation and smoke jobs run first, the release job is gated on the same checks used in CI. The protected `pypi` environment adds one more safeguard: the publish job must be explicitly approved in GitHub before any tag push or PyPI upload proceeds.
 
 ### audit.yml — Scheduled Security Audit
 
@@ -1027,7 +1029,6 @@ jobs:
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-changelog_file = "CHANGELOG.md"
 build_command = "uv build"
 ```
 
