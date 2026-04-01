@@ -287,9 +287,7 @@ class TestSearchPageHandler:
     async def test_search_large_outline_no_matches_compacts(self, app_state: AppState) -> None:
         """Large outline with no matches should compact without a match range."""
         url = "https://python.langchain.com/docs/concepts/large-no-match.md"
-        respx.get(url).mock(
-            return_value=httpx.Response(200, text=build_large_page_no_match())
-        )
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_large_page_no_match()))
 
         result = await search_page_handle(url, "xyzzy_nonexistent", app_state)
 
@@ -299,9 +297,7 @@ class TestSearchPageHandler:
         assert "read_outline" in result["outline"].lower()
 
     @respx.mock
-    async def test_search_large_compactable_outline_no_matches(
-        self, app_state: AppState
-    ) -> None:
+    async def test_search_large_compactable_outline_no_matches(self, app_state: AppState) -> None:
         """Large outline that can be compacted shows compaction note."""
         url = "https://python.langchain.com/docs/concepts/compactable.md"
         respx.get(url).mock(
@@ -321,9 +317,7 @@ class TestSearchPageHandler:
     ) -> None:
         """When trimming to match range still exceeds limits, compaction is applied."""
         url = "https://python.langchain.com/docs/concepts/dense-match.md"
-        respx.get(url).mock(
-            return_value=httpx.Response(200, text=build_dense_match_page())
-        )
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_dense_match_page()))
 
         result = await search_page_handle(url, "needle", app_state)
 

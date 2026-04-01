@@ -1,4 +1,4 @@
-"""Tests for normalization helpers — URL normalization, origin extraction, and dependency detection."""
+"""Tests for normalization helpers: URL normalization, origin extraction, dependency detection."""
 
 from __future__ import annotations
 
