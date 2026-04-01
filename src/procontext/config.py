@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -43,7 +43,7 @@ class ServerSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = Field(default=8080, ge=1, le=65535)
     auth_enabled: bool = False
     auth_key: str = ""
 
@@ -51,14 +51,14 @@ class ServerSettings(BaseModel):
 class RegistrySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     metadata_url: str = "https://procontexthq.github.io/registry_metadata.json"
-    poll_interval_hours: int = 24
+    poll_interval_hours: int = Field(default=24, gt=0)
 
 
 class CacheSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    ttl_hours: int = 24
+    ttl_hours: int = Field(default=24, gt=0)
     db_path: str = _DEFAULT_DB_PATH
-    cleanup_interval_hours: int = 6
+    cleanup_interval_hours: int = Field(default=6, gt=0)
 
 
 class FetcherSettings(BaseModel):
@@ -67,20 +67,20 @@ class FetcherSettings(BaseModel):
     ssrf_domain_check: bool = True
     allowlist_expansion: Literal["registry", "discovered"] = "registry"
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
-    connect_timeout_seconds: float = 5.0
-    request_timeout_seconds: float = 30.0
+    connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    request_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 class ResolverSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    fuzzy_score_cutoff: int = 70
-    fuzzy_max_results: int = 5
+    fuzzy_score_cutoff: int = Field(default=70, ge=0, le=100)
+    fuzzy_max_results: int = Field(default=5, gt=0)
 
 
 class OutlineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    max_entries: int = 50
-    max_chars: int = 4000
+    max_entries: int = Field(default=50, gt=0)
+    max_chars: int = Field(default=4000, gt=0)
 
 
 class LoggingSettings(BaseModel):
