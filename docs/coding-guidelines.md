@@ -155,7 +155,7 @@ Automate via Conventional Commits + semantic-release. The changelog is the artif
 
 ## Code Conventions
 
-### 16. Keep all imports at the top of the file
+### 16. FORBIDDEN: imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
 
 Place every import at module level. Do not import inside functions, methods, or conditional blocks (other than `if TYPE_CHECKING:`). In-function imports hide dependencies, make it harder to see what a module uses at a glance, and create subtle performance traps when called in loops.
 
@@ -175,13 +175,12 @@ A useful heuristic: if a function cannot be understood in one reading without sc
 
 Make it a habit to write tests before implementing new features or fixing bugs. This ensures that you have a clear understanding of the expected behavior and helps catch regressions early.
 
-### 19. Test the public API contract, not the implementation
+### 19. Testing practices
 
-Write tests from the perspective of a consumer: import the public API and assert on observable behavior. Do not reach into private methods or internal state.
-
-**The bar**: a complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
-
-Do not generate tests that mirror the source file structure and test private helpers directly. Resist this pattern.
+- Integration tests must test the public API and observable behavior, not internal implementation details. Do not reach into private methods or state.
+    - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
+- Unit tests should focus on testing individual components in isolation. Test all the functions with emphasis on functions that contain complex logic (parsers, matchers, resolution algorithms, validation functions).
+    - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
 
 ### 20. Keep tests for deprecated APIs until removal
 
