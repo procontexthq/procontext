@@ -159,6 +159,10 @@ async def check_network(
     del fix
     http_client = client_builder(settings.fetcher)
     try:
+        # Intentional: doctor uses HEAD as a lightweight reachability probe.
+        # We control the registry endpoint and require it to remain HEAD-readable,
+        # so a failing HEAD response is treated as an operational problem rather
+        # than something doctor should mask with a GET fallback.
         response = await http_client.head(
             settings.registry.metadata_url,
             timeout=httpx.Timeout(10.0, connect=5.0),
