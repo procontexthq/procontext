@@ -1,6 +1,4 @@
-<div align="left">
-
-# <a href="https://procontext.dev"><img src="https://procontext.dev/favicon.png" alt="ProContext logo" width="22" /></a> ProContext
+# ProContext
 
 **Documentation layer for AI coding agents**
 
@@ -9,15 +7,13 @@
 [![Python 3.12+][python-badge]][python-url]
 [![Protocol][protocol-badge]][protocol-url]
 
-</div>
-
 Your AI coding agent generates broken code because it doesn't have current docs.
 
 ProContext fixes that - verified library documentation, served on demand.
 
 [2000+ libraries](https://procontexthq.github.io/) · Works with Claude Code, Cursor, Codex, VS Code (GitHub Copilot), Windsurf, and any MCP-compatible tool
 
-[website-badge]: https://img.shields.io/badge/website-procontext.dev-aqua.svg
+[website-badge]: https://img.shields.io/badge/website-procontext.dev-22d3ee.svg?textColor=black
 [website-url]: https://procontext.dev
 [license-badge]: https://img.shields.io/badge/License-MIT-green.svg
 [license-url]: https://opensource.org/licenses/MIT
