@@ -53,7 +53,8 @@ class MCPSecurityMiddleware:
             # 1. Optional bearer key authentication
             if self.auth_enabled:
                 auth_header = headers.get("authorization", "")
-                if not auth_header.startswith("Bearer ") or auth_header[7:] != self.auth_key:
+                expected = f"Bearer {self.auth_key}"
+                if not secrets.compare_digest(auth_header, expected):
                     await Response("Unauthorized", status_code=401)(scope, receive, send)
                     return
 
