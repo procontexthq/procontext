@@ -31,6 +31,7 @@ You must:
    uv run pyright src/
    uv run pytest --cov=src/procontext --cov-fail-under=90
    ```
+8. **Never merge branches locally into main.** Always push the branch to remote and create a pull request via `gh pr create`. This ensures CI runs on the PR and changes are reviewed before merging.
 
 ## Specifications
 
@@ -91,10 +92,6 @@ uv run pytest
 - Provide high-quality type support. Do not only add basic type hints; use meaningful generics and define structured, typed exceptions.
 - All modules use `from __future__ import annotations`. Imports only needed for type annotations go inside `if TYPE_CHECKING:` blocks.
 
-**Testing practices**
-
-- After making changes, you must run linting, formatting, type checks, and pytest to verify the codebase is clean and all tests pass.
-
 ## Non-obvious Coding Guidelines
 
 This project follows a set of non-obvious coding guidelines. These must be applied when writing or reviewing any code in this repo.
@@ -122,6 +119,7 @@ See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
   - Exception: `sleep()` is appropriate when testing time-based features (e.g., timeouts)
 - Wrap indefinite waits (`event.wait()`, `stream.receive()`) in `anyio.fail_after(5)` to prevent hangs
 - **Failing tests are signals, not obstacles.** When a code change causes existing tests to fail, do not modify the test to make it pass without first understanding *why* it failed. A failing test may indicate a real bug in the change, an unintended behavioral shift, or a violated contract. Investigate the root cause, explain it to the user, and agree on the right fix before proceeding. Only update a test without consulting the user when the change is unambiguously correct (e.g., the test asserts on a renamed field that you just renamed).
+- After making changes, you must run linting, formatting, type checks, and pytest to verify the codebase is clean and all tests pass.
 
 ## Updates to CLAUDE.md
 
