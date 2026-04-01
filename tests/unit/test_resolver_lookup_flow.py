@@ -325,6 +325,36 @@ class TestFuzzyFallback:
         assert len({match.library_id for match in matches}) == 5
 
 
+class TestFuzzyEdgeCases:
+    def test_empty_corpus_returns_empty(self) -> None:
+        matches = _fuzzy_search("query", corpus=[], by_id={}, limit=5, score_cutoff=70)
+        assert matches == []
+
+    def test_limit_zero_returns_empty(self) -> None:
+        corpus = [("langchain", "lib1")]
+        by_id = {
+            "lib1": RegistryEntry(
+                id="lib1",
+                name="lib1",
+                description="d",
+                packages=[],
+                aliases=[],
+                llms_txt_url="https://example.com/llms.txt",
+            )
+        }
+        matches = _fuzzy_search("langchain", corpus, by_id, limit=0, score_cutoff=0)
+        assert matches == []
+
+    def test_fuzzy_query_normalizes_to_empty_returns_empty(
+        self, mixed_indexes: RegistryIndexes
+    ) -> None:
+        """A query that normalizes to empty after fuzzy normalization returns no matches."""
+        # A query that's valid (non-empty, not unsupported) but normalizes to empty
+        # is unlikely in practice, but the branch guard on line 47 handles it.
+        matches = resolve_library("   ", mixed_indexes)
+        assert matches == []
+
+
 def test_registry_entries_keep_original_package_names(
     mixed_entries: list[RegistryEntry], mixed_indexes: RegistryIndexes
 ) -> None:
