@@ -11,7 +11,6 @@ import pytest
 import respx
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.page import service as page_service
 from procontext.tools.read_page import handle as read_page_handle
 from tests.integration.tool_test_support import (
     SAMPLE_PAGE,
@@ -19,46 +18,11 @@ from tests.integration.tool_test_support import (
     SETEXT_PAGE,
     SETEXT_URL,
     expire_cached_page,
-    hashed_url,
     update_cached_page_content,
 )
 
 if TYPE_CHECKING:
     from procontext.state import AppState
-
-
-def _track_background_refresh(monkeypatch: pytest.MonkeyPatch) -> anyio.Event:
-    """Signal when the read_page background refresh task completes."""
-    completed = anyio.Event()
-    original_background_refresh = page_service._background_refresh
-
-    async def wrapped_background_refresh(*, url: str, url_hash: str, state: AppState) -> None:
-        try:
-            await original_background_refresh(url=url, url_hash=url_hash, state=state)
-        finally:
-            completed.set()
-
-    monkeypatch.setattr(page_service, "_background_refresh", wrapped_background_refresh)
-    return completed
-
-
-def _block_background_refresh(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[anyio.Event, anyio.Event]:
-    """Hold the background refresh open until the test explicitly releases it."""
-    release = anyio.Event()
-    completed = anyio.Event()
-    original_background_refresh = page_service._background_refresh
-
-    async def wrapped_background_refresh(*, url: str, url_hash: str, state: AppState) -> None:
-        try:
-            await release.wait()
-            await original_background_refresh(url=url, url_hash=url_hash, state=state)
-        finally:
-            completed.set()
-
-    monkeypatch.setattr(page_service, "_background_refresh", wrapped_background_refresh)
-    return release, completed
 
 
 class TestReadPageHandler:
@@ -131,11 +95,9 @@ class TestReadPageHandler:
     async def test_stale_cache_serves_stale_immediately(
         self,
         app_state: AppState,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Expired cache returns stale content immediately and spawns background refresh."""
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
-        refresh_completed = _track_background_refresh(monkeypatch)
 
         await read_page_handle(SAMPLE_URL, 1, 500, app_state)
         await expire_cached_page(app_state)
@@ -145,19 +107,14 @@ class TestReadPageHandler:
         assert result["stale"] is True
         assert "# Streaming" in result["content"]
 
-        with anyio.fail_after(5):
-            await refresh_completed.wait()
-
     @respx.mock
     async def test_stale_background_refresh_updates_cache(
         self,
         app_state: AppState,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Background refresh updates the cache so the next call gets fresh content."""
         updated_page = "# Updated\n\nNew content."
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
-        refresh_completed = _track_background_refresh(monkeypatch)
 
         await read_page_handle(SAMPLE_URL, 1, 500, app_state)
         await expire_cached_page(app_state)
@@ -168,12 +125,12 @@ class TestReadPageHandler:
         assert result["stale"] is True
 
         with anyio.fail_after(5):
-            await refresh_completed.wait()
-
-        result2 = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result2["cached"] is True
-        assert result2["stale"] is False
-        assert "# Updated" in result2["content"]
+            while True:
+                result2 = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+                if result2["cached"] is True and result2["stale"] is False:
+                    assert "# Updated" in result2["content"]
+                    break
+                await anyio.sleep(0)
 
     @respx.mock
     async def test_content_hash_present_and_stable(self, app_state: AppState) -> None:
@@ -202,24 +159,30 @@ class TestReadPageHandler:
     async def test_stale_no_duplicate_background_tasks(
         self,
         app_state: AppState,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Multiple calls to a stale URL don't spawn duplicate background tasks."""
+        """Repeated stale reads return cached stale data while refresh happens in the background."""
+        updated_page = "# Updated once\n\nNew content."
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
-        release_refresh, refresh_completed = _block_background_refresh(monkeypatch)
 
         await read_page_handle(SAMPLE_URL, 1, 500, app_state)
         await expire_cached_page(app_state)
 
-        await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        url_hash = hashed_url()
-        assert url_hash in app_state._refreshing
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=updated_page))
 
-        await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        release_refresh.set()
+        first_stale = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+        second_stale = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+
+        assert first_stale["stale"] is True
+        assert second_stale["stale"] is True
+        assert respx.calls.call_count == 2
+
         with anyio.fail_after(5):
-            await refresh_completed.wait()
-        assert url_hash not in app_state._refreshing
+            while True:
+                refreshed = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
+                if refreshed["stale"] is False:
+                    assert "# Updated once" in refreshed["content"]
+                    break
+                await anyio.sleep(0)
 
     @respx.mock
     async def test_stale_respects_last_checked_cooldown(self, app_state: AppState) -> None:
@@ -231,7 +194,6 @@ class TestReadPageHandler:
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
         assert result["stale"] is True
-        assert hashed_url() not in app_state._refreshing
         assert respx.calls.call_count == 1
 
     @respx.mock

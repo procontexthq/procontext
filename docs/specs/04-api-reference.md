@@ -291,6 +291,10 @@ All matching is in-memory. No network calls.
             "type": "string",
             "description": "URL to the library's llms.txt documentation index. Pass to read_page to browse the table of contents, or to search_page to find specific topics."
           },
+          "full_docs_url": {
+            "type": ["string", "null"],
+            "description": "URL to the library's merged full documentation (llms-full.txt). May be null when the registry does not advertise a merged full-docs page."
+          },
           "packages": {
             "type": "array",
             "description": "Package ecosystem entries. Languages, README URLs, and repository URLs live here.",
@@ -341,6 +345,7 @@ All matching is in-memory. No network calls.
           "name",
           "description",
           "index_url",
+          "full_docs_url",
           "packages",
           "matched_via",
           "relevance"
@@ -823,8 +828,8 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
       "description": "The search query as provided."
     },
     "outline": {
-      "type": "string",
-      "description": "Structural outline context for content-mode search results. Empty string when no matches found and always empty when target='outline'."
+      "type": ["string", "null"],
+      "description": "Structural outline context for content-mode search results. Null when target='outline' because outline context is not applicable in that mode."
     },
     "matches": {
       "type": "string",
@@ -894,7 +899,7 @@ Result:
 {
   "url": "https://python.langchain.com/docs/concepts/streaming.md",
   "query": "Chat Models",
-  "outline": "",
+  "outline": null,
   "matches": "7:## Streaming with Chat Models",
   "total_lines": 21,
   "has_more": false,

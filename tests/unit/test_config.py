@@ -4,9 +4,19 @@ from __future__ import annotations
 
 import platformdirs
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from procontext.config import _DEFAULT_DATA_DIR, _DEFAULT_DB_PATH, CacheSettings, Settings
+from procontext.config import (
+    _DEFAULT_DATA_DIR,
+    _DEFAULT_DB_PATH,
+    CacheSettings,
+    FetcherSettings,
+    OutlineSettings,
+    RegistrySettings,
+    ResolverSettings,
+    ServerSettings,
+    Settings,
+)
 
 
 class TestPlatformDefaults:
@@ -33,7 +43,7 @@ class TestPlatformDefaults:
 
 
 class TestConfigValidation:
-    """Verify config validation behaviour — including known gaps."""
+    """Verify config validation behaviour for invalid and boundary values."""
 
     def test_wrong_type_raises_validation_error(self) -> None:
         """A non-integer port raises ValidationError immediately."""
@@ -59,22 +69,52 @@ class TestConfigValidation:
         with pytest.raises(ValidationError):
             CacheSettings(db_paht="/intended/path/cache.db")  # type: ignore[call-arg]
 
-    def test_negative_ttl_hours_accepted_but_causes_immediate_expiry(self) -> None:
-        """Pydantic does not reject negative ttl_hours — document the consequence.
+    @pytest.mark.parametrize(
+        ("model", "field", "value"),
+        [
+            (ServerSettings, "port", 0),
+            (ServerSettings, "port", 65536),
+            (RegistrySettings, "poll_interval_hours", 0),
+            (RegistrySettings, "poll_interval_hours", -1),
+            (CacheSettings, "ttl_hours", 0),
+            (CacheSettings, "ttl_hours", -1),
+            (CacheSettings, "cleanup_interval_hours", 0),
+            (CacheSettings, "cleanup_interval_hours", -1),
+            (FetcherSettings, "connect_timeout_seconds", 0),
+            (FetcherSettings, "connect_timeout_seconds", -0.5),
+            (FetcherSettings, "request_timeout_seconds", 0),
+            (FetcherSettings, "request_timeout_seconds", -1),
+            (ResolverSettings, "fuzzy_score_cutoff", -1),
+            (ResolverSettings, "fuzzy_score_cutoff", 101),
+            (ResolverSettings, "fuzzy_max_results", 0),
+            (OutlineSettings, "max_entries", 0),
+            (OutlineSettings, "max_chars", 0),
+        ],
+    )
+    def test_invalid_numeric_bounds_raise_validation_error(
+        self, model: type[BaseModel], field: str, value: int | float
+    ) -> None:
+        with pytest.raises(ValidationError):
+            model(**{field: value})  # type: ignore[misc]
 
-        A negative TTL means expires_at is set in the past on every write, so
-        every cache read returns stale=True immediately. No crash, but silent
-        misconfiguration. Operators must be warned via docs.
-        """
-        from datetime import UTC, datetime, timedelta
+    def test_valid_numeric_lower_bounds_are_accepted(self) -> None:
+        server = ServerSettings(port=1)
+        registry = RegistrySettings(poll_interval_hours=1)
+        cache = CacheSettings(ttl_hours=1, cleanup_interval_hours=1)
+        fetcher = FetcherSettings(connect_timeout_seconds=0.1, request_timeout_seconds=0.1)
+        resolver = ResolverSettings(fuzzy_score_cutoff=0, fuzzy_max_results=1)
+        outline = OutlineSettings(max_entries=1, max_chars=1)
 
-        from procontext.config import CacheSettings
-
-        settings = CacheSettings(ttl_hours=-1)
-        assert settings.ttl_hours == -1
-        # Demonstrate: timedelta(hours=-1) puts expires_at in the past
-        expires_at = datetime.now(UTC) + timedelta(hours=settings.ttl_hours)
-        assert expires_at < datetime.now(UTC)
+        assert server.port == 1
+        assert registry.poll_interval_hours == 1
+        assert cache.ttl_hours == 1
+        assert cache.cleanup_interval_hours == 1
+        assert fetcher.connect_timeout_seconds == 0.1
+        assert fetcher.request_timeout_seconds == 0.1
+        assert resolver.fuzzy_score_cutoff == 0
+        assert resolver.fuzzy_max_results == 1
+        assert outline.max_entries == 1
+        assert outline.max_chars == 1
 
     def test_empty_auth_key_with_auth_enabled(self) -> None:
         """auth_key='' with auth_enabled=True is accepted by pydantic.
@@ -83,8 +123,6 @@ class TestConfigValidation:
         Authorization header is exactly 'Bearer ' (empty token). Document this
         so it is a conscious choice, not an oversight.
         """
-        from procontext.config import ServerSettings
-
         settings = ServerSettings(auth_enabled=True, auth_key="")
         assert settings.auth_enabled is True
         assert settings.auth_key == ""
