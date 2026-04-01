@@ -23,6 +23,7 @@ from procontext.normalization import normalize_doc_origin
 from procontext.parser import parse_outline
 
 if TYPE_CHECKING:
+    from procontext.models.cache import PageCacheEntry
     from procontext.state import AppState
 
 log = structlog.get_logger()
@@ -126,7 +127,7 @@ def _maybe_spawn_refresh(
     url: str,
     url_hash: str,
     state: AppState,
-    cached_entry: object,
+    cached_entry: PageCacheEntry | None,
 ) -> None:
     """Spawn a background refresh task if appropriate."""
     if url_hash in state._refreshing:
