@@ -42,8 +42,14 @@ Rules:
 ## Mode 2 — Write release section (version argument given, e.g. `0.2.0`)
 
 - Rename `## [Unreleased]` to `## [<version>] - <today's date>`
+- If a version argument is supplied, verify it matches the version predicted
+  from git history and stop if it does not.
+- If the version argument is `auto`, detect the expected version from git
+  history and use that.
 - Insert a fresh empty `## [Unreleased]` section above it (no subsections)
 - Update the comparison links at the bottom of the file:
   - Update the `[Unreleased]` link to compare from the new tag: `v<version>...HEAD`
   - Add a new versioned link `[<version>]: .../compare/v<prev-tag>...v<version>` where `<prev-tag>` is the last release tag shown above
 - Do not modify the content of any sections — only rename, reorder, and update links
+- Do not modify `pyproject.toml`, tags, or release workflow files. Only update
+  `CHANGELOG.md`.
