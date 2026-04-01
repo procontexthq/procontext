@@ -187,7 +187,8 @@ async def _background_refresh(
 
 async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchResult:
     """Fetch a page from the network, cache it, and return a FetchResult."""
-    assert state.cache is not None
+    if state.cache is None:
+        raise RuntimeError("Cache must be initialized before fetching pages")
 
     content = await _fetch_with_md_probe(url, state)
     outline = parse_outline(content)
@@ -218,7 +219,8 @@ async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchRes
 
 async def _fetch_with_md_probe(url: str, state: AppState) -> str:
     """Fetch page content, trying .md variant first when applicable."""
-    assert state.fetcher is not None
+    if state.fetcher is None:
+        raise RuntimeError("Fetcher must be initialized before fetching pages")
     if _should_probe_md(url, state.md_probe_base_urls):
         md_url = _with_md_extension(url)
         try:
