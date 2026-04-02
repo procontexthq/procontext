@@ -1,3 +1,8 @@
+---
+name: coding-guidelines
+description: "Make sure to follow the rules mentioned when writing or reviewing any code in this repository."
+---
+
 # Coding Guidelines
 
 Follow these rules when writing or reviewing any code in this repository.
@@ -161,32 +166,26 @@ Place every import at module level. Do not import inside functions, methods, or 
 
 The only acceptable exception is breaking a genuine circular import that cannot be resolved by restructuring. If you hit a circular import, first try to break the cycle by moving shared types to a lower-level module. Resort to an in-function import only as a last option, and add a comment explaining why.
 
-### 17. Keep functions small and focused
-
-A function should do one thing. If you find yourself reaching for a comment like `# Step 2` or `# Phase 2`, that's a signal to extract a named function. Functions that are hard to name are usually doing too much.
-
-A useful heuristic: if a function cannot be understood in one reading without scrolling, it is too long.
-
 ---
 
 ## Testing Strategy
 
-### 18. Always write tests first
+### 17. Always write tests first
 
 Make it a habit to write tests before implementing new features or fixing bugs. This ensures that you have a clear understanding of the expected behavior and helps catch regressions early.
 
-### 19. Testing practices
+### 18. Testing practices
 
 - Integration tests must test the public API and observable behavior, not internal implementation details. Do not reach into private methods or state.
     - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
 - Unit tests should focus on testing individual components in isolation. Test all the functions with emphasis on functions that contain complex logic (parsers, matchers, resolution algorithms, validation functions).
     - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
 
-### 20. Keep tests for deprecated APIs until removal
+### 19. Keep tests for deprecated APIs until removal
 
 Deprecated code is still public API. Maintain tests for it through the entire deprecation cycle. Suppress deprecation warnings explicitly in those test files so future contributors know the suppression is intentional.
 
-### 21. Every bug fix requires a regression test
+### 20. Every bug fix requires a regression test
 
 Do not merge a bug fix without a test that fails before the fix and passes after. This prevents the same bug from reappearing silently in a future refactor.
 
@@ -194,7 +193,7 @@ Do not merge a bug fix without a test that fails before the fix and passes after
 
 ## Supply Chain Security
 
-### 22. Publish provenance attestations
+### 21. Publish provenance attestations
 
 Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
@@ -206,13 +205,19 @@ Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
 Enterprise consumers increasingly require provenance. Its absence is an adoption barrier.
 
-### 23. Verify every dependency against the actual registry
+### 22. Verify every dependency against the actual registry
 
 ~20% of AI-suggested packages do not exist in any public registry (2025 study, 576k samples). Attackers register these hallucinated names with malicious code ("slopsquatting"). Before adding any dependency, verify the package name exists in the actual registry and is the package you intend to use.
 
 ---
 
 ## Maintainability
+
+### 23. Keep functions small and focused
+
+A function should do one thing. If you find yourself reaching for a comment like `# Step 2` or `# Phase 2`, that's a signal to extract a named function. Functions that are hard to name are usually doing too much.
+
+A useful heuristic: if a function cannot be understood in one reading without scrolling, it is too long.
 
 ### 24. Keep files small and focused
 

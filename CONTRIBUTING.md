@@ -77,7 +77,6 @@ Before writing code, read the relevant spec documents - the project follows a sp
 
 - [Functional Specification](docs/specs/01-functional-spec.md) - what the tools do
 - [Technical Specification](docs/specs/02-technical-spec.md) - how they work internally
-- [Implementation Guide](docs/specs/03-implementation-guide.md) - project structure and conventions
 - [API Reference](docs/specs/04-api-reference.md) - wire format, error codes
 - [Security Specification](docs/specs/05-security-spec.md) - threat model, security controls
 
@@ -139,7 +138,7 @@ These are the conventions that trip people up. Standard Python practices (PEP 8,
 
 ### Architecture
 
-- **AppState injection** - All shared state lives in `AppState`, created once at startup. Tool handlers receive it as a plain argument. No global variables, no module-level singletons. See [03-implementation-guide.md, Section 3.3](docs/specs/03-implementation-guide.md#33-appstate-and-dependency-injection).
+- **AppState injection** - All shared state lives in `AppState`, created once at startup. Tool handlers receive it as a plain argument. No global variables, no module-level singletons.
 
 - **Protocol interfaces** - Swappable components (`Cache`, `Fetcher`) are typed against `typing.Protocol`, not concrete classes. This enables test doubles without mocking frameworks.
 
@@ -147,7 +146,7 @@ These are the conventions that trip people up. Standard Python practices (PEP 8,
 
 ### Error handling
 
-- **Raise `ProContextError`, never return error dicts.** Tool handlers raise; `server.py` catches and serialises. See [03-implementation-guide.md, Section 3.4](docs/specs/03-implementation-guide.md#34-error-handling).
+- **Raise `ProContextError`, never return error dicts.** Tool handlers raise; `server.py` catches and serialises.
 
 ### Code style
 
@@ -176,11 +175,9 @@ These are the conventions that trip people up. Standard Python practices (PEP 8,
 - `tests/integration/` - tests the full tool pipeline via `AppState`. Use the `app_state` fixture from `tests/integration/conftest.py`.
 - Match the filename to the module: changes to `fetcher.py` → `test_fetcher.py`.
 
-See [03-implementation-guide.md, Section 5](docs/specs/03-implementation-guide.md#5-testing-strategy) for the full testing strategy.
-
 ### Library-specific guidelines
 
-This project follows additional guidelines for public library development covering API design, error handling, versioning, supply chain security, and adoptability. See [`docs/coding-guidelines.md`](docs/coding-guidelines.md).
+This project follows additional guidelines for public library development covering API design, error handling, versioning, supply chain security, and adoptability. See [`.claude/rules/coding-guidelines.md`](.claude/rules/coding-guidelines.md).
 
 ---
 
@@ -202,8 +199,6 @@ src/procontext/
 ├── parser.py          # Heading parser
 └── data/              # Bundled registry snapshot
 ```
-
-See [03-implementation-guide.md, Section 1](docs/specs/03-implementation-guide.md#1-project-structure) for module responsibilities and layering rules.
 
 ---
 

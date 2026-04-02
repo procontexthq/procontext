@@ -2,7 +2,7 @@
 
 > **Document**: 05-security-spec.md
 > **Status**: Draft v2
-> **Last Updated**: 2026-03-08
+> **Last Updated**: 2026-04-02
 > **Depends on**: 01-functional-spec.md, 02-technical-spec.md
 
 ---
@@ -81,7 +81,7 @@ ProContext operates at the intersection of five trust boundaries. Understanding 
 | **Server → Registry (GitHub Pages)** | HTTPS transport integrity                        | SHA-256 checksum of downloaded registry (02-technical-spec, Section 9)       | Content semantics — a valid-checksum registry with malicious entries is accepted |
 | **Server → llms.txt sources**        | Domain membership (SSRF allowlist from registry) | URL against allowlist + private IP blocking (02-technical-spec, Section 5.2) | Content — returned as-is to the agent                                            |
 | **Server → documentation pages**     | Same as llms.txt sources                         | Same as llms.txt sources                                                     | Content — returned as-is to the agent                                            |
-| **PyPI → User**                      | HTTPS transport, package signing                 | SLSA provenance attestation (03-implementation-guide, Section 6)             | User must verify attestation manually via `gh attestation verify`                |
+| **PyPI → User**                      | HTTPS transport, package signing                 | GitHub Actions provenance attestation in `.github/workflows/release.yml`     | User must verify attestation manually via `gh attestation verify`                |
 
 **Key design principle**: ProContext validates _where_ content comes from (domain allowlist, SSRF prevention, registry checksum) but does not validate _what_ the content says. It is a fetch-and-serve proxy. Content-level trust is the responsibility of the MCP client consuming the output.
 
@@ -196,9 +196,9 @@ Severity uses a simple scale: **Critical** (system compromise), **High** (securi
 
 **Controls**:
 
-- Minor-version upper bounds on all runtime dependencies (e.g., `>=0.27.0,<1.0.0`). Prevents automatic adoption of new major versions. (03-implementation-guide, Section 2)
-- SLSA provenance attestation on ProContext's own releases — cryptographic proof of which source commit produced which artifact. (03-implementation-guide, Section 6)
-- License compatibility verified for all dependencies. (03-implementation-guide, Section 2)
+- Minor-version upper bounds on all runtime dependencies in `pyproject.toml` (e.g., `>=0.27.0,<1.0.0`). Prevents automatic adoption of new major versions.
+- SLSA provenance attestation on ProContext's own releases — cryptographic proof of which source commit produced which artifact — via `.github/workflows/release.yml`.
+- License compatibility verified for all runtime dependencies.
 - `uv.lock` committed for reproducible builds — ensures the same dependency versions across all installs.
 
 **Residual risk**: Upper bounds prevent major version surprises but do not protect against a compromised minor/patch release within bounds. Dependency vulnerability scanning (Section 7) addresses this gap.
@@ -289,7 +289,7 @@ ProContext stores no personally identifiable information. The cache contains onl
 
 ### Audit mechanism
 
-Run `pip-audit` (or equivalent) as a CI step to detect known vulnerabilities in the dependency tree. Add to the CI pipeline (03-implementation-guide, Section 6).
+Run `pip-audit` (or equivalent) as a CI step to detect known vulnerabilities in the dependency tree. This is enforced in `.github/workflows/ci.yml` and `.github/workflows/audit.yml`.
 
 ### Automated alerts
 
@@ -308,15 +308,15 @@ Configure Dependabot (or Renovate) on the GitHub repository for automated pull r
 
 - `uv.lock` committed for reproducible builds.
 - `pyproject.toml` uses minor-version upper bounds (e.g., `>=0.27.0,<1.0.0`).
-- Re-verify dependency license compatibility whenever a dependency is added or its major version is bumped. See 03-implementation-guide, Section 2.
+- Re-verify dependency license compatibility whenever a dependency is added or its major version is bumped.
 
 ---
 
 ## 8. Security Testing by Module
 
-Each module introduces specific attack surface. The following tables map security tests to the module that owns the relevant code. Cross-references use section numbers from `03-implementation-guide.md` Section 4.
+Each module introduces specific attack surface. The following tables map security tests to the module or subsystem that owns the relevant code.
 
-### 8.1 Resolver (§4.1)
+### 8.1 Resolver
 
 | Test                                           | What it verifies                                 |
 | ---------------------------------------------- | ------------------------------------------------ |
@@ -325,7 +325,7 @@ Each module introduces specific attack surface. The following tables map securit
 | Malformed library ID pattern                   | Pydantic rejects non-`[a-z0-9_-]+` patterns      |
 | Registry entry with missing required fields    | `RegistryEntry` Pydantic model rejects on load   |
 
-### 8.2 Fetcher & Cache (§4.2)
+### 8.2 Fetcher & Cache
 
 | Test                                                                        | What it verifies                                                               |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -340,7 +340,7 @@ Each module introduces specific attack surface. The following tables map securit
 | Cache read failure (simulated `aiosqlite.Error`)                            | Returns `None`, does not leak error details                                    |
 | Cache write failure (simulated `aiosqlite.Error`)                           | Fetched content still returned, error logged                                   |
 
-### 8.3 Parser & Search (§4.3, §4.4)
+### 8.3 Parser & Search
 
 | Test                                    | What it verifies                                  |
 | --------------------------------------- | ------------------------------------------------- |
@@ -351,7 +351,7 @@ Each module introduces specific attack surface. The following tables map securit
 | Catastrophic backtracking regex pattern | Query length cap (200 chars) limits ReDoS surface |
 | Invalid regex pattern                   | Caught at search time, raises `INVALID_INPUT`     |
 
-### 8.4 HTTP Transport (§4.5)
+### 8.4 HTTP Transport
 
 | Test                                                                                             | What it verifies                                                                          |
 | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
@@ -367,7 +367,7 @@ Each module introduces specific attack surface. The following tables map securit
 | Unknown `MCP-Protocol-Version` header                                                            | Rejected with HTTP 400                                                                    |
 | Error response body                                                                              | No stack traces, internal file paths, or debug info leaked                                |
 
-### 8.5 Registry Updates (§4.6)
+### 8.5 Registry Updates
 
 | Test                                          | What it verifies                                              |
 | --------------------------------------------- | ------------------------------------------------------------- |

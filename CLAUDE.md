@@ -96,7 +96,7 @@ uv run pytest
 
 This project follows a set of non-obvious coding guidelines. These must be applied when writing or reviewing any code in this repo.
 
-See [`docs/coding-guidelines.md`](docs/coding-guidelines.md) for the full list.
+See [`.claude/rules/coding-guidelines.md`](.claude/rules/coding-guidelines.md) for the full list.
 
 ## Changelog Maintenance
 

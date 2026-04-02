@@ -7,9 +7,9 @@
 [![Python 3.12+][python-badge]][python-url]
 [![Protocol][protocol-badge]][protocol-url]
 
-Your AI coding agent generates broken code because it doesn't have current docs.
+Your AI coding agent generates broken code because it relies on outdated, generic information.
 
-ProContext fixes that - verified library documentation, served on demand.
+ProContext fixes this by feeding it the reference docs it needs - correct version, right API, every time.
 
 [2000+ libraries](https://procontexthq.github.io/) · Works with Claude Code, Cursor, Codex, VS Code (GitHub Copilot), Windsurf, and any MCP-compatible tool
 

@@ -2,7 +2,7 @@
 
 > **Document**: 06-feedback-loop.md
 > **Status**: Draft v1
-> **Last Updated**: 2026-03-15
+> **Last Updated**: 2026-04-02
 
 ---
 
@@ -461,7 +461,6 @@ Two new protocols in `protocols.py`:
 
 - Update `01-functional-spec.md` (new tools section)
 - Update `04-api-reference.md` (new tool schemas)
-- Update `03-implementation-guide.md` (module acceptance criteria)
 - Update `README.md`
 
 ---
