@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from unittest.mock import patch
 
 import httpx
@@ -10,19 +10,22 @@ import pytest
 import respx
 
 from procontext.config import FetcherSettings, Settings
-from procontext.content_processing import FetchedContent, HtmlProcessorPipeline
 from procontext.errors import ErrorCode, ProContextError
-from procontext.fetcher import (
-    Fetcher,
+from procontext.fetch.client import build_http_client
+from procontext.fetch.processors import HtmlProcessorPipeline
+from procontext.fetch.security import (
     _base_domain,
     build_allowlist,
-    build_http_client,
     expand_allowlist_from_content,
     extract_base_domains_from_content,
     is_url_allowed,
 )
+from procontext.fetch.service import Fetcher
 from procontext.models.registry import RegistryEntry, RegistryIndexes
 from procontext.state import AppState
+
+if TYPE_CHECKING:
+    from procontext.fetch.models import FetchedContent
 
 # ---------------------------------------------------------------------------
 # _base_domain
@@ -330,7 +333,7 @@ class TestFetcher:
             )
             async with httpx.AsyncClient() as client:
                 fetcher = Fetcher(client, html_processor_pipeline=pipeline)
-                with patch("procontext.content_processing.pipeline.log.warning") as mock_warning:
+                with patch("procontext.fetch.processors.pipeline.log.warning") as mock_warning:
                     result = await fetcher.fetch("https://example.com/page", ALLOWLIST)
 
         assert result == html

@@ -10,7 +10,7 @@ from markitdown import MarkItDown
 from markitdown._stream_info import StreamInfo
 
 if TYPE_CHECKING:
-    from .payload import FetchedContent
+    from procontext.fetch.models import FetchedContent
 
 
 class MarkItDownHtmlProcessor:

@@ -573,7 +573,7 @@ Hint policy:
 
 ## 5. Documentation Fetcher
 
-All network I/O goes through a single `Fetcher` instance shared across tool calls. Defined in `src/procontext/fetcher.py`.
+All network I/O goes through a single `Fetcher` instance shared across tool calls. Defined in `src/procontext/fetch/service.py`.
 
 ### 5.1 HTTP Client
 
@@ -1032,7 +1032,7 @@ Converts structured entries back to the `"<lineno>:<text>"` format, joined by ne
 
 ## 7A. Search
 
-The search module is used exclusively by `search_page`. It compiles a search pattern from the tool input parameters and scans page content line by line. Defined in `src/procontext/search.py`.
+The search module is used exclusively by `search_page`. It compiles a search pattern from the tool input parameters and scans page content line by line. Defined in `src/procontext/tools/search_page/search.py`.
 
 ### 7A.1 Pattern Compilation
 

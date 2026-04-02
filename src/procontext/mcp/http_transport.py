@@ -50,7 +50,6 @@ class MCPSecurityMiddleware:
         if scope["type"] == "http":
             headers = Headers(scope=scope)
 
-            # 1. Optional bearer key authentication
             if self.auth_enabled:
                 auth_header = headers.get("authorization", "")
                 expected = f"Bearer {self.auth_key}"
@@ -58,13 +57,11 @@ class MCPSecurityMiddleware:
                     await Response("Unauthorized", status_code=401)(scope, receive, send)
                     return
 
-            # 2. Origin validation — prevents DNS rebinding attacks
             origin = headers.get("origin", "")
             if origin and not _is_loopback_origin(origin):
                 await Response("Forbidden", status_code=403)(scope, receive, send)
                 return
 
-            # 3. Protocol version — reject unknown versions early
             proto_version = headers.get("mcp-protocol-version", "")
             if proto_version and proto_version not in SUPPORTED_PROTOCOL_VERSIONS:
                 await Response(
@@ -120,5 +117,5 @@ def run_http_server(mcp: FastMCP, settings: Settings) -> None:
         secured_app,
         host=settings.server.host,
         port=settings.server.port,
-        log_config=None,  # Disable uvicorn's default logging; structlog handles it
+        log_config=None,
     )

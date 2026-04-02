@@ -30,7 +30,7 @@ def _registry_is_available(settings: Settings) -> bool:
 
 def _run_http_transport(server: FastMCP, settings: Settings) -> None:
     """Import and start the HTTP transport only when explicitly requested."""
-    from procontext.http_transport import run_http_server
+    from procontext.mcp.http_transport import run_http_server
 
     run_http_server(server, settings)
 

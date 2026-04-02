@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from procontext.outline import OutlineEntry, apply_outline_reduction_stage, parse_outline_entries
 from procontext.parser import parse_outline
-from procontext.search_outline_context import (
+from procontext.tools.search_page.outline_context import (
     build_ancestor_rollup,
     build_match_range_with_rollup,
     merge_outline_entries,

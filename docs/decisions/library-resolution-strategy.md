@@ -257,7 +257,7 @@ A: Depends on use case. For first implementation: simple substring (no boundarie
 
 ## References
 
-- `src/procontext/resolver.py` - Resolution logic
+- `src/procontext/tools/resolve_library/resolver.py` - Resolution logic
 - `src/procontext/normalization.py` - Query normalization
 - `src/procontext/models/registry.py` - Registry data structure
 - RFC: `resolve_library` in MCP server instructions

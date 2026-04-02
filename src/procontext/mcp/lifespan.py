@@ -14,8 +14,10 @@ import structlog
 from procontext import __version__
 from procontext.cache import Cache
 from procontext.config import Settings, registry_additional_info_path, registry_paths
-from procontext.content_processing import build_html_processor_pipeline
-from procontext.fetcher import Fetcher, build_allowlist, build_http_client
+from procontext.fetch.client import build_http_client
+from procontext.fetch.processors import build_html_processor_pipeline
+from procontext.fetch.security import build_allowlist
+from procontext.fetch.service import Fetcher
 from procontext.registry import (
     build_indexes,
     load_registry,

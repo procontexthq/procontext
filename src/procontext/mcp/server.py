@@ -19,19 +19,17 @@ import procontext.tools.search_page as t_search_page
 from procontext import __version__
 from procontext.errors import ProContextError
 from procontext.mcp.lifespan import lifespan
-from procontext.mcp.tool_docs import (
-    READ_OUTLINE_DESCRIPTION,
-    READ_PAGE_DESCRIPTION,
-    RESOLVE_LIBRARY_DESCRIPTION,
-    SEARCH_PAGE_DESCRIPTION,
-    SERVER_INSTRUCTIONS,
-)
+from procontext.mcp.prompt import SERVER_INSTRUCTIONS
 from procontext.models.tools import (
     ReadOutlineOutput,
     ReadPageOutput,
     ResolveLibraryOutput,
     SearchPageOutput,
 )
+from procontext.tools.read_outline.prompt import DESCRIPTION as READ_OUTLINE_DESCRIPTION
+from procontext.tools.read_page.prompt import DESCRIPTION as READ_PAGE_DESCRIPTION
+from procontext.tools.resolve_library.prompt import DESCRIPTION as RESOLVE_LIBRARY_DESCRIPTION
+from procontext.tools.search_page.prompt import DESCRIPTION as SEARCH_PAGE_DESCRIPTION
 
 if TYPE_CHECKING:
     from procontext.state import AppState

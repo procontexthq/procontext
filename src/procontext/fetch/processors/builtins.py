@@ -20,7 +20,7 @@ def is_supported_html_processor(name: str) -> bool:
 def build_html_processor(name: str) -> HtmlProcessor:
     """Instantiate a built-in HTML processor by name."""
     if name == "markitdown":
-        from .markitdown_processor import MarkItDownHtmlProcessor
+        from .markitdown import MarkItDownHtmlProcessor
 
         return MarkItDownHtmlProcessor()
     raise ValueError(f"Unsupported HTML processor: {name}")

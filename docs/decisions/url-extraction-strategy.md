@@ -170,7 +170,7 @@ This allows experimentation without breaking current behavior.
 
 - RFC 3986: Uniform Resource Identifier (URI) - Generic Syntax
 - Python `urllib.parse.urlparse()` documentation
-- SSRF Protection in `src/procontext/fetcher.py`
+- SSRF Protection in `src/procontext/fetch/security.py` and `src/procontext/fetch/service.py`
 
 ## Questions & Answers
 

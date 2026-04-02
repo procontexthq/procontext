@@ -20,8 +20,13 @@ from procontext.outline import (
     strip_empty_fences,
 )
 from procontext.page import fetch_or_cached_page
-from procontext.search import LineMatch, SearchResult, build_matcher, search_lines
-from procontext.search_outline_context import select_search_outline_entries
+from procontext.tools.search_page.outline_context import select_search_outline_entries
+from procontext.tools.search_page.search import (
+    LineMatch,
+    SearchResult,
+    build_matcher,
+    search_lines,
+)
 
 if TYPE_CHECKING:
     from procontext.state import AppState
@@ -43,7 +48,6 @@ async def handle(
     log = structlog.get_logger().bind(tool="search_page", url=url, query=query)
     log.info("handler_called")
 
-    # Validate input
     try:
         validated = SearchPageInput(
             url=url,
@@ -65,10 +69,8 @@ async def handle(
             recoverable=False,
         ) from exc
 
-    # Fetch (or retrieve from cache) the page content
     result = await fetch_or_cached_page(validated.url, state)
 
-    # Compile the search pattern
     try:
         matcher = build_matcher(
             validated.query,
@@ -97,19 +99,15 @@ async def handle(
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
         outline = None
     else:
-        # Run the search against page content
         search_result = search_lines(
             result.content,
             matcher,
             offset=validated.offset,
             max_results=validated.max_results,
         )
-
-        # Format matches as "line_number:content" string
         raw_matches = search_result.matches
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
 
-        # Build compacted outline trimmed to match range
         first_line = raw_matches[0].line_number if raw_matches else None
         last_line = raw_matches[-1].line_number if raw_matches else None
         outline = _compact_search_outline(
@@ -142,7 +140,7 @@ def _search_outline_lines(
     *,
     offset: int,
     max_results: int,
-):
+) -> SearchResult:
     """Search raw outline lines, ignoring the numeric prefix for matching."""
     matches: list[LineMatch] = []
     lines = [line for line in raw_outline.splitlines() if line]

@@ -9,8 +9,9 @@ import structlog
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from procontext.fetch.models import FetchedContent
+
     from .base import HtmlProcessor
-    from .payload import FetchedContent
 
 log = structlog.get_logger()
 

@@ -15,7 +15,7 @@ from typing import Literal
 class LineMatch:
     """A single matching line."""
 
-    line_number: int  # 1-based
+    line_number: int
     content: str
 
 
@@ -35,19 +35,12 @@ def build_matcher(
     case_mode: Literal["smart", "insensitive", "sensitive"] = "smart",
     whole_word: bool = False,
 ) -> re.Pattern[str]:
-    """Compile a search query into a ``re.Pattern``.
-
-    Raises ``re.error`` for invalid regex patterns (caller should catch and
-    translate to INVALID_INPUT).
-    """
-    # Build the pattern string
+    """Compile a search query into a ``re.Pattern``."""
     pattern = re.escape(query) if mode == "literal" else query
 
-    # Word boundary wrapping
     if whole_word:
         pattern = rf"\b{pattern}\b"
 
-    # Case sensitivity flags
     flags = re.NOFLAG
     if case_mode == "insensitive" or (case_mode == "smart" and query == query.lower()):
         flags = re.IGNORECASE
@@ -62,17 +55,7 @@ def search_lines(
     offset: int = 1,
     max_results: int = 20,
 ) -> SearchResult:
-    """Scan *content* line-by-line and return matching lines.
-
-    Args:
-        content: Full page text (may be empty).
-        matcher: Compiled pattern from ``build_matcher``.
-        offset: 1-based line number to start searching from.
-        max_results: Maximum matches to return.
-
-    Returns:
-        A ``SearchResult`` with matches, has_more flag, and next_offset.
-    """
+    """Scan *content* line-by-line and return matching lines."""
     lines = content.splitlines()
     matches: list[LineMatch] = []
 
@@ -82,7 +65,6 @@ def search_lines(
         if matcher.search(line):
             matches.append(LineMatch(line_number=idx, content=line))
             if len(matches) == max_results:
-                # Check if there are more matches beyond this point
                 for remaining_idx in range(idx + 1, len(lines) + 1):
                     if matcher.search(lines[remaining_idx - 1]):
                         return SearchResult(

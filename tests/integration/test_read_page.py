@@ -12,7 +12,7 @@ import respx
 
 from procontext.config import FetcherSettings, Settings
 from procontext.errors import ErrorCode, ProContextError
-from procontext.fetcher import Fetcher
+from procontext.fetch.service import Fetcher
 from procontext.tools.read_page import handle as read_page_handle
 from tests.integration.tool_test_support import (
     SAMPLE_PAGE,

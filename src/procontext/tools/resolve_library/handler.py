@@ -14,7 +14,7 @@ import structlog
 from procontext.errors import ErrorCode, ProContextError
 from procontext.models.tools import ResolveHint, ResolveLibraryInput, ResolveLibraryOutput
 from procontext.normalization import is_unsupported_resolve_query
-from procontext.resolver import resolve_library
+from procontext.tools.resolve_library.resolver import resolve_library
 
 if TYPE_CHECKING:
     from procontext.models.registry import LibraryMatch
@@ -27,24 +27,10 @@ async def handle(
     *,
     language: str | None = None,
 ) -> dict:
-    """Handle a resolve_library tool call.
-
-    Resolves a library name/package to its documentation.
-
-    Returns a dict with:
-    - matches: List of LibraryMatch objects, each containing:
-      - index_url: Table of contents (llms.txt)
-      - full_docs_url: Complete merged documentation (llms-full.txt) if available
-      - Other library metadata (name, description, packages, etc.)
-    - hint: Optional guidance for the user (e.g., if fuzzy matching was used)
-
-    Use index_url to navigate by sections, or full_docs_url to search the entire
-    library documentation at once.
-    """
+    """Handle a resolve_library tool call."""
     log = structlog.get_logger().bind(tool="resolve_library", query=query)
     log.info("handler_called")
 
-    # Validate input
     try:
         validated = ResolveLibraryInput(query=query, language=language)
     except ValueError as exc:
@@ -74,24 +60,17 @@ async def handle(
 
 
 def _sort_by_language(matches: list[LibraryMatch], language: str) -> list[LibraryMatch]:
-    """Sort matches and their package entries by language preference.
-
-    Within each match, package entries whose ``languages`` contain the
-    requested language are moved to the front.  Matches that have at least
-    one matching package entry are sorted before those that don't.  Relative
-    order is preserved within each group (stable sort).
-    """
+    """Sort matches and their package entries by language preference."""
     sorted_matches: list[LibraryMatch] = []
     for match in matches:
-        has_lang = [p for p in match.packages if language in p.languages]
-        no_lang = [p for p in match.packages if language not in p.languages]
+        has_lang = [package for package in match.packages if language in package.languages]
+        no_lang = [package for package in match.packages if language not in package.languages]
         sorted_matches.append(match.model_copy(update={"packages": has_lang + no_lang}))
 
-    def _has_language(m: LibraryMatch) -> bool:
-        return any(language in p.languages for p in m.packages)
+    def _has_language(match: LibraryMatch) -> bool:
+        return any(language in package.languages for package in match.packages)
 
-    # Stable sort: matches with the language come first
-    return sorted(sorted_matches, key=lambda m: not _has_language(m))
+    return sorted(sorted_matches, key=lambda match: not _has_language(match))
 
 
 def _resolve_hint(query: str, matches: list[LibraryMatch]) -> ResolveHint | None:

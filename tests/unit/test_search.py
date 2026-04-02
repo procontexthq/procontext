@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from procontext.search import build_matcher, search_lines
+from procontext.tools.search_page.search import build_matcher, search_lines
 
 # Sample content used across tests
 _CONTENT = """\

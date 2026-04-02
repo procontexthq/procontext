@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from procontext.fetcher import build_allowlist, build_http_client
+from procontext.fetch.client import build_http_client
+from procontext.fetch.security import build_allowlist
 
 from . import storage as registry_storage
 from . import update as registry_update

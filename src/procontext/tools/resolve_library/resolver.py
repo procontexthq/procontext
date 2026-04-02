@@ -152,12 +152,7 @@ def _fuzzy_search(
     limit: int = 5,
     score_cutoff: int = 70,
 ) -> list[LibraryMatch]:
-    """Fuzzy match against the corpus using Levenshtein distance.
-
-    Deduplicates by library_id (one result per library) and applies the
-    result limit after deduplication.
-    Returns matches sorted by relevance descending.
-    """
+    """Fuzzy match against the corpus using Levenshtein distance."""
     if not corpus or limit < 1:
         return []
 
@@ -189,4 +184,4 @@ def _fuzzy_search(
         if len(matches) == limit:
             break
 
-    return sorted(matches, key=lambda m: m.relevance, reverse=True)
+    return sorted(matches, key=lambda match: match.relevance, reverse=True)
