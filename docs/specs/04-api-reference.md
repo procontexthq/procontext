@@ -591,7 +591,7 @@ For pages where the outline is replaced by a status message (very large pages), 
     },
     "outline": {
       "type": ["string", "null"],
-      "description": "Compacted structural outline of the page (target ≤50 entries). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries. Null when include_outline=false."
+      "description": "Compacted structural outline of the page (target ≤50 entries and the configured read_page outline character budget). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries. Null when include_outline=false."
     },
     "total_lines": {
       "type": "integer",
@@ -629,7 +629,7 @@ For pages where the outline is replaced by a status message (very large pages), 
 }
 ```
 
-**Outline compaction**: The outline is compacted to ≤50 entries by progressively removing lower-priority headings (H6 → H5 → fenced content → H4 → H3). If even H1/H2 exceed 50 entries, the field contains a status message. The full outline and content are cached together so subsequent calls with different offsets don't re-fetch.
+**Outline compaction**: The outline is compacted to ≤50 entries and the configured `read_page` outline character budget by progressively removing lower-priority headings (H6 → H5 → fenced content → H4 → H3). If even H1/H2 exceed either limit, the field contains a status message. The full outline and content are cached together so subsequent calls with different offsets don't re-fetch.
 
 **Cache sharing**: `read_page`, `search_page`, and `read_outline` share the same `page_cache`. A page fetched by any tool is immediately available to the others without a re-fetch.
 
@@ -829,7 +829,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
     },
     "outline": {
       "type": ["string", "null"],
-      "description": "Structural outline context for content-mode search results. Null when target='outline' because outline context is not applicable in that mode."
+      "description": "Structural outline context for content-mode search results. Null when target='outline' because outline context is not applicable in that mode. On oversized pages with matches, the returned outline prepends the active ancestor heading chain immediately preceding the first match. Content-mode search uses a tighter default outline character budget than read_page."
     },
     "matches": {
       "type": "string",

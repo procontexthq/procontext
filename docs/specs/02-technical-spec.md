@@ -113,7 +113,7 @@ read_page("https://python.langchain.com/llms.txt")
   ├─ Fetch: HTTP GET url (30s timeout, initial URL allowlisted; private IPs blocked on redirect hops)
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
-  ├─ Compact outline (progressive depth reduction → ≤max_entries AND ≤max_chars, or status message)
+  ├─ Compact outline (progressive depth reduction → ≤max_entries AND the read_page char budget, or status message)
   └─ Return: { outline: "...", content: "...", has_more: bool }
 
 search_page("https://python.langchain.com/llms.txt", "streaming")
@@ -124,9 +124,10 @@ search_page("https://python.langchain.com/llms.txt", "streaming")
   │    MISS → fetch and cache (same path as read_page)
   ├─ Build matcher from query + mode + case_mode + whole_word
   ├─ Scan lines from offset, collect up to max_results matches
-  ├─ If outline is already small (≤max_entries AND ≤max_chars after empty-fence stripping), return it unchanged
+  ├─ If outline is already small (≤max_entries AND the search_page char budget after empty-fence stripping), return it unchanged
   ├─ Otherwise trim outline to match range (first match line → last match line)
-  ├─ Compact the oversized trimmed outline (progressive depth reduction → ≤max_entries AND ≤max_chars)
+  ├─ Prepend the active ancestor chain for the first match (prefer H2, fall back to H1)
+  ├─ Compact the oversized rolled-up outline (progressive depth reduction → ≤max_entries AND the search_page char budget)
   └─ Return: { outline: "...", matches: [...], has_more: bool }
 
 read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
@@ -999,15 +1000,29 @@ After each stage, the formatted outline is checked against both constraints via 
 
 If the entry count still exceeds `max_entries` OR the formatted string exceeds `max_chars` after all reductions (only H1/H2 remain), returns `None`. The caller renders a status message: `"[Outline too large (N entries). Use read_outline for paginated access.]"`
 
-These limits are configurable via `settings.outline.max_entries` and `settings.outline.max_chars` (defaults: 50 entries, 4000 characters).
+These limits are configurable via `settings.outline.max_entries`, `settings.outline.read_page_max_chars`, and `settings.outline.search_page_max_chars` (defaults: 50 entries, 4000 characters for `read_page`, 1000 characters for `search_page`).
 
 ### 7.5 Match-Range Trimming
 
 `trim_outline_to_range(entries: list[OutlineEntry], first_line: int, last_line: int) -> list[OutlineEntry]`
 
-Used by `search_page` before compaction. Filters entries to those with `line_number` between `first_line` and `last_line` (inclusive). When zero matches are found, the caller skips trimming and compaction entirely and returns an empty outline string.
+Used by `search_page` before rollup and compaction. Filters entries to those with `line_number` between `first_line` and `last_line` (inclusive). When zero matches are found, the caller skips range trimming and falls back to normal full-outline compaction.
 
-### 7.6 Formatting
+### 7.6 Search Outline Rollup
+
+`build_ancestor_rollup(entries: list[OutlineEntry], first_match_line: int) -> list[OutlineEntry]`
+
+Used only by oversized `search_page` content-mode responses. Walks headings strictly before `first_match_line` using a depth-aware stack that keeps only the active ancestor path at the match boundary.
+
+Root selection policy:
+
+1. Prefer the nearest surviving `H2`
+2. If no `H2` survives, fall back to the nearest surviving `H1`
+3. If neither exists, return the available local chain
+
+The rollup is computed separately for each progressive reduction stage so headings removed by H6/H5/fence/H4/H3 filtering are never reintroduced.
+
+### 7.7 Formatting
 
 `format_outline(entries: list[OutlineEntry]) -> str`
 
@@ -1551,7 +1566,8 @@ resolver:
 
 outline:
   max_entries: 50 # maximum entry count in compacted outlines (read_page, search_page)
-  max_chars: 4000 # maximum character count in compacted outlines (as formatted string)
+  read_page_max_chars: 4000 # max formatted outline chars returned by read_page
+  search_page_max_chars: 1000 # tighter max formatted outline chars returned by search_page
 
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
@@ -1600,7 +1616,8 @@ class ResolverSettings(BaseModel):
 
 class OutlineSettings(BaseModel):
     max_entries: int = 50 # maximum entry count in compacted outlines
-    max_chars: int = 4000 # maximum character count in compacted outlines
+    read_page_max_chars: int = 4000 # maximum character count in read_page outlines
+    search_page_max_chars: int = 1000 # maximum character count in search_page outlines
 
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

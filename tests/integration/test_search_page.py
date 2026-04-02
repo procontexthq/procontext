@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from procontext.state import AppState
 
 
+def _join_lines(lines: list[str]) -> str:
+    return "\n".join(lines)
+
+
 class TestSearchPageHandler:
     """Full handler pipeline tests for search_page."""
 
@@ -281,7 +285,7 @@ class TestSearchPageHandler:
         result = await search_page_handle(url, "-------------", app_state)
 
         assert result["matches"].startswith("4:-------------")
-        assert result["outline"] == ""
+        assert result["outline"] == "3:## Match Section"
 
     @respx.mock
     async def test_search_large_outline_no_matches_compacts(self, app_state: AppState) -> None:
@@ -323,6 +327,124 @@ class TestSearchPageHandler:
 
         assert result["matches"] != ""
         assert result["outline"] is not None
+
+    @respx.mock
+    async def test_search_page_uses_tighter_char_budget_than_read_page(
+        self, app_state: AppState
+    ) -> None:
+        """read_page and search_page use different outline char budgets by default."""
+        url = "https://python.langchain.com/docs/concepts/outline-budget.md"
+        lines = ["# Top", ""]
+        for index in range(40):
+            lines.append(f"### Section {index} {'x' * 40}")
+            lines.append(f"Body content for section {index}.")
+            lines.append("")
+        page = "\n".join(lines)
+        respx.get(url).mock(return_value=httpx.Response(200, text=page))
+
+        read_result = await read_page_handle(url, 1, 500, app_state)
+        search_result = await search_page_handle(url, "xyzzy_nonexistent", app_state)
+
+        assert "[Compacted:" not in read_result["outline"]
+        assert "### Section 0" in read_result["outline"]
+        assert search_result["matches"] == ""
+        assert "[Compacted:" in search_result["outline"]
+
+    @respx.mock
+    async def test_search_rollup_includes_preceding_h2_context(self, app_state: AppState) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-h2.md"
+        lines = ["# Top", "", "## Target Section", "", "needle body"]
+        for index in range(60):
+            lines.extend(["", f"### Detail {index}", f"Detail body {index}."])
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle body", app_state)
+
+        assert result["matches"].startswith("5:needle body")
+        assert result["outline"] == "3:## Target Section"
+
+    @respx.mock
+    async def test_search_rollup_falls_back_to_h1_when_no_h2_exists(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-h1.md"
+        lines = ["# Top", "", "### Local Section", "", "needle body"]
+        for index in range(60):
+            lines.extend(["", f"### Detail {index}", f"Detail body {index}."])
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle body", app_state)
+
+        assert result["matches"].startswith("5:needle body")
+        assert result["outline"] == "1:# Top\n3:### Local Section"
+
+    @respx.mock
+    async def test_search_rollup_uses_local_context_when_h1_h2_missing(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-local.md"
+        lines = ["### Local Section", "", "#### Leaf", "", "needle body"]
+        for index in range(60):
+            lines.extend(["", f"### Detail {index}", f"Detail body {index}."])
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle body", app_state)
+
+        assert result["matches"].startswith("5:needle body")
+        assert result["outline"] == "1:### Local Section\n3:#### Leaf"
+
+    @respx.mock
+    async def test_search_rollup_does_not_reintroduce_h6_after_h6_reduction(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-h6-stage.md"
+        lines = ["# Top", "", "## Target"]
+        for index in range(20):
+            lines.extend([f"###### Leaf {index} {'x' * 60}", f"needle {index}", ""])
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle", app_state)
+
+        assert result["matches"] != ""
+        assert result["outline"] is not None
+        assert "## Target" in result["outline"]
+        assert "######" not in result["outline"]
+
+    @respx.mock
+    async def test_search_rollup_does_not_reintroduce_h5_after_h5_reduction(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-h5-stage.md"
+        lines = ["# Top", "", "## Target"]
+        for index in range(20):
+            lines.extend([f"##### Leaf {index} {'x' * 60}", f"needle {index}", ""])
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle", app_state)
+
+        assert result["matches"] != ""
+        assert result["outline"] is not None
+        assert "## Target" in result["outline"]
+        assert "#####" not in result["outline"]
+
+    @respx.mock
+    async def test_search_rollup_does_not_reintroduce_fenced_headings_after_reduction(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/rollup-fenced-stage.md"
+        lines = ["# Top", "", "## Target", "", "```md"]
+        for index in range(20):
+            lines.extend([f"### Fence Heading {index} {'x' * 60}", f"needle {index}", ""])
+        lines.append("```")
+        respx.get(url).mock(return_value=httpx.Response(200, text=_join_lines(lines)))
+
+        result = await search_page_handle(url, "needle", app_state)
+
+        assert result["matches"] != ""
+        assert result["outline"] is not None
+        assert "## Target" in result["outline"]
+        assert "```" not in result["outline"]
+        assert "Fence Heading" not in result["outline"]
 
     @respx.mock
     async def test_outline_search_pagination_has_more_with_later_match(
