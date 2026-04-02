@@ -1349,7 +1349,7 @@ Three registry artefacts may live on disk:
 | -------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | **Local registry**   | `<data_dir>/registry/known-libraries.json` | Downloaded by `procontext setup` and updated by the background scheduler.                        |
 | **Local state file** | `<data_dir>/registry/registry-state.json`  | Stores `version`, `sha256` checksum, `updated_at`, `last_checked_at`, and optional additional-info metadata for the local registry. |
-| **Additional info**  | `<data_dir>/registry/additional-info.json` | Optional sidecar containing `useful_md_probe_base_urls`, which gates `.md` probing by exact normalized origin. |
+| **Additional info**  | `<data_dir>/registry/additional-info.json` | Optional sidecar containing registry-managed metadata such as `useful_md_probe_base_urls`. |
 
 `<data_dir>` defaults to `platformdirs.user_data_dir("procontext")` and can be overridden via `PROCONTEXT__DATA_DIR`.
 
@@ -1368,7 +1368,7 @@ Three registry artefacts may live on disk:
 
 - `updated_at` — set only when a new registry version is actually downloaded and persisted.
 - `last_checked_at` — set after every successful update check, even when the registry is already current. Used by both transports to gate checks: if the gap between now and `last_checked_at` is less than `registry.poll_interval_hours`, the startup check (stdio) or first poll (HTTP) is skipped to avoid redundant metadata fetches on frequent restarts or immediately after `procontext setup`.
-- `additional_info_download_url` / `additional_info_checksum` — optional metadata advertising the registry additional-info sidecar. The sidecar is fetched best-effort during setup and background update checks. Failure to fetch or validate it never fails the main registry update; runtime `.md` probing is simply disabled until a valid local sidecar is available again.
+- `additional_info_download_url` / `additional_info_checksum` — optional metadata advertising the registry additional-info sidecar. The sidecar is fetched best-effort during setup and background update checks. Failure to fetch or validate it never fails the main registry update.
 
 The local registry pair (both files together) is the consistency unit. If either file is missing, cannot be parsed, or the checksum in the state file does not match `sha256(known-libraries.json)`, the pair is considered invalid and the server treats it as if no registry exists.
 
@@ -1557,7 +1557,7 @@ fetcher:
   extra_allowed_domains: # always trusted, merged at startup regardless of depth
     - github.com
     - githubusercontent.com
-  connect_timeout_seconds: 5.0 # TCP connection timeout; fail fast so .md probes fall back quickly
+  connect_timeout_seconds: 5.0 # TCP connection timeout
   request_timeout_seconds: 30.0 # per-request read timeout for documentation fetches
 
 resolver:

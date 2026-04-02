@@ -525,7 +525,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
 
 ## 3. Tool: read_page
 
-**Purpose**: Fetch any documentation URL — llms.txt indexes, README files, or documentation pages. Returns a compacted structural outline (≤50 entries) and a windowed slice of content. Before fetch and cache lookup, the server applies minimal URL normalization: trim outer whitespace, lowercase scheme and host, and remove default ports while preserving path, query string, fragment, and trailing slash. If the URL does not end with `.md`, the server tries the `.md` variant first only when the URL passes the existing probe heuristic and its normalized origin exactly matches one of the `useful_md_probe_base_urls` loaded from the optional registry additional-info sidecar. On any probe failure (404, timeout, network error) it falls back to the normalized URL. A 200 HTML response from the `.md` probe is accepted as-is. If the sidecar is missing or invalid, `.md` probing is disabled. `.md` is never appended to redirect targets.
+**Purpose**: Fetch any documentation URL — llms.txt indexes, README files, or documentation pages. Returns a compacted structural outline (≤50 entries) and a windowed slice of content. Before fetch and cache lookup, the server applies minimal URL normalization: trim outer whitespace, lowercase scheme and host, and remove default ports while preserving path, query string, fragment, and trailing slash. The server fetches the normalized URL exactly as provided.
 
 ### 3.1 Input Schema
 
@@ -538,7 +538,7 @@ An empty `matches` list is a valid, non-error outcome. The library is simply not
     "properties": {
       "url": {
         "type": "string",
-      "description": "URL to read. Typically from resolve_library output (index_url, or readme_url from a packages entry) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. Before fetch and cache lookup, the server applies minimal normalization: trim outer whitespace, lowercase scheme and host, and remove default ports. Path, query string, fragment, and trailing slash are preserved. If the URL does not end with .md, the server tries url+\".md\" first; on any failure it falls back to the normalized URL.",
+      "description": "URL to read. Typically from resolve_library output (index_url, or readme_url from a packages entry) or from links found in a documentation index. Must use http or https. Must be a domain from the library registry. Before fetch and cache lookup, the server applies minimal normalization: trim outer whitespace, lowercase scheme and host, and remove default ports. Path, query string, fragment, and trailing slash are preserved. The normalized URL is fetched exactly as provided.",
         "maxLength": 2048
       },
       "offset": {

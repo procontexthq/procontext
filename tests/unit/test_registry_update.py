@@ -270,7 +270,10 @@ async def test_check_for_registry_update_refreshes_additional_info_without_versi
         outcome = await check_for_registry_update(state)
 
     assert outcome == "success"
-    assert state.md_probe_base_urls == frozenset({"https://docs.example.com"})
+    assert (
+        state.registry_additional_info_download_url
+        == "https://registry.example/additional-info.json"
+    )
     assert state.registry_additional_info_checksum == sidecar_checksum
     assert (registry_dir / "additional-info.json").read_bytes() == sidecar_bytes
 
@@ -847,10 +850,10 @@ async def test_check_for_registry_update_network_error(
     assert outcome == "transient_failure"
 
 
-async def test_check_for_registry_update_ai_download_fails_clears_probes(
+async def test_check_for_registry_update_ai_download_failure_is_non_fatal(
     tmp_path: Path, indexes, sample_entries
 ) -> None:
-    """additional-info download failure clears md_probe_base_urls."""
+    """additional-info download failure is non-fatal and preserves update success."""
     registry_dir = tmp_path / "registry"
     registry_dir.mkdir(parents=True, exist_ok=True)
     ver = "2026-02-20"
@@ -890,11 +893,11 @@ async def test_check_for_registry_update_ai_download_fails_clears_probes(
             sample_entries=sample_entries,
             registry_version=ver,
         )
-        state.md_probe_base_urls = frozenset({"https://old.example.com"})
         outcome = await check_for_registry_update(state)
 
     assert outcome == "success"
-    assert state.md_probe_base_urls == frozenset()
+    assert state.registry_additional_info_download_url == "https://r.example/ai.json"
+    assert state.registry_additional_info_checksum == "sha256:" + ("d" * 64)
 
 
 async def test_check_for_registry_update_ai_removed_clears_state(
@@ -938,12 +941,11 @@ async def test_check_for_registry_update_ai_removed_clears_state(
         )
         state.registry_additional_info_download_url = "https://old.example.com/ai.json"
         state.registry_additional_info_checksum = "sha256:" + ("b" * 64)
-        state.md_probe_base_urls = frozenset({"https://old.example.com"})
         outcome = await check_for_registry_update(state)
 
     assert outcome == "success"
-    assert state.md_probe_base_urls == frozenset()
     assert state.registry_additional_info_download_url is None
+    assert state.registry_additional_info_checksum is None
 
 
 async def test_check_for_registry_update_persist_failure_non_fatal(
@@ -1057,7 +1059,8 @@ async def test_check_for_registry_update_ai_persist_failure_non_fatal(
         )
 
     assert outcome == "success"
-    assert state.md_probe_base_urls == frozenset({"https://docs.example.com"})
+    assert state.registry_additional_info_download_url == "https://r.example/ai.json"
+    assert state.registry_additional_info_checksum == sc
 
 
 async def test_check_for_registry_update_invalid_metadata_version(
@@ -1256,7 +1259,8 @@ async def test_check_for_registry_update_only_ai_changed(
 
     assert outcome == "success"
     assert not reg_downloaded
-    assert state.md_probe_base_urls == frozenset({"https://docs.new.com"})
+    assert state.registry_additional_info_download_url == "https://r.example/ai.json"
+    assert state.registry_additional_info_checksum == sc
 
 
 async def test_setup_additional_info_persist_failure_still_succeeds(

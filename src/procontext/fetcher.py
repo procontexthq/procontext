@@ -17,6 +17,11 @@ import structlog
 
 from procontext import __version__
 from procontext.config import FetcherSettings
+from procontext.content_processing import (
+    FetchedContent,
+    HtmlProcessorPipeline,
+    build_html_processor_pipeline,
+)
 from procontext.errors import ErrorCode, ProContextError
 
 if TYPE_CHECKING:
@@ -208,9 +213,13 @@ class Fetcher:
         self,
         client: httpx.AsyncClient,
         settings: FetcherSettings | None = None,
+        html_processor_pipeline: HtmlProcessorPipeline | None = None,
     ) -> None:
         self._client = client
         self._settings = settings or FetcherSettings()
+        self._html_processor_pipeline = html_processor_pipeline or build_html_processor_pipeline(
+            self._settings.html_processors
+        )
 
     async def fetch(
         self,
@@ -278,13 +287,21 @@ class Fetcher:
                         recoverable=True,
                     )
 
+                fetched_content = _build_fetched_content(
+                    response=response,
+                    original_url=url,
+                    final_url=current_url,
+                )
+                processed_content = await self._html_processor_pipeline.process(fetched_content)
                 log.info(
                     "fetch_complete",
                     url=url,
                     status_code=response.status_code,
-                    content_length=len(response.text),
+                    content_length=len(processed_content.text_content),
+                    final_url=current_url,
+                    content_type=processed_content.content_type,
                 )
-                return response.text
+                return processed_content.text_content
 
         except ProContextError:
             raise
@@ -303,3 +320,42 @@ class Fetcher:
             suggestion="",
             recoverable=False,
         )
+
+
+def _build_fetched_content(
+    *,
+    response: httpx.Response,
+    original_url: str,
+    final_url: str,
+) -> FetchedContent:
+    content_type, charset = _parse_content_type(response.headers.get("content-type"))
+    return FetchedContent(
+        original_url=original_url,
+        final_url=final_url,
+        body=response.content,
+        text_content=response.text,
+        content_type=content_type,
+        charset=charset or response.encoding,
+    )
+
+
+def _parse_content_type(header_value: str | None) -> tuple[str | None, str | None]:
+    if not header_value:
+        return None, None
+
+    parts = [part.strip() for part in header_value.split(";") if part.strip()]
+    if not parts:
+        return None, None
+
+    content_type = parts[0].lower()
+    charset: str | None = None
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key.strip().lower() == "charset":
+            parsed_value = value.strip().strip("\"'")
+            charset = parsed_value or None
+            break
+
+    return content_type, charset

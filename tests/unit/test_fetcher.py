@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Literal
+from unittest.mock import patch
+
 import httpx
 import pytest
 import respx
 
 from procontext.config import FetcherSettings, Settings
+from procontext.content_processing import FetchedContent, HtmlProcessorPipeline
 from procontext.errors import ErrorCode, ProContextError
 from procontext.fetcher import (
     Fetcher,
@@ -227,6 +231,36 @@ class TestBuildHttpClient:
 ALLOWLIST = frozenset({"example.com", "docs.dev"})
 
 
+class _PassThroughProcessor:
+    name = "pass-through"
+
+    def applies_to(self, payload: FetchedContent) -> bool:
+        return True
+
+    async def transform(self, payload: FetchedContent) -> FetchedContent:
+        return payload.with_text_content(payload.text_content + "::pass-through")
+
+
+class _SuffixProcessor:
+    name = "suffix"
+
+    def applies_to(self, payload: FetchedContent) -> bool:
+        return True
+
+    async def transform(self, payload: FetchedContent) -> FetchedContent:
+        return payload.with_text_content(payload.text_content + "::suffix")
+
+
+class _FailingProcessor:
+    name = "failing"
+
+    def applies_to(self, payload: FetchedContent) -> bool:
+        return True
+
+    async def transform(self, payload: FetchedContent) -> FetchedContent:
+        raise RuntimeError("boom")
+
+
 class TestFetcher:
     async def test_successful_fetch(self) -> None:
         with respx.mock:
@@ -237,6 +271,87 @@ class TestFetcher:
                 fetcher = Fetcher(client)
                 result = await fetcher.fetch("https://example.com/llms.txt", ALLOWLIST)
                 assert result == "# Docs\nHello world"
+
+    async def test_html_fetch_uses_markitdown_by_default(self) -> None:
+        html = "<html><body><h1>Title</h1><p>Hello <strong>world</strong>.</p></body></html>"
+        with respx.mock:
+            respx.get("https://example.com/page").mock(
+                return_value=httpx.Response(
+                    200,
+                    text=html,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client)
+                result = await fetcher.fetch("https://example.com/page", ALLOWLIST)
+                assert result == "# Title\n\nHello **world**."
+
+    async def test_non_html_fetch_bypasses_html_processors(self) -> None:
+        with respx.mock:
+            respx.get("https://example.com/llms.txt").mock(
+                return_value=httpx.Response(
+                    200,
+                    text="# Docs\nHello world",
+                    headers={"content-type": "text/plain; charset=utf-8"},
+                )
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client)
+                result = await fetcher.fetch("https://example.com/llms.txt", ALLOWLIST)
+                assert result == "# Docs\nHello world"
+
+    async def test_empty_html_processor_list_returns_raw_html(self) -> None:
+        html = "<html><body><h1>Title</h1></body></html>"
+        settings = FetcherSettings(html_processors=[])
+        with respx.mock:
+            respx.get("https://example.com/page").mock(
+                return_value=httpx.Response(
+                    200,
+                    text=html,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client, settings)
+                result = await fetcher.fetch("https://example.com/page", ALLOWLIST)
+                assert result == html
+
+    async def test_processor_failure_logs_and_preserves_raw_html(self) -> None:
+        html = "<html><body><h1>Title</h1></body></html>"
+        pipeline = HtmlProcessorPipeline([_FailingProcessor()])
+        with respx.mock:
+            respx.get("https://example.com/page").mock(
+                return_value=httpx.Response(
+                    200,
+                    text=html,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client, html_processor_pipeline=pipeline)
+                with patch("procontext.content_processing.pipeline.log.warning") as mock_warning:
+                    result = await fetcher.fetch("https://example.com/page", ALLOWLIST)
+
+        assert result == html
+        mock_warning.assert_called_once()
+
+    async def test_multiple_processors_run_in_order(self) -> None:
+        html = "<html><body><h1>Title</h1></body></html>"
+        pipeline = HtmlProcessorPipeline([_PassThroughProcessor(), _SuffixProcessor()])
+        with respx.mock:
+            respx.get("https://example.com/page").mock(
+                return_value=httpx.Response(
+                    200,
+                    text=html,
+                    headers={"content-type": "text/html; charset=utf-8"},
+                )
+            )
+            async with httpx.AsyncClient() as client:
+                fetcher = Fetcher(client, html_processor_pipeline=pipeline)
+                result = await fetcher.fetch("https://example.com/page", ALLOWLIST)
+
+        assert result == html + "::pass-through::suffix"
 
     async def test_404_raises_error(self) -> None:
         with respx.mock:
@@ -386,8 +501,11 @@ class TestFetcher:
 # ---------------------------------------------------------------------------
 
 
-def _make_state_with_allowlist(allowlist_expansion: str, allowlist: frozenset[str]) -> AppState:
-    settings = Settings(fetcher={"allowlist_expansion": allowlist_expansion})
+def _make_state_with_allowlist(
+    allowlist_expansion: Literal["registry", "discovered"],
+    allowlist: frozenset[str],
+) -> AppState:
+    settings = Settings(fetcher=FetcherSettings(allowlist_expansion=allowlist_expansion))
     return AppState(
         settings=settings,
         indexes=RegistryIndexes(),
