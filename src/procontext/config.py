@@ -14,13 +14,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     YamlConfigSettingsSource,
 )
+
+from procontext.content_processing import is_supported_html_processor
 
 _DEFAULT_DATA_DIR = platformdirs.user_data_dir("procontext")
 # Cache path default is intentionally independent from data_dir overrides.
@@ -67,8 +69,22 @@ class FetcherSettings(BaseModel):
     ssrf_domain_check: bool = True
     allowlist_expansion: Literal["registry", "discovered"] = "registry"
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
+    html_processors: list[str] = Field(default_factory=lambda: ["markitdown"])
     connect_timeout_seconds: float = Field(default=5.0, gt=0)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    @field_validator("html_processors")
+    @classmethod
+    def validate_html_processors(cls, value: list[str]) -> list[str]:
+        validated: list[str] = []
+        for name in value:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("All html_processors entries must be non-empty strings")
+            normalized = name.strip().lower()
+            if not is_supported_html_processor(normalized):
+                raise ValueError(f"Unsupported HTML processor: {normalized}")
+            validated.append(normalized)
+        return validated
 
 
 class ResolverSettings(BaseModel):

@@ -260,7 +260,7 @@ The SQLite cache stores documentation content without encryption. Local filesyst
 | `<db_path>`                                | `page_cache` table: all fetched content (llms.txt, README, docs pages) | Avoid re-fetching documentation content    |
 | `<data_dir>/registry/known-libraries.json` | Library registry                        | Local copy of the registry for offline use |
 | `<data_dir>/registry/registry-state.json`  | Registry metadata (`version`, `checksum`, `updated_at`, `last_checked_at`, optional additional-info metadata) | Local version/checksum source for update checks; `last_checked_at` gates startup polling |
-| `<data_dir>/registry/additional-info.json` | Optional exact-origin md-probe allowlist (`useful_md_probe_base_urls`) | Gates `.md` probing to explicitly approved documentation origins |
+| `<data_dir>/registry/additional-info.json` | Optional registry metadata sidecar (currently may include `useful_md_probe_base_urls`) | Best-effort sidecar persisted alongside the main registry state |
 
 ### What is NOT stored
 

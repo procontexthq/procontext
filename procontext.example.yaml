@@ -52,6 +52,15 @@ fetcher:
   # Increase if you regularly fetch large pages or are on a slow network.
   request_timeout_seconds: 30
 
+  # Ordered HTML processor pipeline run before fetched content is cached.
+  # Built-in processors currently available:
+  #   - markitdown  Convert HTML pages to Markdown via MarkItDown
+  #
+  # Order matters. Each processor receives the output of the previous one.
+  # Set to [] to disable HTML post-processing entirely and cache raw HTML text.
+  html_processors:
+    - markitdown
+
   # Block requests to private/internal IP ranges (10.x.x.x, 192.168.x.x, 127.x.x.x,
   # ::1, fc00::/7, etc.). Strongly recommended to keep enabled — disabling this allows
   # ProContext to reach internal network services, which may expose sensitive endpoints.

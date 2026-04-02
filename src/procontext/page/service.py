@@ -11,15 +11,12 @@ import asyncio
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from os.path import splitext
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse, urlunparse
 
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
 from procontext.fetcher import expand_allowlist_from_content, is_url_allowed
-from procontext.normalization import normalize_doc_origin
 from procontext.parser import parse_outline
 
 if TYPE_CHECKING:
@@ -53,7 +50,7 @@ def _content_hash(content: str) -> str:
 async def fetch_or_cached_page(url: str, state: AppState) -> FetchResult:
     """Cache-check -> network fetch -> cache-write for a single page URL.
 
-    Handles SSRF validation, cache lookup, .md probing, outline parsing,
+    Handles SSRF validation, cache lookup, network fetch, outline parsing,
     allowlist expansion, cache write, and stale background refresh.
 
     When a cached entry has expired, stale content is returned immediately
@@ -163,7 +160,7 @@ async def _background_refresh(
             log.warning("stale_refresh_skipped", reason="fetcher_or_cache_not_initialized")
             return
 
-        content = await _fetch_with_md_probe(url, state)
+        content = await _fetch_page_content(url, state)
         outline = parse_outline(content)
 
         discovered_domains = expand_allowlist_from_content(content, state)
@@ -191,7 +188,7 @@ async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchRes
     if state.cache is None:
         raise RuntimeError("Cache must be initialized before fetching pages")
 
-    content = await _fetch_with_md_probe(url, state)
+    content = await _fetch_page_content(url, state)
     outline = parse_outline(content)
 
     log.info("fetch_complete", url=url, content_length=len(content))
@@ -218,56 +215,9 @@ async def _fetch_and_cache(url: str, url_hash: str, state: AppState) -> FetchRes
     )
 
 
-async def _fetch_with_md_probe(url: str, state: AppState) -> str:
-    """Fetch page content, trying .md variant first when applicable."""
+async def _fetch_page_content(url: str, state: AppState) -> str:
+    """Fetch page content for the requested URL."""
     if state.fetcher is None:
         raise RuntimeError("Fetcher must be initialized before fetching pages")
-    if _should_probe_md(url, state.md_probe_base_urls):
-        md_url = _with_md_extension(url)
-        try:
-            log.info("cache_miss_fetching", url=md_url)
-            return await state.fetcher.fetch(md_url, state.allowlist)
-        except ProContextError:
-            log.debug(
-                "md_probe_failed_falling_back", md_url=md_url, fallback_url=url, exc_info=True
-            )
-
     log.info("cache_miss_fetching", url=url)
     return await state.fetcher.fetch(url, state.allowlist)
-
-
-def _with_md_extension(url: str) -> str:
-    """Return the URL with .md appended to the path component."""
-    parsed = urlparse(url)
-    return urlunparse(parsed._replace(path=parsed.path + ".md"))
-
-
-def _should_probe_md(url: str, allowed_base_urls: frozenset[str]) -> bool:
-    """Return True if the URL is eligible for .md probing."""
-    if not allowed_base_urls:
-        return False
-
-    try:
-        origin = normalize_doc_origin(url)
-    except ValueError:
-        return False
-    if origin not in allowed_base_urls:
-        return False
-
-    parsed = urlparse(url)
-    if parsed.query:
-        return False
-
-    path = parsed.path
-    if not path or path.endswith("/"):
-        return False
-
-    _, ext = splitext(path.rsplit("/", 1)[-1])
-    if not ext:
-        return True
-
-    # Numeric or mixed alphanumeric suffixes like `.2`, `.3`, `.v2rc`,
-    # or `.h5` are typically version-ish path segments rather than real
-    # file extensions, so probing `.md` is still worthwhile.
-    ext_body = ext[1:]
-    return not ext_body.isalpha()

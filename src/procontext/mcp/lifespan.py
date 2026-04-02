@@ -14,6 +14,7 @@ import structlog
 from procontext import __version__
 from procontext.cache import Cache
 from procontext.config import Settings, registry_additional_info_path, registry_paths
+from procontext.content_processing import build_html_processor_pipeline
 from procontext.fetcher import Fetcher, build_allowlist, build_http_client
 from procontext.registry import (
     build_indexes,
@@ -121,7 +122,12 @@ async def lifespan(server: FastMCP) -> AsyncGenerator[AppState, None]:
             allowlist = allowlist | cached_domains
             log.info("allowlist_restored_from_cache", domain_count=len(cached_domains))
 
-    fetcher = Fetcher(http_client, settings.fetcher)
+    html_processor_pipeline = build_html_processor_pipeline(settings.fetcher.html_processors)
+    fetcher = Fetcher(
+        http_client,
+        settings.fetcher,
+        html_processor_pipeline=html_processor_pipeline,
+    )
 
     state = AppState(
         settings=settings,

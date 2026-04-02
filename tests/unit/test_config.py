@@ -102,7 +102,10 @@ class TestConfigValidation:
         server = ServerSettings(port=1)
         registry = RegistrySettings(poll_interval_hours=1)
         cache = CacheSettings(ttl_hours=1, cleanup_interval_hours=1)
-        fetcher = FetcherSettings(connect_timeout_seconds=0.1, request_timeout_seconds=0.1)
+        fetcher = FetcherSettings(
+            connect_timeout_seconds=0.1,
+            request_timeout_seconds=0.1,
+        )
         resolver = ResolverSettings(fuzzy_score_cutoff=0, fuzzy_max_results=1)
         outline = OutlineSettings(max_entries=1, read_page_max_chars=1, search_page_max_chars=1)
 
@@ -112,6 +115,7 @@ class TestConfigValidation:
         assert cache.cleanup_interval_hours == 1
         assert fetcher.connect_timeout_seconds == 0.1
         assert fetcher.request_timeout_seconds == 0.1
+        assert fetcher.html_processors == ["markitdown"]
         assert resolver.fuzzy_score_cutoff == 0
         assert resolver.fuzzy_max_results == 1
         assert outline.max_entries == 1
@@ -124,6 +128,14 @@ class TestConfigValidation:
         assert outline.max_entries == 1
         assert outline.read_page_max_chars == 1234
         assert outline.search_page_max_chars == 1234
+
+    def test_html_processors_can_be_empty(self) -> None:
+        fetcher = FetcherSettings(html_processors=[])
+        assert fetcher.html_processors == []
+
+    def test_unknown_html_processor_raises_validation_error(self) -> None:
+        with pytest.raises(ValidationError, match="Unsupported HTML processor"):
+            FetcherSettings(html_processors=["unknown"])
 
     def test_empty_auth_key_with_auth_enabled(self) -> None:
         """auth_key='' with auth_enabled=True is accepted by pydantic.

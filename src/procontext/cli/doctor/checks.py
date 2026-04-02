@@ -202,7 +202,7 @@ async def check_registry_additional_info(
         return CheckResult(
             "Registry additional info",
             "warn",
-            "additional-info metadata is incomplete; .md probing is disabled",
+            "additional-info metadata is incomplete",
         )
 
     validation = _validate_registry_additional_info(additional_info_path, advertised[1])

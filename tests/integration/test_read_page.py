@@ -10,7 +10,9 @@ import httpx
 import pytest
 import respx
 
+from procontext.config import FetcherSettings, Settings
 from procontext.errors import ErrorCode, ProContextError
+from procontext.fetcher import Fetcher
 from procontext.tools.read_page import handle as read_page_handle
 from tests.integration.tool_test_support import (
     SAMPLE_PAGE,
@@ -42,6 +44,59 @@ class TestReadPageHandler:
         assert "# Streaming" in result["outline"]
         assert "## Overview" in result["outline"]
         assert "# Streaming" in result["content"]
+
+    @respx.mock
+    async def test_extensionless_url_is_fetched_as_is(self, app_state: AppState) -> None:
+        url = "https://python.langchain.com/docs/concepts/streaming"
+        respx.get(url).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["url"] == url
+        assert result["cached"] is False
+        assert respx.calls.call_count == 1
+        assert str(respx.calls[0].request.url) == url
+
+    @respx.mock
+    async def test_html_pages_are_cached_as_markdown(self, app_state: AppState) -> None:
+        url = "https://python.langchain.com/docs/concepts/html-page"
+        html = "<html><body><h1>Title</h1><p>Hello <strong>world</strong>.</p></body></html>"
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                text=html,
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+        )
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert result["content"] == "# Title\n\nHello **world**."
+        assert "1:# Title" in result["outline"]
+
+    @respx.mock
+    async def test_html_pages_return_raw_html_when_processors_disabled(
+        self, app_state: AppState
+    ) -> None:
+        url = "https://python.langchain.com/docs/concepts/html-page-raw"
+        html = "<html><body><h1>Title</h1><p>Hello <strong>world</strong>.</p></body></html>"
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                text=html,
+                headers={"content-type": "text/html; charset=utf-8"},
+            )
+        )
+
+        assert app_state.http_client is not None
+        app_state.settings = Settings(fetcher=FetcherSettings(html_processors=[]))
+        app_state.fetcher = Fetcher(app_state.http_client, app_state.settings.fetcher)
+
+        result = await read_page_handle(url, 1, 500, app_state)
+
+        assert result["cached"] is False
+        assert result["content"] == html
 
     @respx.mock
     async def test_cache_hit_returns_cached(self, app_state: AppState) -> None:
