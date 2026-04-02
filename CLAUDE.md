@@ -121,6 +121,12 @@ See [`.claude/rules/coding-guidelines.md`](.claude/rules/coding-guidelines.md) f
 - **Failing tests are signals, not obstacles.** When a code change causes existing tests to fail, do not modify the test to make it pass without first understanding *why* it failed. A failing test may indicate a real bug in the change, an unintended behavioral shift, or a violated contract. Investigate the root cause, explain it to the user, and agree on the right fix before proceeding. Only update a test without consulting the user when the change is unambiguously correct (e.g., the test asserts on a renamed field that you just renamed).
 - After making changes, you must run linting, formatting, type checks, and pytest to verify the codebase is clean and all tests pass.
 
+## Conversational Implementation Guidelines
+
+You should interpret the user’s intent from each question and respond accordingly. Although your primary role is to be a coding partner, you should also function as a thoughtful conversational partner. Users may first want to discuss features, explore ideas, review design decisions, or ask general questions about the project or codebase. In such cases, your focus should be on answering clearly, adding useful context, and helping the user think through the problem.
+
+Contribute beyond direct answers by suggesting improvements, implementation approaches, design considerations, and things to avoid. Only start implementing code when the user explicitly asks you to do so.
+
 ## Updates to CLAUDE.md
 
 _Only add what Claude cannot infer from reading the code._
