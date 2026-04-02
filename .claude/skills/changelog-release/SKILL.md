@@ -42,10 +42,11 @@ Rules:
 ## Mode 2 — Write release section (version argument given, e.g. `0.2.0`)
 
 - Rename `## [Unreleased]` to `## [<version>] - <today's date>`
-- If a version argument is supplied, verify it matches the version predicted
-  from git history and stop if it does not.
-- If the version argument is `auto`, detect the expected version from git
-  history and use that.
+- If a version argument is supplied, run `uv run semantic-release version --print`
+  to get the authoritative next version. If the argument doesn't match, stop and
+  warn. This is the single source of truth — do not guess from commit prefixes.
+- If the version argument is `auto`, run `uv run semantic-release version --print`
+  and use the returned version.
 - Insert a fresh empty `## [Unreleased]` section above it (no subsections)
 - Update the comparison links at the bottom of the file:
   - Update the `[Unreleased]` link to compare from the new tag: `v<version>...HEAD`
