@@ -15,14 +15,13 @@ from procontext.errors import ErrorCode, ProContextError
 from procontext.models.tools import SearchPageInput, SearchPageOutput
 from procontext.outline import (
     build_compaction_note,
-    compact_outline,
     format_outline,
     parse_outline_entries,
     strip_empty_fences,
-    trim_outline_to_range,
 )
 from procontext.page import fetch_or_cached_page
 from procontext.search import LineMatch, SearchResult, build_matcher, search_lines
+from procontext.search_outline_context import select_search_outline_entries
 
 if TYPE_CHECKING:
     from procontext.state import AppState
@@ -118,7 +117,7 @@ async def handle(
             first_line,
             last_line,
             max_entries=state.settings.outline.max_entries,
-            max_chars=state.settings.outline.max_chars,
+            max_chars=state.settings.outline.search_page_max_chars,
         )
 
     output = SearchPageOutput(
@@ -194,38 +193,30 @@ def _compact_search_outline(
     max_entries: int = 50,
     max_chars: int = 4000,
 ) -> str:
-    """Trim and compact only oversized outlines for search_page output."""
+    """Build the search_page outline context for content-mode search results."""
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
-
-    # Small outlines fit inline already — preserve the full structure instead of
-    # trimming to the match span, which can drop useful parent headings.
-    if total_entries <= max_entries and len(format_outline(entries)) <= max_chars:
-        return format_outline(entries)
-
-    # No match range — compact without trimming to a span.
-    if first_line is None or last_line is None:
-        compacted = compact_outline(entries, max_entries=max_entries, max_chars=max_chars)
-        if compacted is None:
-            return (
-                f"[Outline too large ({total_entries} entries)."
-                " Use read_outline for paginated access.]"
-            )
-        note = build_compaction_note(compacted, total_entries)
-        return note + "\n" + format_outline(compacted)
-
-    # Trim to match range
-    trimmed = trim_outline_to_range(entries, first_line, last_line)
-
-    if len(trimmed) <= max_entries and len(format_outline(trimmed)) <= max_chars:
-        return format_outline(trimmed)
-
-    compacted = compact_outline(trimmed, max_entries=max_entries, max_chars=max_chars)
-    if compacted is None:
+    selection = select_search_outline_entries(
+        entries,
+        first_line,
+        last_line,
+        max_entries=max_entries,
+        max_chars=max_chars,
+    )
+    if selection is None:
         return (
             f"[Outline too large ({total_entries} entries). Use read_outline for paginated access.]"
         )
 
-    note = build_compaction_note(compacted, total_entries, match_range=(first_line, last_line))
-    return note + "\n" + format_outline(compacted)
+    if not selection.compacted:
+        return format_outline(selection.entries)
+
+    note = build_compaction_note(
+        selection.entries,
+        total_entries,
+        match_range=(
+            (first_line, last_line) if first_line is not None and last_line is not None else None
+        ),
+    )
+    return note + "\n" + format_outline(selection.entries)

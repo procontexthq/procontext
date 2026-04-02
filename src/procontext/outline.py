@@ -1,4 +1,4 @@
-"""Outline structuring, compaction, match-range trimming, and formatting.
+"""Outline structuring, compaction, reduction stages, and formatting.
 
 Parses the raw outline string (cached alongside page content) into structured
 entries, applies intelligent compaction for token-efficient responses, and
@@ -11,12 +11,15 @@ This module operates on that cached string at response time.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import structlog
 
 from procontext.parser import _FENCE_RE, _is_matching_fence_closer, _match_heading
 
 log = structlog.get_logger()
+
+OutlineReductionStage = Literal["none", "drop_h6", "drop_h5", "drop_fenced", "drop_h4", "drop_h3"]
 
 
 @dataclass(frozen=True)
@@ -161,6 +164,39 @@ def strip_empty_fences(entries: list[OutlineEntry]) -> list[OutlineEntry]:
 # ---------------------------------------------------------------------------
 
 
+def apply_outline_reduction_stage(
+    entries: list[OutlineEntry], stage: OutlineReductionStage
+) -> list[OutlineEntry]:
+    """Apply a single progressive reduction stage to outline entries."""
+    if stage == "none":
+        return entries
+    if stage == "drop_h6":
+        return [entry for entry in entries if entry.depth != 6]
+    if stage == "drop_h5":
+        return [entry for entry in entries if entry.depth != 5]
+    if stage == "drop_fenced":
+        return [entry for entry in entries if not entry.in_fence and not entry.is_fence]
+    if stage == "drop_h4":
+        return [entry for entry in entries if entry.depth != 4]
+    return [entry for entry in entries if entry.depth != 3]
+
+
+def iter_outline_reduction_stages(
+    entries: list[OutlineEntry],
+) -> list[tuple[OutlineReductionStage, list[OutlineEntry]]]:
+    """Return entries after each progressive reduction stage.
+
+    The stages are cumulative and ordered exactly as read_page/search_page
+    compaction applies them.
+    """
+    stages: list[tuple[OutlineReductionStage, list[OutlineEntry]]] = [("none", entries)]
+    result = entries
+    for stage in ("drop_h6", "drop_h5", "drop_fenced", "drop_h4", "drop_h3"):
+        result = apply_outline_reduction_stage(result, stage)
+        stages.append((stage, result))
+    return stages
+
+
 def compact_outline(
     entries: list[OutlineEntry],
     *,
@@ -182,35 +218,9 @@ def compact_outline(
     Returns ``None`` if the outline cannot be reduced to satisfy both constraints
     (only H1/H2 remain and still exceed either limit).
     """
-    if len(entries) <= max_entries and _formatted_outline_size(entries) <= max_chars:
-        return entries
-
-    result = entries
-
-    # Stage 1: Remove H6
-    result = [e for e in result if e.depth != 6]
-    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
-        return result
-
-    # Stage 2: Remove H5
-    result = [e for e in result if e.depth != 5]
-    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
-        return result
-
-    # Stage 3: Remove fenced content and fence markers
-    result = [e for e in result if not e.in_fence and not e.is_fence]
-    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
-        return result
-
-    # Stage 4: Remove H4
-    result = [e for e in result if e.depth != 4]
-    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
-        return result
-
-    # Stage 5: Remove H3
-    result = [e for e in result if e.depth != 3]
-    if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
-        return result
+    for _stage, result in iter_outline_reduction_stages(entries):
+        if len(result) <= max_entries and _formatted_outline_size(result) <= max_chars:
+            return result
 
     # Irreducible — only H1/H2 remain and still exceed at least one constraint
     return None

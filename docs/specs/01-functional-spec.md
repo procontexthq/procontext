@@ -163,7 +163,7 @@ Top-level output fields:
 1. Validate URL against SSRF allowlist; validate `offset` >= 1, `limit` >= 1, `before` >= 0. Apply minimal URL normalization first: trim outer whitespace, lowercase scheme and host, and remove default ports (`:80` for `http`, `:443` for `https`). Preserve path, query string, fragment, and trailing slash exactly.
 2. Check SQLite cache for `url_hash = sha256(normalized_url)` — if fresh, return from cache
 3. On cache miss: if URL does not already end with `.md`, try fetching `url + ".md"` first only when both conditions hold: (a) the URL shape still passes the existing probe heuristic (no query string, no trailing slash, no alphabetic file extension), and (b) the URL's normalized origin exactly matches one of the `useful_md_probe_base_urls` loaded from the optional registry additional-info sidecar. On any probe failure (404, timeout, network error), fall back to the normalized URL silently. A 200 HTML response from the `.md` probe is accepted as-is — no fallback, since the original URL would return the same content on an SPA. If the additional-info sidecar is missing or invalid, `.md` probing is disabled. `.md` is never appended to redirect targets; redirects are followed as the server directs. Store full content + outline in SQLite cache keyed against the normalized URL.
-4. If `include_outline=true`, compact outline for response (progressive depth reduction to satisfy both ≤max_entries and ≤max_chars; status message if irreducible). Otherwise set `outline=null`.
+4. If `include_outline=true`, compact outline for response (progressive depth reduction to satisfy both ≤max_entries and the `read_page` outline character limit; status message if irreducible). Otherwise set `outline=null`.
 5. Slice content to the requested window: start at `max(1, offset - before)` and end at `min(total_lines, offset + limit - 1)`
 6. Return compacted outline, windowed content, and pagination metadata
 
@@ -193,7 +193,7 @@ Top-level output fields:
 | Field          | Description                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`          | The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved exactly, so `/page` and `/page/` remain distinct. |
-| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND ≤max_chars characters). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. `null` when `include_outline=false`. |
+| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND the configured `read_page` outline character limit). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. `null` when `include_outline=false`. |
 | `total_lines`  | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`       | The 1-based line number the returned content actually starts from after applying `before` and clamping to line 1.                                     |
 | `limit`        | The maximum number of forward lines requested from the input `offset`.                                                                                  |
@@ -207,7 +207,7 @@ Top-level output fields:
 
 **Notes**:
 
-- The outline is compacted to satisfy both max_entries (default ≤50) and max_chars (default ≤4000) constraints to save tokens and ensure readability. For the complete outline, use `read_outline`. These limits are configurable via settings.
+- The outline is compacted to satisfy both max_entries (default ≤50) and the `read_page` character budget (default ≤4000) to save tokens and ensure readability. For the complete outline, use `read_outline`. These limits are configurable via settings.
 - The full page and outline are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
 - `search_page` and `read_outline` share the same cache — a page fetched by any tool is available to the others without a re-fetch.
 - URL normalization is intentionally minimal. Equivalent host-case and default-port variants share cache entries, but trailing slash differences do not.
@@ -241,9 +241,9 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 3. Starting from `offset`, search either page content lines (`target="content"`) or stored outline entries (`target="outline"`) for a match against `query` (respecting `mode`, `case_mode`, `whole_word`)
 4. Collect up to `max_results` matching lines
 5. In `target="outline"` mode, ignore the `<line_number>:` prefix when matching, but preserve the original outline line format in results
-6. In `target="content"` mode, if there are no matches, return an empty outline string
-7. In `target="content"` mode, if the full outline already satisfies both ≤max_entries and ≤max_chars after empty-fence stripping, return it unchanged
-8. In `target="content"` mode, otherwise trim the outline to the range between first and last match line numbers, then compact it (progressive depth reduction to satisfy both constraints; status message if irreducible)
+6. In `target="content"` mode, if there are no matches, skip range trimming and compact the full outline using the normal search-page limits
+7. In `target="content"` mode, if the full outline already satisfies both ≤max_entries and the configured `search_page` outline character limit after empty-fence stripping, return it unchanged
+8. In `target="content"` mode, otherwise trim the outline to the range between first and last match line numbers, prepend the active ancestor heading chain for the first match (prefer H2 as the root, fall back to H1, otherwise use the available local chain), then apply progressive reduction until both constraints are satisfied
 9. In `target="outline"` mode, always return `outline=null`
 10. Return matching lines and pagination metadata
 
@@ -268,7 +268,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 
 | Field          | Description                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `outline`      | Structural outline context for content-mode search results. `null` in `target="outline"` mode because outline context is not applicable there. In content mode, may be an empty string when the page has no outline entries. |
+| `outline`      | Structural outline context for content-mode search results. `null` in `target="outline"` mode because outline context is not applicable there. In content mode, may be an empty string when the page has no outline entries. On oversized pages with matches, this context includes the rolled-up ancestor chain immediately preceding the first match. |
 | `matches`      | Matching lines formatted as `<line_number>:<content>`, one per line. In `target="outline"` mode, these are matching outline entries in the same format. Empty string when no matches found. |
 | `total_lines`  | Total number of lines in the page.                                                                                        |
 | `has_more`     | `true` if more matches exist beyond the returned set.                                                                     |
@@ -281,7 +281,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 
 - Matches are returned in document order (ascending line number).
 - The agent cross-references match line numbers against the outline to determine which section each match belongs to, then uses `read_page` with the appropriate `offset` to read the full section.
-- Small outlines are returned in full because trimming them can remove useful parent headings. Only oversized outlines are range-trimmed.
+- Small outlines are returned in full because trimming them can remove useful parent headings. Only oversized outlines are range-trimmed. When range trimming occurs, `search_page` prepends the active heading chain immediately preceding the first match so the outline does not start abruptly. `search_page` uses a smaller default outline character budget than `read_page` because content-mode search has no `include_outline=false` escape hatch.
 - In `regex` mode, invalid patterns are rejected with `INVALID_INPUT`. Patterns are length-capped to prevent ReDoS.
 - `search_page` shares the same cache and fetch path as `read_page` and `read_outline`. A page fetched by any tool is immediately available to the others.
 

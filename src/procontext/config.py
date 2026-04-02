@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -80,7 +80,21 @@ class ResolverSettings(BaseModel):
 class OutlineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_entries: int = Field(default=50, gt=0)
-    max_chars: int = Field(default=4000, gt=0)
+    read_page_max_chars: int = Field(default=4000, gt=0)
+    search_page_max_chars: int = Field(default=1000, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_legacy_max_chars_alias(cls, data: Any) -> Any:
+        """Map legacy ``max_chars`` to both per-tool limits for compatibility."""
+        if not isinstance(data, dict) or "max_chars" not in data:
+            return data
+
+        normalized = dict(data)
+        legacy_value = normalized.pop("max_chars")
+        normalized.setdefault("read_page_max_chars", legacy_value)
+        normalized.setdefault("search_page_max_chars", legacy_value)
+        return normalized
 
 
 class LoggingSettings(BaseModel):

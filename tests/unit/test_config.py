@@ -88,7 +88,8 @@ class TestConfigValidation:
             (ResolverSettings, "fuzzy_score_cutoff", 101),
             (ResolverSettings, "fuzzy_max_results", 0),
             (OutlineSettings, "max_entries", 0),
-            (OutlineSettings, "max_chars", 0),
+            (OutlineSettings, "read_page_max_chars", 0),
+            (OutlineSettings, "search_page_max_chars", 0),
         ],
     )
     def test_invalid_numeric_bounds_raise_validation_error(
@@ -103,7 +104,7 @@ class TestConfigValidation:
         cache = CacheSettings(ttl_hours=1, cleanup_interval_hours=1)
         fetcher = FetcherSettings(connect_timeout_seconds=0.1, request_timeout_seconds=0.1)
         resolver = ResolverSettings(fuzzy_score_cutoff=0, fuzzy_max_results=1)
-        outline = OutlineSettings(max_entries=1, max_chars=1)
+        outline = OutlineSettings(max_entries=1, read_page_max_chars=1, search_page_max_chars=1)
 
         assert server.port == 1
         assert registry.poll_interval_hours == 1
@@ -114,7 +115,15 @@ class TestConfigValidation:
         assert resolver.fuzzy_score_cutoff == 0
         assert resolver.fuzzy_max_results == 1
         assert outline.max_entries == 1
-        assert outline.max_chars == 1
+        assert outline.read_page_max_chars == 1
+        assert outline.search_page_max_chars == 1
+
+    def test_legacy_outline_max_chars_alias_sets_both_limits(self) -> None:
+        outline = OutlineSettings(max_entries=1, max_chars=1234)  # type: ignore[call-arg]
+
+        assert outline.max_entries == 1
+        assert outline.read_page_max_chars == 1234
+        assert outline.search_page_max_chars == 1234
 
     def test_empty_auth_key_with_auth_enabled(self) -> None:
         """auth_key='' with auth_enabled=True is accepted by pydantic.

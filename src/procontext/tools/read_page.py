@@ -67,7 +67,7 @@ async def handle(
         _compact_page_outline(
             result.outline,
             max_entries=state.settings.outline.max_entries,
-            max_chars=state.settings.outline.max_chars,
+            max_chars=state.settings.outline.read_page_max_chars,
         )
         if validated.include_outline
         else None

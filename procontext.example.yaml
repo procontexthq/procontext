@@ -106,15 +106,18 @@ resolver:
 outline:
   # Maximum number of entries in compacted outlines returned by read_page and
   # search_page. Outlines are progressively reduced (H6 → H5 → fenced → H4 → H3)
-  # until entry count ≤ max_entries AND char count ≤ max_chars. Both constraints
-  # are active simultaneously. If the outline cannot be reduced below both limits,
-  # a status message directs the agent to use read_outline for paginated browsing.
+  # until entry count ≤ max_entries AND the tool-specific char limit is met.
+  # If the outline cannot be reduced below both limits, a status message directs
+  # the agent to use read_outline for paginated browsing.
   max_entries: 50
 
-  # Maximum character count (as formatted outline string) in compacted outlines.
-  # Prevents token bloat when headings are long. Works with max_entries to ensure
-  # outlines are both structurally concise and token-efficient. See max_entries above.
-  max_chars: 4000
+  # Maximum character count (as formatted outline string) for read_page outlines.
+  # This can stay larger because callers can set include_outline=false on later reads.
+  read_page_max_chars: 4000
+
+  # Maximum character count (as formatted outline string) for search_page outlines.
+  # Kept tighter because search_page always includes outline context in content mode.
+  search_page_max_chars: 1000
 
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
