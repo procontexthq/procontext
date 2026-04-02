@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from procontext.config import Settings
-from procontext.http_transport import (
+from procontext.mcp.http_transport import (
     SUPPORTED_PROTOCOL_VERSIONS,
     MCPSecurityMiddleware,
     run_http_server,
@@ -247,12 +247,12 @@ def test_run_http_server_generates_auth_key_and_logs_warning() -> None:
     fake_log.bind.return_value = fake_log
 
     with (
-        patch("procontext.http_transport.log", fake_log),
+        patch("procontext.mcp.http_transport.log", fake_log),
         patch(
-            "procontext.http_transport.secrets.token_urlsafe",
+            "procontext.mcp.http_transport.secrets.token_urlsafe",
             return_value="generated-key",
         ) as mock_key,
-        patch("procontext.http_transport.uvicorn.run") as mock_uvicorn_run,
+        patch("procontext.mcp.http_transport.uvicorn.run") as mock_uvicorn_run,
     ):
         run_http_server(fake_mcp, settings)
 
@@ -293,9 +293,9 @@ def test_run_http_server_logs_when_auth_disabled() -> None:
     fake_log.bind.return_value = fake_log
 
     with (
-        patch("procontext.http_transport.log", fake_log),
-        patch("procontext.http_transport.secrets.token_urlsafe") as mock_key,
-        patch("procontext.http_transport.uvicorn.run") as mock_uvicorn_run,
+        patch("procontext.mcp.http_transport.log", fake_log),
+        patch("procontext.mcp.http_transport.secrets.token_urlsafe") as mock_key,
+        patch("procontext.mcp.http_transport.uvicorn.run") as mock_uvicorn_run,
     ):
         run_http_server(fake_mcp, settings)
 
