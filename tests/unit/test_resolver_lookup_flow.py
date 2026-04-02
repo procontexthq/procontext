@@ -8,7 +8,7 @@ import pytest
 
 from procontext.models.registry import PackageEntry, RegistryEntry
 from procontext.registry import build_indexes
-from procontext.resolver import _fuzzy_search, resolve_library
+from procontext.tools.resolve_library.resolver import _fuzzy_search, resolve_library
 
 if TYPE_CHECKING:
     from procontext.models.registry import LibraryMatch, RegistryIndexes

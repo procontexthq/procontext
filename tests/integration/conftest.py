@@ -19,7 +19,8 @@ import pytest
 
 from procontext.cache import Cache
 from procontext.config import Settings
-from procontext.fetcher import Fetcher, build_allowlist
+from procontext.fetch.security import build_allowlist
+from procontext.fetch.service import Fetcher
 from procontext.state import AppState
 
 if TYPE_CHECKING:

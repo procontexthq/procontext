@@ -12,7 +12,7 @@ from procontext.models.tools import (
     ResolveLibraryInput,
     SearchPageInput,
 )
-from procontext.resolver import resolve_library
+from procontext.tools.resolve_library.resolver import resolve_library
 
 if TYPE_CHECKING:
     from procontext.models.registry import RegistryIndexes

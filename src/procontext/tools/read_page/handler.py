@@ -40,7 +40,6 @@ async def handle(
     log = structlog.get_logger().bind(tool="read_page", url=url)
     log.info("handler_called")
 
-    # Validate input
     try:
         validated = ReadPageInput(
             url=url,
@@ -61,8 +60,6 @@ async def handle(
         ) from exc
 
     result = await fetch_or_cached_page(validated.url, state)
-
-    # Compact the outline (skip when caller opts out to save tokens)
     compacted_outline = (
         _compact_page_outline(
             result.outline,

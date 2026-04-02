@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.fetcher import expand_allowlist_from_content, is_url_allowed
+from procontext.fetch.security import expand_allowlist_from_content, is_url_allowed
 from procontext.parser import parse_outline
 
 if TYPE_CHECKING:

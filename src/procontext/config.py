@@ -22,7 +22,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from procontext.content_processing import is_supported_html_processor
+from procontext.fetch.processors import is_supported_html_processor
 
 _DEFAULT_DATA_DIR = platformdirs.user_data_dir("procontext")
 # Cache path default is intentionally independent from data_dir overrides.

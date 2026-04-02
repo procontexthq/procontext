@@ -1,4 +1,4 @@
-"""Shared payload model for fetched content processors."""
+"""Shared fetch-layer models."""
 
 from __future__ import annotations
 

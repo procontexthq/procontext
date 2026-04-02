@@ -6,8 +6,8 @@ from dataclasses import replace
 
 import pytest
 
-from procontext.content_processing import (
-    FetchedContent,
+from procontext.fetch.models import FetchedContent
+from procontext.fetch.processors import (
     HtmlProcessorPipeline,
     build_html_processor,
 )

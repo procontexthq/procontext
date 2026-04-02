@@ -9,7 +9,8 @@ import pytest
 from procontext.cache import Cache
 from procontext.config import Settings
 from procontext.errors import ErrorCode, ProContextError
-from procontext.fetcher import Fetcher, build_allowlist
+from procontext.fetch.security import build_allowlist
+from procontext.fetch.service import Fetcher
 from procontext.models.registry import PackageEntry, RegistryEntry
 from procontext.registry import build_indexes
 from procontext.state import AppState

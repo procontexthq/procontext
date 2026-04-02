@@ -31,7 +31,6 @@ async def handle(
     log = structlog.get_logger().bind(tool="read_outline", url=url)
     log.info("handler_called")
 
-    # Validate input
     try:
         validated = ReadOutlineInput(url=url, offset=offset, limit=limit, before=before)
     except ValueError as exc:
@@ -47,7 +46,6 @@ async def handle(
 
     result = await fetch_or_cached_page(validated.url, state)
 
-    # Parse and strip empty fences (no compaction for read_outline)
     entries = parse_outline_entries(result.outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)

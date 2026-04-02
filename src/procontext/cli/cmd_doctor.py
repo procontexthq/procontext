@@ -20,7 +20,7 @@ from procontext.cli.doctor.checks import (
     check_registry_additional_info as _check_registry_additional_info,
 )
 from procontext.cli.doctor.output import format_result
-from procontext.fetcher import build_http_client
+from procontext.fetch.client import build_http_client
 from procontext.registry import load_registry, load_registry_state
 
 if TYPE_CHECKING:

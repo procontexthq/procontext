@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import httpx
 
 from procontext.config import Settings
-from procontext.fetcher import build_allowlist
+from procontext.fetch.security import build_allowlist
 from procontext.registry import build_indexes, check_for_registry_update, fetch_registry_for_setup
 from procontext.registry.storage import save_registry_to_disk, write_registry_state
 from procontext.state import AppState

@@ -1,11 +1,11 @@
-"""Protocols for fetched-content processors."""
+"""Protocols for fetch-time HTML processors."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from .payload import FetchedContent
+    from procontext.fetch.models import FetchedContent
 
 
 class HtmlProcessor(Protocol):
