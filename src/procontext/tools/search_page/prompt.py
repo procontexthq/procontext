@@ -3,6 +3,7 @@
 DESCRIPTION = """
 Search within a documentation page and return the full text of each matching line.
 Supports literal and regex search, smart case sensitivity, and word boundary matching.
+For OR-style multi-term search, use mode="regex" with a query like "foo|bar".
 
 Works across indexes, individual pages, or the full documentation if full_docs_url
 is available.

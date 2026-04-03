@@ -64,9 +64,25 @@ class TestBuildMatcherRegex:
         result = search_lines(_CONTENT, matcher)
         assert len(result.matches) >= 2
 
+    def test_regex_pipe_alternation_matches_multiple_terms(self) -> None:
+        matcher = build_matcher("foo|bar", mode="regex")
+        result = search_lines("foo\nbar\nbaz\nfoobar", matcher)
+
+        assert [(match.line_number, match.content) for match in result.matches] == [
+            (1, "foo"),
+            (2, "bar"),
+            (4, "foobar"),
+        ]
+
     def test_regex_invalid_raises(self) -> None:
         with pytest.raises(re.error):
             build_matcher("[invalid", mode="regex")
+
+    def test_literal_pipe_is_matched_as_plain_text(self) -> None:
+        matcher = build_matcher("foo|bar", mode="literal")
+        result = search_lines("foo\nbar\nfoo|bar", matcher)
+
+        assert [(match.line_number, match.content) for match in result.matches] == [(3, "foo|bar")]
 
 
 class TestBuildMatcherSmartCase:

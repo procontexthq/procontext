@@ -73,6 +73,34 @@ class TestSearchPageHandler:
         assert exc_info.value.code == ErrorCode.INVALID_INPUT
 
     @respx.mock
+    async def test_search_regex_pipe_alternation_matches_multiple_terms(
+        self, app_state: AppState
+    ) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await search_page_handle(
+            SAMPLE_URL,
+            "LangChain|Details",
+            app_state,
+            mode="regex",
+        )
+
+        assert result["matches"] == "5:LangChain supports streaming.\n9:Details here."
+
+    @respx.mock
+    async def test_search_literal_pipe_matches_plain_text_only(self, app_state: AppState) -> None:
+        respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
+
+        result = await search_page_handle(
+            SAMPLE_URL,
+            "LangChain|Details",
+            app_state,
+            mode="literal",
+        )
+
+        assert result["matches"] == ""
+
+    @respx.mock
     async def test_search_no_matches_returns_empty_matches_with_outline(
         self, app_state: AppState
     ) -> None:
