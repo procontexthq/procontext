@@ -1297,6 +1297,8 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 ```
 
 > **Note**: Once published to PyPI this simplifies to `"command": "uvx", "args": ["procontext"]`.
+>
+> **Client note**: Make sure `args` is tokenized as `["run", "--project", "/path/to/procontext-source", "procontext"]` instead of one combined shell string.
 
 **With a local config file**:
 

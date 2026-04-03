@@ -345,6 +345,7 @@ The agent should call `resolve_library("langchain")` and return documentation UR
 
 ## Troubleshooting
 
+- **`uv` says "unrecognized subcommand"** — Make sure `args` is tokenized as `["run", "--project", "/path/to/procontext-source", "procontext"]` instead of one combined shell string.
 - **"uv: command not found"** — open a new terminal after installing so `PATH` is updated, or install uv manually from [docs.astral.sh/uv](https://docs.astral.sh/uv/).
 - **"No registry found"** — run `uv run --project /path/to/procontext-source procontext setup` to download the library registry.
 - **Server not connecting** — run `uv run --project /path/to/procontext-source procontext doctor --fix` to diagnose and repair common issues.
