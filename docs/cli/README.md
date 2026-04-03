@@ -4,8 +4,8 @@ ProContext provides a small set of CLI commands alongside the MCP server. The CL
 
 ## Installation
 
-- [installation.md](installation.md) — standard end-user installation with `install.sh` and `install.ps1`
-- [installation-options.md](installation-options.md) — version pinning, source installs, manual installs, troubleshooting, and installer maintainer reference
+- [installation.md](../installation.md) — standard end-user installation with `install.sh` and `install.ps1`
+- [installation-options.md](../installation-options.md) — version pinning, source installs, manual installs, troubleshooting, and installer maintainer reference
 
 ## Commands
 

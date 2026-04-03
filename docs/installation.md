@@ -84,9 +84,9 @@ Replace `/path/to/procontext-source` with the absolute path to your cloned check
 
 For normal MCP integrations, you do not need to start ProContext yourself in stdio mode. Your agent or MCP client will launch it after you add ProContext to the client configuration.
 
-Add ProContext to your tool using the copy-paste configs in [integration-guide.md](../integration-guide.md).
+Add ProContext to your tool using the copy-paste configs in [integration-guide.md](integration-guide.md).
 
-Start ProContext manually only when you want to run it in HTTP mode for a shared or remote deployment. The HTTP setup steps are also in [integration-guide.md](../integration-guide.md).
+Start ProContext manually only when you want to run it in HTTP mode for a shared or remote deployment. The HTTP setup steps are also in [integration-guide.md](integration-guide.md).
 
 ## Need More Detail?
 

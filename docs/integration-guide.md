@@ -1,6 +1,6 @@
 # Integration Guide
 
-This guide covers connecting ProContext to your AI coding tool. For installation, see [installation.md](cli/installation.md).
+This guide covers connecting ProContext to your AI coding tool. For installation, see [installation.md](installation.md).
 
 For normal local MCP integrations, ProContext runs as a **stdio** server and your AI tool launches it as a subprocess. You do not need to start it yourself in stdio mode.
 
@@ -357,4 +357,4 @@ The agent should call `resolve_library("langchain")` and return documentation UR
 - **Config file not found** — check the exact path for your platform listed above. Create the file if it doesn't exist.
 - **Tools not appearing** — some tools require a restart (Claude Desktop) or a new session (Claude Code) after config changes.
 
-For detailed troubleshooting, see [installation.md](cli/installation.md).
+For detailed troubleshooting, see [installation.md](installation.md).

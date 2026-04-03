@@ -169,14 +169,14 @@ Replace `/path/to/procontext-source` with the absolute path to your cloned check
 - If package installation fails, or if you want the latest source checkout, use the GitHub install via `--from-source` or `-FromSource`.
 - If the managed checkout has local changes, the GitHub installer will not overwrite them during an update.
 - If the one-time registry download fails, rerun `procontext setup`, then `procontext doctor`, after fixing connectivity.
-- For contributor setup, do not use the runtime installer flow. Use [CONTRIBUTING.md](../../CONTRIBUTING.md) and `uv sync --dev`.
+- For contributor setup, do not use the runtime installer flow. Use [CONTRIBUTING.md](../CONTRIBUTING.md) and `uv sync --dev`.
 
 ## Maintainer Reference
 
 This section defines the contract for the repository installer scripts:
 
-- [`install.sh`](../../install.sh)
-- [`install.ps1`](../../install.ps1)
+- [`install.sh`](../install.sh)
+- [`install.ps1`](../install.ps1)
 
 These are the only supported public installer entrypoints. Do not reintroduce parallel families such as `install_cl.*` or `install_cx.*`.
 
@@ -225,7 +225,7 @@ Both installers should preserve the same high-level behavior:
 
 The installer scripts are for runtime installation only. They should not create a contributor environment.
 
-Contributor setup belongs in [CONTRIBUTING.md](../../CONTRIBUTING.md) and should continue to use:
+Contributor setup belongs in [CONTRIBUTING.md](../CONTRIBUTING.md) and should continue to use:
 
 ```bash
 uv sync --dev
@@ -241,9 +241,9 @@ uvx procontext
 
 If the installer behavior changes, update these docs in the same change:
 
-- [README.md](../../README.md) installation section
+- [README.md](../README.md) installation section
 - [installation.md](installation.md)
-- [CONTRIBUTING.md](../../CONTRIBUTING.md) if development prerequisites or setup guidance changed
+- [CONTRIBUTING.md](../CONTRIBUTING.md) if development prerequisites or setup guidance changed
 
 ### Validation Checklist
 

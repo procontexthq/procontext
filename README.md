@@ -93,14 +93,14 @@ Add ProContext to your MCP client config:
 
 For local MCP integrations, do not start ProContext yourself in stdio mode. Your agent will launch it automatically after you add it to your MCP client. Start ProContext manually only when you want HTTP mode.
 
-For alternate install paths, version pinning, troubleshooting, and installer reference details, see [docs/cli/installation.md](docs/cli/installation.md) and [docs/cli/installation-options.md](docs/cli/installation-options.md).
+For alternate install paths, version pinning, troubleshooting, and installer reference details, see [docs/installation.md](docs/installation.md) and [docs/installation-options.md](docs/installation-options.md).
 
 ProContext works with any MCP-compatible tool. The **[Integration Guide](docs/integration-guide.md)** has copy-paste configurations for Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (GitHub Copilot), OpenAI Codex CLI, and Amazon Q CLI. Both stdio (local) and HTTP (shared/remote) transports are supported.
 
 ## Documentation
 
 - [Integration guide](docs/integration-guide.md)
-- [Installation guide](docs/cli/installation.md)
+- [Installation guide](docs/installation.md)
 - [CLI docs](docs/cli/README.md)
 - [API reference](docs/specs/04-api-reference.md)
 - [Technical spec](docs/specs/02-technical-spec.md)
