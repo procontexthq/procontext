@@ -38,15 +38,21 @@ ProContext fixes this by feeding it the reference docs it needs - correct versio
 
 ## Quick Start
 
-Install ProContext:
+### 1. Install ProContext 🚀
 
-### macOS and Linux
+Install ProContext using whichever path fits you best.
+
+If you want the smoothest setup, the installer scripts are a good default. They take care of prerequisites like `uv` and run the initial setup step for you.
+
+#### Recommended: Installer Script
+
+#### macOS and Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
 ```
 
-### Windows
+#### Windows
 
 Run this in a PowerShell terminal:
 
@@ -54,20 +60,40 @@ Run this in a PowerShell terminal:
 irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex
 ```
 
+#### Alternative: Manual Install Using `uvx`
+
+If you already have `uv`, you can install manually with:
+
+```bash
+uvx procontext setup
+```
+
+### 2. Verify The Install ✅
+
+Run:
+
+```bash
+uvx procontext doctor
+```
+
+### 3. Add ProContext To Your MCP Client 🔌
+
 Add ProContext to your MCP client config:
 
 ```json
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
 ```
 
-The installer manages a local checkout and prints the path to use with `uv run --project ...`. For manual install, version pinning, and troubleshooting, see [docs/cli/installation.md](docs/cli/installation.md).
+For local MCP integrations, do not start ProContext yourself in stdio mode. Your agent will launch it automatically after you add it to your MCP client. Start ProContext manually only when you want HTTP mode.
+
+For alternate install paths, version pinning, troubleshooting, and installer reference details, see [docs/cli/installation.md](docs/cli/installation.md) and [docs/cli/installation-options.md](docs/cli/installation-options.md).
 
 ProContext works with any MCP-compatible tool. The **[Integration Guide](docs/integration-guide.md)** has copy-paste configurations for Claude Code, Claude Desktop, Cursor, Windsurf, VS Code (GitHub Copilot), OpenAI Codex CLI, and Amazon Q CLI. Both stdio (local) and HTTP (shared/remote) transports are supported.
 

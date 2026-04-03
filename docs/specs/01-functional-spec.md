@@ -369,14 +369,12 @@ The default mode for local development. The MCP client (e.g., Claude Code, Curso
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
 ```
-
-> **Note**: Once published to PyPI, this simplifies to `"command": "uvx", "args": ["procontext"]`. Until then, use the `uv run` form above.
 
 ### 5.2 HTTP Transport
 

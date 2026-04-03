@@ -146,3 +146,17 @@ jobs:
         #   Workflow: release.yml
         #   Env:      pypi
         run: uv publish --trusted-publishing always
+
+      - name: Post-publish uvx smoke
+        run: |
+          VERSION="$(grep -m1 '^version = "' pyproject.toml | sed -E 's/version = "([^"]+)"/\1/')"
+          for attempt in 1 2 3 4 5; do
+            if uvx "procontext@$VERSION" --help && uvx "procontext@$VERSION" doctor --help; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Published package smoke failed for procontext@$VERSION" >&2
+              exit 1
+            fi
+            sleep "$((attempt * 15))"
+          done

@@ -1289,16 +1289,14 @@ This envelope is returned inside the MCP `result` content with `isError: true` â
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
 ```
 
-> **Note**: Once published to PyPI this simplifies to `"command": "uvx", "args": ["procontext"]`.
->
-> **Client note**: Make sure `args` is tokenized as `["run", "--project", "/path/to/procontext-source", "procontext"]` instead of one combined shell string.
+> **Client note**: Make sure `args` is tokenized as `["procontext"]` instead of one combined shell string. If you are using the explicit GitHub source install instead, use `["run", "--project", "/path/to/procontext-source", "procontext"]`.
 
 **With a local config file**:
 
@@ -1308,8 +1306,8 @@ Place `procontext.yaml` in the directory you run the command from, or in the pla
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext", "procontext"],
+      "command": "uvx",
+      "args": ["procontext"],
       "env": {
         "PROCONTEXT__CACHE__TTL_HOURS": "48"
       }

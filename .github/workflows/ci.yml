@@ -108,6 +108,69 @@ jobs:
           ./.pkg-smoke/bin/procontext --help
           ./.pkg-smoke/bin/procontext doctor --help
 
+  installer-smoke-unix:
+    name: Installer smoke (Unix dry-run)
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Bash syntax check
+        run: bash -n install.sh
+
+      - name: Default installer dry-run
+        run: bash install.sh --dry-run
+
+      - name: Source fallback installer dry-run
+        run: bash install.sh --from-source --dry-run --dir /tmp/procontext-install-test
+
+  installer-smoke-windows:
+    name: Installer smoke (Windows dry-run)
+    runs-on: windows-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Windows PowerShell default dry-run
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
+
+      - name: Windows PowerShell source dry-run
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File .\install.ps1 -FromSource -DryRun
+
+      - name: PowerShell 7 default dry-run
+        shell: pwsh
+        run: pwsh -NoProfile -File .\install.ps1 -DryRun
+
+      - name: PowerShell 7 source dry-run
+        shell: pwsh
+        run: pwsh -NoProfile -File .\install.ps1 -FromSource -DryRun
+
   smoke-platform:
     name: Smoke (${{ matrix.os }}, Python 3.12)
     runs-on: ${{ matrix.os }}

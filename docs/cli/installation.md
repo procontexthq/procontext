@@ -1,138 +1,93 @@
 # Installation
 
-ProContext ships two supported installer entrypoints at the repository root:
+ProContext supports four installation methods:
 
-- `install.sh` for macOS and Linux
-- `install.ps1` for Windows
+- script install from the published package using `uvx`
+- script install from the GitHub source checkout
+- manual install from the published package using `uvx`
+- manual install from the GitHub source checkout
 
-Both installers follow the same model:
+The recommended option for most users is the script-based published package install.
 
-- clone or refresh a managed checkout from GitHub
-- ensure `git` and `uv` are available
-- sync a runtime-only environment with `uv sync --no-dev`
+## Quick Installs 🚀
+
+### Recommended: Script Install From The Published Package
+
+For most users, these installers are the right choice. By default, they will:
+
+- ensure `uv` is available
+- run the published `procontext` package via `uvx`
 - run the one-time `procontext setup` step unless you skip it
 
-These installers are for end-user setup. If you want a development environment, use the contributor flow in [CONTRIBUTING.md](../../CONTRIBUTING.md).
-
-## Quick Install
-
-### macOS and Linux
+macOS and Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
 ```
 
-Examples:
-
-```bash
-# Preview what the installer would do
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash -s -- --dry-run
-
-# Install a specific tag, branch, or commit
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash -s -- --version v0.1.0
-
-# Skip the one-time registry download
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash -s -- --no-setup
-```
-
-### Windows
+Windows:
 
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex"
 ```
 
-Examples:
+Verify the install:
+
+```bash
+uvx procontext doctor
+```
+
+### Script Install From GitHub Source
+
+Use this when you want the latest source checkout or when package installation is unavailable.
+
+macOS and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash -s -- --from-source
+```
+
+Windows:
 
 ```powershell
-# Preview what the installer would do
-powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1))) -DryRun"
-
-# Install a specific tag, branch, or commit
-powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1))) -Version v0.1.0"
-
-# Skip the one-time registry download
-powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1))) -NoSetup"
+powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1))) -FromSource"
 ```
 
-## What the Installers Need
-
-- internet access to GitHub and Astral download endpoints
-- `git`, which the installers attempt to bootstrap if it is missing
-- `uv`, which the installers attempt to bootstrap if it is missing
-- Python 3.12 or newer at runtime; `uv` can provision Python automatically if it is not already installed
-
-## What Gets Installed
-
-The installers manage a checkout instead of installing a PyPI package. The default checkout locations are:
-
-- macOS: `~/Library/Application Support/procontext-source`
-- Linux: `~/.local/share/procontext-source`
-- Windows: `%LOCALAPPDATA%\procontext-source`
-
-The checkout is then used with `uv run --project ...`, which keeps the runtime tied to that source tree.
-
-## After Install
-
-Run ProContext directly:
+Verify the install with the checkout path printed by the installer:
 
 ```bash
-uv run --project "/path/to/procontext-source" procontext
+uv run --project "/path/to/procontext-source" procontext doctor
 ```
 
-The installers also print an MCP configuration snippet that points clients at the managed checkout.
+## Manual Installs 🛠️
 
-If you skipped setup, run it later:
+### Manual Install From The Published Package
 
 ```bash
-uv run --project "/path/to/procontext-source" procontext setup
+uvx procontext setup
+uvx procontext doctor
 ```
 
-If something looks unhealthy:
-
-```bash
-uv run --project "/path/to/procontext-source" procontext doctor --fix
-```
-
-## Installer Options
-
-### `install.sh`
-
-- `--dir PATH` installs or refreshes the checkout at `PATH`
-- `--repo URL` uses a different Git repository
-- `--ref REF` installs a branch, tag, or commit
-- `--version REF` alias for `--ref`
-- `--no-setup` skips `procontext setup`
-- `--dry-run` prints the plan without making changes
-
-### `install.ps1`
-
-- `-InstallDir PATH` installs or refreshes the checkout at `PATH`
-- `-RepoUrl URL` uses a different Git repository
-- `-InstallRef REF` installs a branch, tag, or commit
-- `-Version REF` alias for `-InstallRef`
-- `-NoSetup` skips `procontext setup`
-- `-DryRun` prints the plan without making changes
-
-## Manual Install
-
-If you do not want to run the helper scripts, the equivalent manual flow is:
+### Manual Install From GitHub Source
 
 ```bash
 git clone https://github.com/procontexthq/procontext.git
 cd procontext
 uv sync --no-dev
-uv run --project . procontext setup
+uv run --project /path/to/procontext-source procontext setup
+uv run --project /path/to/procontext-source procontext doctor
 ```
 
-Then run:
+Replace `/path/to/procontext-source` with the absolute path to your cloned checkout.
 
-```bash
-uv run --project . procontext
-```
+## After Install: Connect Your Agent 🔌
 
-## Troubleshooting
+For normal MCP integrations, you do not need to start ProContext yourself in stdio mode. Your agent or MCP client will launch it after you add ProContext to the client configuration.
 
-- If `uv` or `procontext` is reported as missing after install, open a new shell first so the updated PATH is loaded.
-- If the managed checkout has local changes, the installer will not overwrite them during an update.
-- If the one-time registry download fails, rerun `procontext setup` after fixing connectivity.
-- For contributor setup, do not use the runtime installer flow. Use [CONTRIBUTING.md](../../CONTRIBUTING.md) and `uv sync --dev`.
+Add ProContext to your tool using the copy-paste configs in [integration-guide.md](../integration-guide.md).
+
+Start ProContext manually only when you want to run it in HTTP mode for a shared or remote deployment. The HTTP setup steps are also in [integration-guide.md](../integration-guide.md).
+
+## Need More Detail?
+
+For version pinning, installer flags, troubleshooting, and installer reference details, see [installation-options.md](installation-options.md).
