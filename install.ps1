@@ -968,7 +968,9 @@ function Sync-Repo {
         Write-Info "Cloning ProContext into $InstallDir"
         try {
             Invoke-Step -Command @("git", "clone", $RepoUrl, $InstallDir)
-            Update-CheckoutRef -FreshClone $true
+            if (-not $DryRun) {
+                Update-CheckoutRef -FreshClone $true
+            }
         } catch {
             Write-Failure "Failed to clone $RepoUrl."
             Write-Failure "Check network access and repository permissions, then rerun."

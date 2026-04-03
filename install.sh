@@ -707,7 +707,9 @@ sync_repo() {
             print_repo_access_hint
             exit 1
         fi
-        update_checkout_ref "1"
+        if [[ "$DRY_RUN" != "1" ]]; then
+            update_checkout_ref "1"
+        fi
         return 0
     fi
 
