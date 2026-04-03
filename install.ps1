@@ -3,22 +3,28 @@
 Installs or updates ProContext from source on Windows.
 
 .DESCRIPTION
-Ensures git and uv are available, clones or refreshes a ProContext checkout,
-syncs dependencies with uv, and optionally runs the one-time registry setup.
-This is the canonical Windows installer entrypoint for ProContext.
+Ensures uv is available, installs ProContext from PyPI via uvx by default,
+and optionally runs the one-time registry setup. A GitHub source mode keeps
+the checkout-based install flow available explicitly.
 
 .PARAMETER InstallDir
-Directory for the managed ProContext source checkout.
+Source mode only. Directory for the managed ProContext source checkout.
 
 .PARAMETER RepoUrl
-Git repository URL to clone or refresh.
+Source mode only. Git repository URL to clone or refresh.
 
 .PARAMETER InstallRef
-Git branch, tag, or commit to install. Defaults to "main".
-Can also be passed as `-Version` for compatibility with older installers.
+Source mode only. Git branch, tag, or commit to install. Defaults to "main".
+
+.PARAMETER Version
+Package version to install in default mode. In source mode, acts as a
+deprecated alias for InstallRef for backward compatibility.
+
+.PARAMETER FromSource
+Use the GitHub checkout fallback flow instead of the default PyPI/uvx flow.
 
 .PARAMETER NoSetup
-Skip the one-time `procontext setup` step.
+Skip the one-time `procontext setup` step in either mode.
 
 .PARAMETER DryRun
 Print the planned commands without executing them.
@@ -27,10 +33,12 @@ Print the planned commands without executing them.
 param(
     [string]$InstallDir,
     [string]$RepoUrl,
-    [Alias("Version")]
     [string]$InstallRef,
+    [Alias("Version")]
+    [string]$RequestedVersion,
     [switch]$NoSetup,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$FromSource
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,12 +47,17 @@ Set-StrictMode -Version Latest
 $script:InstallDir = $InstallDir
 $script:RepoUrl = $RepoUrl
 $script:InstallRef = $InstallRef
+$script:RequestedVersion = $RequestedVersion
 $script:NoSetup = [bool]$NoSetup
 $script:DryRun = [bool]$DryRun
+$script:FromSource = [bool]$FromSource
 $script:SetupStatus = "skipped"
 $script:DefaultRepoUrl = "https://github.com/procontexthq/procontext.git"
 $script:DefaultRef = "main"
+$script:DefaultPackageName = "procontext"
+$script:DefaultInstallerUrl = "https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1"
 $script:OriginalUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$script:UsedVersionAliasForRef = $false
 
 function Write-Info {
     param([string]$Message)
@@ -182,6 +195,70 @@ function Invoke-Step {
     }
 }
 
+function Test-UvxAvailable {
+    return [bool](Get-Command uvx -ErrorAction SilentlyContinue)
+}
+
+function Get-ProContextToolCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageSpec,
+
+        [string[]]$Arguments = @()
+    )
+
+    $command = @()
+    if (Test-UvxAvailable) {
+        $command += "uvx"
+    } else {
+        $command += @("uv", "tool", "run")
+    }
+
+    $command += $PackageSpec
+    if ($Arguments.Count -gt 0) {
+        $command += $Arguments
+    }
+
+    return ($command -join " ")
+}
+
+function Write-ProContextMcpConfig {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageSpec
+    )
+
+    Write-Host "{"
+    Write-Host '  "mcpServers": {'
+    Write-Host '    "procontext": {'
+    if (Test-UvxAvailable) {
+        Write-Host '      "command": "uvx",'
+        Write-Host "      `"args`": [`"$PackageSpec`"]"
+    } else {
+        Write-Host '      "command": "uv",'
+        Write-Host "      `"args`": [`"tool`", `"run`", `"$PackageSpec`"]"
+    }
+    Write-Host "    }"
+    Write-Host "  }"
+    Write-Host "}"
+}
+
+function Invoke-ProContextTool {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageSpec,
+
+        [string[]]$Arguments = @()
+    )
+
+    if (Test-UvxAvailable) {
+        Invoke-Step -Command (@("uvx", $PackageSpec) + $Arguments)
+        return
+    }
+
+    Invoke-Step -Command (@("uv", "tool", "run", $PackageSpec) + $Arguments)
+}
+
 function Add-ToProcessPath {
     param([string]$PathEntry)
 
@@ -288,6 +365,18 @@ function Finalize-UvPath {
     }
 }
 
+function Get-PackageSpec {
+    if (-not [string]::IsNullOrWhiteSpace($script:RequestedVersion)) {
+        return "$($script:DefaultPackageName)@$($script:RequestedVersion)"
+    }
+
+    return $script:DefaultPackageName
+}
+
+function Get-SourceFallbackCommand {
+    return "powershell -c `"& ([scriptblock]::Create((irm $($script:DefaultInstallerUrl)))) -FromSource`""
+}
+
 function Get-GitHubLatestRelease {
     param(
         [Parameter(Mandatory = $true)]
@@ -365,38 +454,59 @@ function Get-DefaultInstallDir {
 }
 
 function Resolve-Configuration {
-    $resolvedRepoUrl = $RepoUrl
-    if ([string]::IsNullOrWhiteSpace($resolvedRepoUrl)) {
-        $resolvedRepoUrl = [Environment]::GetEnvironmentVariable("PROCONTEXT_REPO_URL")
+    if (-not $PSBoundParameters.ContainsKey("FromSource") -and
+        [Environment]::GetEnvironmentVariable("PROCONTEXT_FROM_SOURCE") -eq "1") {
+        $script:FromSource = $true
     }
-    if ([string]::IsNullOrWhiteSpace($resolvedRepoUrl)) {
-        $resolvedRepoUrl = $script:DefaultRepoUrl
-    }
-    $script:RepoUrl = $resolvedRepoUrl
 
-    $resolvedInstallRef = $InstallRef
-    if ([string]::IsNullOrWhiteSpace($resolvedInstallRef)) {
-        $resolvedInstallRef = [Environment]::GetEnvironmentVariable("PROCONTEXT_INSTALL_REF")
+    if ([string]::IsNullOrWhiteSpace($script:RequestedVersion)) {
+        $script:RequestedVersion = [Environment]::GetEnvironmentVariable("PROCONTEXT_VERSION")
     }
-    if ([string]::IsNullOrWhiteSpace($resolvedInstallRef)) {
-        $resolvedInstallRef = [Environment]::GetEnvironmentVariable("PROCONTEXT_VERSION")
-    }
-    if ([string]::IsNullOrWhiteSpace($resolvedInstallRef)) {
-        $resolvedInstallRef = $script:DefaultRef
-    }
-    $script:InstallRef = $resolvedInstallRef
 
-    $resolvedInstallDir = $InstallDir
-    if ([string]::IsNullOrWhiteSpace($resolvedInstallDir)) {
-        $resolvedInstallDir = [Environment]::GetEnvironmentVariable("PROCONTEXT_INSTALL_DIR")
-    }
-    if ([string]::IsNullOrWhiteSpace($resolvedInstallDir)) {
-        $resolvedInstallDir = Get-DefaultInstallDir
-    }
-    try {
-        $script:InstallDir = Resolve-NormalizedFileSystemPath -PathValue $resolvedInstallDir
-    } catch {
-        Write-Failure "Invalid install directory '$resolvedInstallDir': $($_.Exception.Message)"
+    if ($script:FromSource) {
+        $resolvedRepoUrl = $RepoUrl
+        if ([string]::IsNullOrWhiteSpace($resolvedRepoUrl)) {
+            $resolvedRepoUrl = [Environment]::GetEnvironmentVariable("PROCONTEXT_REPO_URL")
+        }
+        if ([string]::IsNullOrWhiteSpace($resolvedRepoUrl)) {
+            $resolvedRepoUrl = $script:DefaultRepoUrl
+        }
+        $script:RepoUrl = $resolvedRepoUrl
+
+        $resolvedInstallRef = $InstallRef
+        if ([string]::IsNullOrWhiteSpace($resolvedInstallRef)) {
+            $resolvedInstallRef = [Environment]::GetEnvironmentVariable("PROCONTEXT_INSTALL_REF")
+        }
+        if ([string]::IsNullOrWhiteSpace($resolvedInstallRef) -and
+            -not [string]::IsNullOrWhiteSpace($script:RequestedVersion)) {
+            $resolvedInstallRef = $script:RequestedVersion
+            $script:UsedVersionAliasForRef = $true
+        }
+        if ([string]::IsNullOrWhiteSpace($resolvedInstallRef)) {
+            $resolvedInstallRef = $script:DefaultRef
+        }
+        $script:InstallRef = $resolvedInstallRef
+
+        $resolvedInstallDir = $InstallDir
+        if ([string]::IsNullOrWhiteSpace($resolvedInstallDir)) {
+            $resolvedInstallDir = [Environment]::GetEnvironmentVariable("PROCONTEXT_INSTALL_DIR")
+        }
+        if ([string]::IsNullOrWhiteSpace($resolvedInstallDir)) {
+            $resolvedInstallDir = Get-DefaultInstallDir
+        }
+        try {
+            $script:InstallDir = Resolve-NormalizedFileSystemPath -PathValue $resolvedInstallDir
+        } catch {
+            Write-Failure "Invalid install directory '$resolvedInstallDir': $($_.Exception.Message)"
+            exit 2
+        }
+    } elseif (
+        $PSBoundParameters.ContainsKey("InstallDir") -or
+        $PSBoundParameters.ContainsKey("RepoUrl") -or
+        $PSBoundParameters.ContainsKey("InstallRef")
+    ) {
+        Write-Failure "-InstallDir, -RepoUrl, and -InstallRef require -FromSource."
+        Write-Failure "Use the default PyPI install, or rerun with -FromSource for the GitHub checkout fallback."
         exit 2
     }
 
@@ -615,9 +725,14 @@ function Print-Plan {
     Write-Host ""
     Write-Host "ProContext Installer" -ForegroundColor Cyan
     Write-Host ""
-    Write-Kv "Source repo" $script:RepoUrl
-    Write-Kv "Install dir" $script:InstallDir
-    Write-Kv "Git ref" $script:InstallRef
+    Write-Kv "Mode" ($(if ($script:FromSource) { "GitHub source" } else { "PyPI (uvx)" }))
+    if ($script:FromSource) {
+        Write-Kv "Source repo" $script:RepoUrl
+        Write-Kv "Install dir" $script:InstallDir
+        Write-Kv "Git ref" $script:InstallRef
+    } else {
+        Write-Kv "Package" (Get-PackageSpec)
+    }
     Write-Kv "Run setup" ($(if ($script:NoSetup) { "no" } else { "yes" }))
     Write-Kv "Dry run" ($(if ($script:DryRun) { "yes" } else { "no" }))
     Write-Host ""
@@ -853,7 +968,9 @@ function Sync-Repo {
         Write-Info "Cloning ProContext into $InstallDir"
         try {
             Invoke-Step -Command @("git", "clone", $RepoUrl, $InstallDir)
-            Update-CheckoutRef -FreshClone $true
+            if (-not $DryRun) {
+                Update-CheckoutRef -FreshClone $true
+            }
         } catch {
             Write-Failure "Failed to clone $RepoUrl."
             Write-Failure "Check network access and repository permissions, then rerun."
@@ -887,6 +1004,43 @@ function Run-UvSync {
     }
 }
 
+function Run-PyPiFlow {
+    $packageSpec = Get-PackageSpec
+
+    if ($script:NoSetup) {
+        $script:SetupStatus = "skipped"
+        Write-Info "Validating the published package entrypoint"
+        try {
+            Invoke-ProContextTool -PackageSpec $packageSpec -Arguments @("--help")
+            Write-Success "Published package smoke check passed"
+            return
+        } catch {
+            Write-Failure "PyPI installation smoke check failed."
+            Write-Failure "Retry with:"
+            Write-Failure "  $(Get-ProContextToolCommand -PackageSpec $packageSpec -Arguments @('--help'))"
+            Write-Failure "If package installation is unavailable, or if you prefer the latest source checkout, use the GitHub install:"
+            Write-Failure "  $(Get-SourceFallbackCommand)"
+            Write-Failure "The GitHub install is manual and intentional; the installer will not switch automatically."
+            exit 1
+        }
+    }
+
+    Write-Info "Running one-time registry setup from PyPI"
+    try {
+        Invoke-ProContextTool -PackageSpec $packageSpec -Arguments @("setup")
+        $script:SetupStatus = "success"
+        Write-Success "Initial registry setup completed"
+    } catch {
+        Write-Failure "PyPI installation succeeded, but the initial registry setup did not finish."
+        Write-Failure "Retry with:"
+        Write-Failure "  $(Get-ProContextToolCommand -PackageSpec $packageSpec -Arguments @('setup'))"
+        Write-Failure "If package installation is unavailable, or if you prefer the latest source checkout, use the GitHub install:"
+        Write-Failure "  $(Get-SourceFallbackCommand)"
+        Write-Failure "The GitHub install is manual and intentional; the installer will not switch automatically."
+        exit 1
+    }
+}
+
 function Run-RegistrySetup {
     if ($script:NoSetup) {
         $script:SetupStatus = "skipped"
@@ -910,48 +1064,88 @@ function Run-RegistrySetup {
 }
 
 function Print-NextSteps {
+    if ($script:FromSource) {
+        if ($script:UsedVersionAliasForRef) {
+            Write-Warn "Using -Version as a source ref is deprecated; prefer -InstallRef with -FromSource next time."
+        }
+
+        Write-Host ""
+        Write-Host "ProContext is installed"
+        Write-Host "  Source checkout: $script:InstallDir"
+        Write-Host ""
+        Write-Host "Run locally:"
+        Write-Host "  uv run --project `"$script:InstallDir`" procontext"
+        Write-Host ""
+        Write-Host "Claude Code MCP config:"
+        Write-Host "{"
+        Write-Host '  "mcpServers": {'
+        Write-Host '    "procontext": {'
+        Write-Host '      "command": "uv",'
+        Write-Host "      `"args`": [`"run`", `"--project`", `"$script:InstallDir`", `"procontext`"]"
+        Write-Host "    }"
+        Write-Host "  }"
+        Write-Host "}"
+
+        switch ($script:SetupStatus) {
+            "skipped" {
+                Write-Host ""
+                Write-Host "One-time registry setup was skipped."
+                Write-Host "Run this when you are ready:"
+                Write-Host "  uv run --project `"$script:InstallDir`" procontext setup"
+            }
+            "failed" {
+                Write-Host ""
+                Write-Host "The code is installed, but the initial registry download still needs attention."
+                Write-Host "Retry:"
+                Write-Host "  uv run --project `"$script:InstallDir`" procontext setup"
+                Write-Host ""
+                Write-Host "If the environment looks off:"
+                Write-Host "  uv run --project `"$script:InstallDir`" procontext doctor --fix"
+            }
+        }
+        return
+    }
+
+    $packageSpec = Get-PackageSpec
     Write-Host ""
     Write-Host "ProContext is installed"
-    Write-Host "  Source checkout: $script:InstallDir"
+    Write-Host "  Package: $packageSpec"
     Write-Host ""
     Write-Host "Run locally:"
-    Write-Host "  uv run --project `"$script:InstallDir`" procontext"
+    Write-Host "  $(Get-ProContextToolCommand -PackageSpec $packageSpec)"
     Write-Host ""
     Write-Host "Claude Code MCP config:"
-    Write-Host "{"
-    Write-Host '  "mcpServers": {'
-    Write-Host '    "procontext": {'
-    Write-Host '      "command": "uv",'
-    Write-Host "      `"args`": [`"run`", `"--project`", `"$script:InstallDir`", `"procontext`"]"
-    Write-Host "    }"
-    Write-Host "  }"
-    Write-Host "}"
+    Write-ProContextMcpConfig -PackageSpec $packageSpec
 
     switch ($script:SetupStatus) {
         "skipped" {
             Write-Host ""
             Write-Host "One-time registry setup was skipped."
             Write-Host "Run this when you are ready:"
-            Write-Host "  uv run --project `"$script:InstallDir`" procontext setup"
-        }
-        "failed" {
+            Write-Host "  $(Get-ProContextToolCommand -PackageSpec $packageSpec -Arguments @('setup'))"
             Write-Host ""
-            Write-Host "The code is installed, but the initial registry download still needs attention."
-            Write-Host "Retry:"
-            Write-Host "  uv run --project `"$script:InstallDir`" procontext setup"
-            Write-Host ""
-            Write-Host "If the environment looks off:"
-            Write-Host "  uv run --project `"$script:InstallDir`" procontext doctor --fix"
+            Write-Host "If you prefer the latest source checkout instead:"
+            Write-Host "  $(Get-SourceFallbackCommand)"
         }
+        "success" {
+            Write-Host ""
+            Write-Host "If you prefer the latest source checkout instead:"
+            Write-Host "  $(Get-SourceFallbackCommand)"
+        }
+        # "failed" is not reachable here — Run-PyPiFlow exits on failure
     }
 }
 
 Assert-SupportedPowerShell
 Resolve-Configuration
 Print-Plan
-Ensure-Git
 Ensure-Uv
-Sync-Repo
-Run-UvSync
-Run-RegistrySetup
+if ($script:FromSource) {
+    Ensure-Git
+    Sync-Repo
+    Run-UvSync
+    Run-RegistrySetup
+} else {
+    Run-PyPiFlow
+}
 Print-NextSteps

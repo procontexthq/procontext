@@ -2,13 +2,14 @@
 set -euo pipefail
 
 # ProContext installer for macOS and Linux.
-# Creates or updates a local checkout, syncs dependencies with uv,
-# and optionally runs `procontext setup`.
+# Defaults to the PyPI package via uvx, with an explicit GitHub source mode.
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 DEFAULT_REPO_URL="https://github.com/procontexthq/procontext.git"
 DEFAULT_REF="main"
+DEFAULT_PACKAGE_NAME="procontext"
+DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh"
 ORIGINAL_PATH="${PATH:-}"
 
 TMPFILES=()
@@ -129,18 +130,22 @@ usage() {
 ProContext installer for macOS and Linux
 
 Usage:
-  ./install.sh [--dir PATH] [--repo URL] [--ref REF] [--no-setup] [--dry-run]
+  ./install.sh [--version VERSION] [--no-setup] [--dry-run] [--from-source]
+  ./install.sh --from-source [--dir PATH] [--repo URL] [--ref REF] [--version REF] [--no-setup] [--dry-run]
 
 Options:
-  --dir PATH    Install or update the checkout at PATH
-  --repo URL    Git repository to clone or update
-  --ref REF     Git branch, tag, or commit to install (default: main)
-  --version REF Alias for --ref
+  --from-source Use the GitHub checkout fallback flow instead of PyPI/uvx
+  --version REF Package version to install in default mode; deprecated alias for --ref in source mode
+  --dir PATH    Source mode only: install or update the checkout at PATH
+  --repo URL    Source mode only: Git repository to clone or update
+  --ref REF     Source mode only: Git branch, tag, or commit to install (default: main)
   --no-setup    Skip the one-time `procontext setup` step
   --dry-run     Print commands without executing them
   --help        Show this help
 
 Environment overrides:
+  PROCONTEXT_FROM_SOURCE=1
+  PROCONTEXT_VERSION
   PROCONTEXT_INSTALL_DIR
   PROCONTEXT_REPO_URL
   PROCONTEXT_INSTALL_REF
@@ -161,6 +166,67 @@ run() {
 
 has_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+uvx_available() {
+    has_cmd uvx
+}
+
+print_package_tool_command() {
+    local spec="$1"
+    shift || true
+
+    if uvx_available; then
+        printf "uvx %s" "$spec"
+    else
+        printf "uv tool run %s" "$spec"
+    fi
+
+    local arg
+    for arg in "$@"; do
+        printf " %s" "$arg"
+    done
+}
+
+print_package_mcp_config() {
+    local spec="$1"
+
+    if uvx_available; then
+        cat <<EOF
+{
+  "mcpServers": {
+    "procontext": {
+      "command": "uvx",
+      "args": ["$spec"]
+    }
+  }
+}
+EOF
+        return
+    fi
+
+    cat <<EOF
+{
+  "mcpServers": {
+    "procontext": {
+      "command": "uv",
+      "args": ["tool", "run", "$spec"]
+    }
+  }
+}
+EOF
+}
+
+run_procontext_tool() {
+    local spec="$1"
+    shift
+
+    if uvx_available; then
+        run uvx "$spec" "$@"
+        return
+    fi
+
+    run uv tool run "$spec" "$@"
 }
 
 require_option_value() {
@@ -404,6 +470,18 @@ print_repo_access_hint() {
     ui_error "You can test access with: git ls-remote \"$REPO_URL\""
 }
 
+build_package_spec() {
+    if [[ -n "${PACKAGE_VERSION:-}" ]]; then
+        printf "%s@%s" "$DEFAULT_PACKAGE_NAME" "$PACKAGE_VERSION"
+        return
+    fi
+    printf "%s" "$DEFAULT_PACKAGE_NAME"
+}
+
+print_source_fallback_command() {
+    printf "curl -fsSL %s | bash -s -- --from-source" "$DEFAULT_INSTALLER_URL"
+}
+
 ensure_homebrew() {
     [[ "$(os_name)" != "Darwin" ]] && return 0
 
@@ -629,7 +707,9 @@ sync_repo() {
             print_repo_access_hint
             exit 1
         fi
-        update_checkout_ref "1"
+        if [[ "$DRY_RUN" != "1" ]]; then
+            update_checkout_ref "1"
+        fi
         return 0
     fi
 
@@ -660,6 +740,47 @@ run_uv_sync() {
 }
 
 SETUP_STATUS="skipped"
+INSTALL_MODE="pypi"
+PACKAGE_VERSION=""
+PACKAGE_SPEC=""
+USED_VERSION_ALIAS_FOR_REF="0"
+FROM_SOURCE="0"
+EXPLICIT_SOURCE_FLAG="0"
+SOURCE_ONLY_OPTION_USED="0"
+
+run_pypi_flow() {
+    if [[ "$NO_SETUP" == "1" ]]; then
+        SETUP_STATUS="skipped"
+        ui_info "Validating the published package entrypoint"
+        if run_procontext_tool "$PACKAGE_SPEC" --help; then
+            ui_success "Published package smoke check passed"
+            return 0
+        fi
+
+        ui_error "PyPI installation smoke check failed."
+        ui_error "Retry with:"
+        ui_error "  $(print_package_tool_command "$PACKAGE_SPEC" --help)"
+        ui_error "If package installation is unavailable, or if you prefer the latest source checkout, use the GitHub install:"
+        ui_error "  $(print_source_fallback_command)"
+        ui_error "The GitHub install is manual and intentional; the installer will not switch automatically."
+        exit 1
+    fi
+
+    ui_info "Running one-time registry setup from PyPI"
+    if run_procontext_tool "$PACKAGE_SPEC" setup; then
+        SETUP_STATUS="success"
+        ui_success "Initial registry setup completed"
+        return 0
+    fi
+
+    ui_error "PyPI installation succeeded, but the initial registry setup did not finish."
+    ui_error "Retry with:"
+    ui_error "  $(print_package_tool_command "$PACKAGE_SPEC" setup)"
+    ui_error "If package installation is unavailable, or if you prefer the latest source checkout, use the GitHub install:"
+    ui_error "  $(print_source_fallback_command)"
+    ui_error "The GitHub install is manual and intentional; the installer will not switch automatically."
+    exit 1
+}
 
 run_registry_setup() {
     if [[ "$NO_SETUP" == "1" ]]; then
@@ -685,15 +806,25 @@ run_registry_setup() {
 
 print_plan() {
     printf "\n%sProContext Installer%s\n\n" "$BOLD" "$NC"
-    ui_kv "Source repo" "$REPO_URL"
-    ui_kv "Install dir" "$INSTALL_DIR"
-    ui_kv "Git ref" "$INSTALL_REF"
+    ui_kv "Mode" "$( [[ "$FROM_SOURCE" == "1" ]] && printf "GitHub source" || printf "PyPI (uvx)" )"
+    if [[ "$FROM_SOURCE" == "1" ]]; then
+        ui_kv "Source repo" "$REPO_URL"
+        ui_kv "Install dir" "$INSTALL_DIR"
+        ui_kv "Git ref" "$INSTALL_REF"
+    else
+        ui_kv "Package" "$PACKAGE_SPEC"
+    fi
     ui_kv "Run setup" "$( [[ "$NO_SETUP" == "1" ]] && printf "no" || printf "yes" )"
     ui_kv "Dry run" "$( [[ "$DRY_RUN" == "1" ]] && printf "yes" || printf "no" )"
     printf "\n"
 }
 
 print_next_steps() {
+    if [[ "$FROM_SOURCE" == "1" ]]; then
+        if [[ "$USED_VERSION_ALIAS_FOR_REF" == "1" ]]; then
+            ui_warn "Using --version as a source ref is deprecated; prefer --ref with --from-source next time."
+        fi
+
     cat <<EOF
 
 ${BOLD}ProContext is installed${NC}
@@ -713,17 +844,17 @@ Claude Code MCP config:
 }
 EOF
 
-    case "$SETUP_STATUS" in
-        skipped)
-            cat <<EOF
+        case "$SETUP_STATUS" in
+            skipped)
+                cat <<EOF
 
 One-time registry setup was skipped.
 Run this when you are ready:
   uv run --project "$INSTALL_DIR" procontext setup
 EOF
-            ;;
-        failed)
-            cat <<EOF
+                ;;
+            failed)
+                cat <<EOF
 
 The code is installed, but the initial registry download still needs attention.
 Retry:
@@ -732,20 +863,77 @@ Retry:
 If the environment looks off:
   uv run --project "$INSTALL_DIR" procontext doctor --fix
 EOF
+                ;;
+        esac
+        return
+    fi
+
+    cat <<EOF
+
+${BOLD}ProContext is installed${NC}
+  Package: $PACKAGE_SPEC
+
+Run locally:
+  $(print_package_tool_command "$PACKAGE_SPEC")
+
+Claude Code MCP config:
+$(print_package_mcp_config "$PACKAGE_SPEC")
+EOF
+
+    case "$SETUP_STATUS" in
+        skipped)
+            cat <<EOF
+
+One-time registry setup was skipped.
+Run this when you are ready:
+  $(print_package_tool_command "$PACKAGE_SPEC" setup)
+
+If you prefer the latest source checkout instead:
+  $(print_source_fallback_command)
+EOF
             ;;
+        success)
+            cat <<EOF
+
+If you prefer the latest source checkout instead:
+  $(print_source_fallback_command)
+EOF
+            ;;
+        # "failed" is not reachable here — run_pypi_flow exits on failure
     esac
 }
 
 resolve_config() {
-    if [[ -z "${REPO_URL:-}" ]]; then
-        REPO_URL="${PROCONTEXT_REPO_URL:-$DEFAULT_REPO_URL}"
+    if [[ "${FROM_SOURCE:-0}" != "1" && "${PROCONTEXT_FROM_SOURCE:-0}" == "1" ]]; then
+        FROM_SOURCE="1"
     fi
-    if [[ -z "${INSTALL_REF:-}" ]]; then
-        INSTALL_REF="${PROCONTEXT_INSTALL_REF:-$DEFAULT_REF}"
+    if [[ -z "${PACKAGE_VERSION:-}" ]]; then
+        PACKAGE_VERSION="${PROCONTEXT_VERSION:-}"
     fi
-    if [[ -z "${INSTALL_DIR:-}" ]]; then
-        INSTALL_DIR="${PROCONTEXT_INSTALL_DIR:-$(default_install_dir)}"
+    if [[ "$FROM_SOURCE" == "1" ]]; then
+        if [[ -z "${REPO_URL:-}" ]]; then
+            REPO_URL="${PROCONTEXT_REPO_URL:-$DEFAULT_REPO_URL}"
+        fi
+        if [[ -z "${INSTALL_REF:-}" ]]; then
+            INSTALL_REF="${PROCONTEXT_INSTALL_REF:-}"
+        fi
+        if [[ -z "${INSTALL_REF:-}" && -n "${PACKAGE_VERSION:-}" ]]; then
+            INSTALL_REF="$PACKAGE_VERSION"
+            USED_VERSION_ALIAS_FOR_REF="1"
+        fi
+        if [[ -z "${INSTALL_REF:-}" ]]; then
+            INSTALL_REF="$DEFAULT_REF"
+        fi
+        if [[ -z "${INSTALL_DIR:-}" ]]; then
+            INSTALL_DIR="${PROCONTEXT_INSTALL_DIR:-$(default_install_dir)}"
+        fi
+        INSTALL_MODE="source"
+    elif [[ "$SOURCE_ONLY_OPTION_USED" == "1" ]]; then
+        ui_error "--dir, --repo, and --ref require --from-source."
+        ui_error "Use the default PyPI install, or rerun with --from-source for the GitHub checkout fallback."
+        exit 2
     fi
+    PACKAGE_SPEC="$(build_package_spec)"
     if [[ "${NO_SETUP:-0}" != "1" && "${PROCONTEXT_NO_SETUP:-0}" == "1" ]]; then
         NO_SETUP="1"
     fi
@@ -757,29 +945,39 @@ resolve_config() {
 REPO_URL=""
 INSTALL_DIR=""
 INSTALL_REF=""
+PACKAGE_VERSION=""
 NO_SETUP="0"
 DRY_RUN="0"
+FROM_SOURCE="0"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --from-source)
+            FROM_SOURCE="1"
+            EXPLICIT_SOURCE_FLAG="1"
+            shift
+            ;;
         --dir)
             require_option_value "$1" "${2-}"
             INSTALL_DIR="$2"
+            SOURCE_ONLY_OPTION_USED="1"
             shift 2
             ;;
         --repo)
             require_option_value "$1" "${2-}"
             REPO_URL="$2"
+            SOURCE_ONLY_OPTION_USED="1"
             shift 2
             ;;
         --ref)
             require_option_value "$1" "${2-}"
             INSTALL_REF="$2"
+            SOURCE_ONLY_OPTION_USED="1"
             shift 2
             ;;
         --version)
             require_option_value "$1" "${2-}"
-            INSTALL_REF="$2"
+            PACKAGE_VERSION="$2"
             shift 2
             ;;
         --no-setup)
@@ -805,9 +1003,13 @@ done
 resolve_config
 require_supported_os
 print_plan
-ensure_git
 ensure_uv
-sync_repo
-run_uv_sync
-run_registry_setup
+if [[ "$FROM_SOURCE" == "1" ]]; then
+    ensure_git
+    sync_repo
+    run_uv_sync
+    run_registry_setup
+else
+    run_pypi_flow
+fi
 print_next_steps

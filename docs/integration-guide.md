@@ -1,14 +1,18 @@
 # Integration Guide
 
-This guide covers connecting ProContext to your AI coding tool. For installation, see [installation.md](cli/installation.md).
+This guide covers connecting ProContext to your AI coding tool. For installation, see [installation.md](installation.md).
 
-ProContext runs as a **stdio** server by default — your AI tool launches it as a subprocess. Every tool below uses the same underlying command:
+For normal local MCP integrations, ProContext runs as a **stdio** server and your AI tool launches it as a subprocess. You do not need to start it yourself in stdio mode.
+
+Every tool below uses the same underlying command:
 
 ```
-uv run --project <install-path> procontext
+uvx procontext
 ```
 
-Replace `<install-path>` with the checkout path from the installer. The examples below use placeholder paths — substitute your actual path.
+If you are using a script-based GitHub install or a manual GitHub checkout, replace `uvx procontext` with `uv run --project /path/to/procontext-source procontext`.
+
+Start ProContext manually only when you want to use the HTTP transport described later in this guide.
 
 ---
 
@@ -19,7 +23,7 @@ Claude Code has a built-in CLI command to add MCP servers.
 **Add via CLI (recommended):**
 
 ```bash
-claude mcp add procontext -s user -- uv run --project /path/to/procontext-source procontext
+claude mcp add procontext -s user -- uvx procontext
 ```
 
 The `-s user` flag makes ProContext available across all your projects. Use `-s project` to scope it to the current project only.
@@ -30,8 +34,8 @@ The `-s user` flag makes ProContext available across all your projects. Use `-s 
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -65,8 +69,8 @@ Edit the config file directly, then restart Claude Desktop.
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -95,8 +99,8 @@ Edit the MCP config file. No restart required — Cursor picks up changes automa
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -118,8 +122,8 @@ Edit the Windsurf MCP config file.
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -136,7 +140,7 @@ Requires VS Code 1.99 or later with GitHub Copilot. MCP servers are configured i
 **Add via CLI:**
 
 ```bash
-code --add-mcp '{"name":"procontext","command":"uv","args":["run","--project","/path/to/procontext-source","procontext"]}'
+code --add-mcp '{"name":"procontext","command":"uvx","args":["procontext"]}'
 ```
 
 **Or create `.vscode/mcp.json` in your project:**
@@ -145,8 +149,8 @@ code --add-mcp '{"name":"procontext","command":"uv","args":["run","--project","/
 {
   "servers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -163,15 +167,15 @@ Codex uses TOML configuration, not JSON.
 **Add via CLI:**
 
 ```bash
-codex mcp add procontext -- uv run --project /path/to/procontext-source procontext
+codex mcp add procontext -- uvx procontext
 ```
 
 **Or edit `~/.codex/config.toml` manually:**
 
 ```toml
 [mcp_servers.procontext]
-command = "uv"
-args = ["run", "--project", "/path/to/procontext-source", "procontext"]
+command = "uvx"
+args = ["procontext"]
 ```
 
 View active MCP servers in the Codex TUI with the `/mcp` command.
@@ -183,7 +187,7 @@ View active MCP servers in the Codex TUI with the `/mcp` command.
 **Add via CLI:**
 
 ```bash
-q mcp add --name procontext --command uv --args "run,--project,/path/to/procontext-source,procontext"
+q mcp add --name procontext --command uvx --args "procontext"
 ```
 
 **Or edit `~/.aws/amazonq/mcp.json`:**
@@ -192,8 +196,8 @@ q mcp add --name procontext --command uv --args "run,--project,/path/to/proconte
 {
   "mcpServers": {
     "procontext": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/procontext-source", "procontext"]
+      "command": "uvx",
+      "args": ["procontext"]
     }
   }
 }
@@ -221,13 +225,13 @@ server:
 Or use environment variables:
 
 ```bash
-PROCONTEXT__SERVER__TRANSPORT=http PROCONTEXT__SERVER__PORT=8080 uv run --project /path/to/procontext-source procontext
+PROCONTEXT__SERVER__TRANSPORT=http PROCONTEXT__SERVER__PORT=8080 uvx procontext
 ```
 
 ### 2. Start the server
 
 ```bash
-uv run --project /path/to/procontext-source procontext
+uvx procontext
 ```
 
 The server listens at `http://127.0.0.1:8080/mcp`.
@@ -345,11 +349,12 @@ The agent should call `resolve_library("langchain")` and return documentation UR
 
 ## Troubleshooting
 
-- **`uv` says "unrecognized subcommand"** — Make sure `args` is tokenized as `["run", "--project", "/path/to/procontext-source", "procontext"]` instead of one combined shell string.
+- **`uv` says "unrecognized subcommand"** — Make sure `args` is tokenized as individual elements such as `["procontext"]` instead of one combined shell string.
 - **"uv: command not found"** — open a new terminal after installing so `PATH` is updated, or install uv manually from [docs.astral.sh/uv](https://docs.astral.sh/uv/).
-- **"No registry found"** — run `uv run --project /path/to/procontext-source procontext setup` to download the library registry.
-- **Server not connecting** — run `uv run --project /path/to/procontext-source procontext doctor --fix` to diagnose and repair common issues.
+- **"No registry found"** — run `uvx procontext setup` to download the library registry.
+- **Server not connecting** — run `uvx procontext doctor --fix` to diagnose and repair common issues.
+- **Need the GitHub source install** — install with `--from-source` / `-FromSource`, then use `uv run --project /path/to/procontext-source procontext`.
 - **Config file not found** — check the exact path for your platform listed above. Create the file if it doesn't exist.
 - **Tools not appearing** — some tools require a restart (Claude Desktop) or a new session (Claude Code) after config changes.
 
-For detailed troubleshooting, see [installation.md](cli/installation.md).
+For detailed troubleshooting, see [installation.md](installation.md).
