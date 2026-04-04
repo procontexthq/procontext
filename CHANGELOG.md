@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-05
+
+### Added
+
+- **HTML content processing** — documentation pages served as HTML are now
+  automatically converted to clean markdown via a configurable processor
+  pipeline (default: markitdown). Agents receive readable content instead of
+  raw HTML when a library's documentation does not provide native markdown.
+
+### Changed
+
+- **Smarter outline context in search results** — `search_page` now returns
+  more useful outline context for content-mode searches. Small outlines are
+  returned in full; oversized outlines are trimmed to the match range with the
+  active ancestor heading chain prepended for structural context. Outline
+  character budgets are now configurable separately for `read_page` and
+  `search_page`.
+
 ## [0.1.2] - 2026-04-01
 
 Maintenance release focused on runtime hardening, safer startup behavior, and
@@ -132,7 +150,8 @@ Internal alpha. Initial implementation of the MCP server with `resolve_library`,
 `read_page`, registry loading, SQLite cache, stdio/HTTP transports, and SSRF
 protection. Not recommended for production use.
 
-[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/procontexthq/procontext/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/procontexthq/procontext/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/procontexthq/procontext/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/procontexthq/procontext/releases/tag/v0.1.0
