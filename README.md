@@ -40,8 +40,6 @@ ProContext fixes this by feeding it the reference docs it needs - correct versio
 
 ### 1. Install ProContext 🚀
 
-Install ProContext using whichever path fits you best.
-
 If you want the smoothest setup, the installer scripts are a good default. They take care of prerequisites like `uv` and run the initial setup step for you.
 
 #### Recommended: Installer Script
@@ -49,7 +47,7 @@ If you want the smoothest setup, the installer scripts are a good default. They 
 #### macOS and Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/install.sh | bash
+curl -fsSL https://procontext.dev/install.sh | bash
 ```
 
 #### Windows
@@ -57,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/procontexthq/procontext/main/instal
 Run this in a PowerShell terminal:
 
 ```powershell
-irm https://raw.githubusercontent.com/procontexthq/procontext/main/install.ps1 | iex
+irm https://procontext.dev/install.ps1 | iex
 ```
 
 #### Alternative: Manual Install Using `uvx`
