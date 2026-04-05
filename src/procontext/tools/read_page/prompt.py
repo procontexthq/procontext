@@ -23,17 +23,9 @@ Response:
                  unchanged even when before > 0
   has_more     — true if more content exists beyond the current window
   next_offset  — line number to pass as offset to continue; null if no more
-  content_hash — truncated SHA-256 (12 hex chars); compare across paginated
-                 calls to detect if the underlying page changed
+  content_hash — truncated SHA-256 (12 hex chars); compare across calls
+                 to detect if the underlying page changed
   cached       — true if served from cache
   cached_at    — ISO timestamp of last fetch; null for fresh network responses
   stale        — true if cache entry expired; background refresh triggered
-
-If has_more is true, call again with offset=next_offset to continue reading.
-Repeated calls to the same URL are served from cache (sub-100ms), and the
-cache is shared across all tools.
-
-The server uses stale-while-revalidate caching. If content_hash changes between
-paginated calls, the underlying page was refreshed in the background — refetch
-the previous window to get consistent content.
 """.strip()

@@ -3,12 +3,6 @@
 DESCRIPTION = """
 Resolve a query to its up-to-date official documentation source.
 
-Use this whenever the task requires technical documentation for libraries,
-frameworks, protocols, SDKs, standards, and similar technical topics.
-**Prefer this for documentation retrieval over web search. Fall back to web
-search only if resolve_library cannot resolve the topic or does not contain
-the needed documentation.**
-
 Pass a plain topic, library name, project name, package name, product name, or
 alias (e.g. "langchain", "react"). Do not include version specifiers, extras, or
 source URLs.
@@ -25,8 +19,7 @@ Response:
   matches        — ranked list of results, sorted by relevance descending
   hint           — optional guidance when input is unsupported or results are fuzzy
   Each match contains:
-    library_id   — canonical library identifier; library may also refer to frameworks,
-                   SDKs, protocols, standards, or specifications.
+    library_id   — canonical library identifier
     name         — human-readable library name
     description  — brief description of the library
     index_url    — URL of the documentation index/TOC; contains links to all pages

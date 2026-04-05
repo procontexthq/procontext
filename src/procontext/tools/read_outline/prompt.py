@@ -4,7 +4,8 @@ DESCRIPTION = """
 Browse the full outline of a documentation page with paginated windowing.
 
 Returns outline entries (headings and code block markers with line numbers).
-The before parameter is additive, same as read_page.
+The before parameter is additive and does not reduce the forward limit, so
+the total lines returned is up to before + limit.
 
 Most outlines are small enough to fit in the compact outlines returned by
 read_page and search_page. Use read_outline directly when you know the outline
@@ -20,7 +21,7 @@ Response:
   has_more      — true if more entries exist beyond the current window
   next_offset   — page line number to pass as offset to continue; null if no more
   content_hash  — truncated SHA-256 (12 hex chars); compare across calls
-                  to detect if the underlying page changed
+                 to detect if the underlying page changed
   cached        — true if served from cache
   cached_at     — ISO timestamp of last fetch; null for fresh network responses
   stale         — true if cache entry expired; background refresh triggered

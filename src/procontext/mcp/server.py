@@ -73,100 +73,6 @@ async def resolve_library(
         raise
 
 
-@mcp.tool(description=READ_PAGE_DESCRIPTION)
-async def read_page(
-    url: Annotated[
-        str,
-        Field(description="Any URL - index, documentation page, or full documentation URL."),
-    ],
-    ctx: Context,
-    offset: Annotated[
-        int,
-        Field(description="1-based line number to start reading from.", ge=1),
-    ] = 1,
-    limit: Annotated[
-        int,
-        Field(description="Maximum number of content lines to return.", ge=1),
-    ] = 500,
-    before: Annotated[
-        int,
-        Field(
-            description=(
-                "Number of extra content lines to include before offset for backward context."
-            ),
-            ge=0,
-        ),
-    ] = 0,
-    include_outline: Annotated[
-        bool,
-        Field(
-            description=(
-                "Set to false to omit the outline from the response. "
-                "Useful when paginating and the outline is already known."
-            )
-        ),
-    ] = True,
-) -> ReadPageOutput:
-    """Fetch the content and outline of a documentation page."""
-    state: AppState = ctx.request_context.lifespan_context
-    try:
-        return ReadPageOutput.model_validate(
-            await t_read_page.handle(
-                url,
-                offset,
-                limit,
-                state,
-                before=before,
-                include_outline=include_outline,
-            )
-        )
-    except ProContextError as exc:
-        log.warning("tool_error", tool="read_page", code=exc.code, message=exc.message)
-        raise
-    except Exception:
-        log.error("tool_unexpected_error", tool="read_page", exc_info=True)
-        raise
-
-
-@mcp.tool(description=READ_OUTLINE_DESCRIPTION)
-async def read_outline(
-    url: Annotated[
-        str,
-        Field(description="Any URL - index, documentation page, or full documentation URL."),
-    ],
-    ctx: Context,
-    offset: Annotated[
-        int,
-        Field(description="1-based page line number to start browsing the outline from.", ge=1),
-    ] = 1,
-    limit: Annotated[
-        int,
-        Field(description="Maximum forward page lines to include from offset.", ge=1),
-    ] = 1000,
-    before: Annotated[
-        int,
-        Field(
-            description=(
-                "Number of extra page lines to include before offset for backward outline context."
-            ),
-            ge=0,
-        ),
-    ] = 0,
-) -> ReadOutlineOutput:
-    """Browse the full outline of a documentation page with page-line windowing."""
-    state: AppState = ctx.request_context.lifespan_context
-    try:
-        return ReadOutlineOutput.model_validate(
-            await t_read_outline.handle(url, offset, limit, state, before=before)
-        )
-    except ProContextError as exc:
-        log.warning("tool_error", tool="read_outline", code=exc.code, message=exc.message)
-        raise
-    except Exception:
-        log.error("tool_unexpected_error", tool="read_outline", exc_info=True)
-        raise
-
-
 @mcp.tool(description=SEARCH_PAGE_DESCRIPTION)
 async def search_page(
     url: Annotated[
@@ -238,4 +144,98 @@ async def search_page(
         raise
     except Exception:
         log.error("tool_unexpected_error", tool="search_page", exc_info=True)
+        raise
+
+
+@mcp.tool(description=READ_OUTLINE_DESCRIPTION)
+async def read_outline(
+    url: Annotated[
+        str,
+        Field(description="Any URL - index, documentation page, or full documentation URL."),
+    ],
+    ctx: Context,
+    offset: Annotated[
+        int,
+        Field(description="1-based page line number to start browsing the outline from.", ge=1),
+    ] = 1,
+    limit: Annotated[
+        int,
+        Field(description="Maximum forward page lines to include from offset.", ge=1),
+    ] = 1000,
+    before: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of extra page lines to include before offset for backward outline context."
+            ),
+            ge=0,
+        ),
+    ] = 0,
+) -> ReadOutlineOutput:
+    """Browse the full outline of a documentation page with page-line windowing."""
+    state: AppState = ctx.request_context.lifespan_context
+    try:
+        return ReadOutlineOutput.model_validate(
+            await t_read_outline.handle(url, offset, limit, state, before=before)
+        )
+    except ProContextError as exc:
+        log.warning("tool_error", tool="read_outline", code=exc.code, message=exc.message)
+        raise
+    except Exception:
+        log.error("tool_unexpected_error", tool="read_outline", exc_info=True)
+        raise
+
+
+@mcp.tool(description=READ_PAGE_DESCRIPTION)
+async def read_page(
+    url: Annotated[
+        str,
+        Field(description="Any URL - index, documentation page, or full documentation URL."),
+    ],
+    ctx: Context,
+    offset: Annotated[
+        int,
+        Field(description="1-based line number to start reading from.", ge=1),
+    ] = 1,
+    limit: Annotated[
+        int,
+        Field(description="Maximum number of content lines to return.", ge=1),
+    ] = 500,
+    before: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of extra content lines to include before offset for backward context."
+            ),
+            ge=0,
+        ),
+    ] = 0,
+    include_outline: Annotated[
+        bool,
+        Field(
+            description=(
+                "Set to false to omit the outline from the response. "
+                "Useful when paginating and the outline is already known."
+            )
+        ),
+    ] = True,
+) -> ReadPageOutput:
+    """Fetch the content and outline of a documentation page."""
+    state: AppState = ctx.request_context.lifespan_context
+    try:
+        return ReadPageOutput.model_validate(
+            await t_read_page.handle(
+                url,
+                offset,
+                limit,
+                state,
+                before=before,
+                include_outline=include_outline,
+            )
+        )
+    except ProContextError as exc:
+        log.warning("tool_error", tool="read_page", code=exc.code, message=exc.message)
+        raise
+    except Exception:
+        log.error("tool_unexpected_error", tool="read_page", exc_info=True)
         raise
