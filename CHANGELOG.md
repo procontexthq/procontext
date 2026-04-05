@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-06
+
+### Changed
+
+- **Improved server instructions for better agent navigation** — the MCP server
+  instructions now include a complete workflow guide (resolve → search → outline
+  → read), explicit caching and restriction rules, and a "when to use" section
+  that directs agents to prefer ProContext over web search. Duplicated guidance
+  previously scattered across individual tool descriptions has been consolidated
+  into the server-level prompt.
+- **Tool registration order matches recommended workflow** — tools are now
+  registered in workflow priority order (resolve_library → search_page →
+  read_outline → read_page), improving discoverability in `tools/list` responses.
+- **Self-contained tool descriptions** — `read_outline`'s `before` parameter
+  description no longer cross-references `read_page`, and redundant caching and
+  stale-while-revalidate text has been removed from individual tool descriptions
+  in favor of the centralized server instructions.
+
 ## [0.2.0] - 2026-04-05
 
 ### Added
@@ -150,7 +168,8 @@ Internal alpha. Initial implementation of the MCP server with `resolve_library`,
 `read_page`, registry loading, SQLite cache, stdio/HTTP transports, and SSRF
 protection. Not recommended for production use.
 
-[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/procontexthq/procontext/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/procontexthq/procontext/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/procontexthq/procontext/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/procontexthq/procontext/compare/v0.1.0...v0.1.1
