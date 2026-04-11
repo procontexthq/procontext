@@ -88,7 +88,7 @@ fetcher:
   #         monotonic (domains are only added, never removed) and resets to the
   #         registry baseline on each registry update. In long-running HTTP mode
   #         it may grow across sessions until the next registry update.
-  allowlist_expansion: "registry"
+  allowlist_expansion: "discovered"
 
   # Additional domains to always trust, regardless of allowlist_expansion. These are merged
   # with the registry-derived allowlist at startup and persist across registry updates.

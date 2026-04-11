@@ -67,7 +67,7 @@ class FetcherSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ssrf_private_ip_check: bool = True
     ssrf_domain_check: bool = True
-    allowlist_expansion: Literal["registry", "discovered"] = "registry"
+    allowlist_expansion: Literal["registry", "discovered"] = "discovered"
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
     html_processors: list[str] = Field(default_factory=lambda: ["markitdown"])
     connect_timeout_seconds: float = Field(default=5.0, gt=0)
