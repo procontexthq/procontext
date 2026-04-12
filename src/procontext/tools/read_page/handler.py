@@ -22,8 +22,6 @@ from procontext.outline import (
 from procontext.page import fetch_or_cached_page
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from procontext.state import AppState
 
 
@@ -78,9 +76,6 @@ async def handle(
         limit=validated.limit,
         before=validated.before,
         content_hash=result.content_hash,
-        cached=result.cached,
-        cached_at=result.cached_at,
-        stale=result.stale,
     )
 
 
@@ -112,9 +107,6 @@ def _build_output(
     limit: int,
     before: int,
     content_hash: str,
-    cached: bool,
-    cached_at: datetime | None,
-    stale: bool,
 ) -> dict:
     """Apply line windowing and build the output dict."""
     all_lines = content.splitlines()
@@ -139,8 +131,5 @@ def _build_output(
         has_more=has_more,
         next_offset=next_offset,
         content_hash=content_hash,
-        cached=cached,
-        cached_at=cached_at,
-        stale=stale,
     )
     return output.model_dump(mode="json")

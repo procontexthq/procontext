@@ -29,7 +29,6 @@ class TestReadOutlineHandler:
         assert result["url"] == SAMPLE_URL
         assert result["total_entries"] > 0
         assert "# Streaming" in result["outline"]
-        assert result["cached"] is False
 
     @respx.mock
     async def test_output_contains_all_fields(self, app_state: AppState) -> None:
@@ -43,9 +42,6 @@ class TestReadOutlineHandler:
             "has_more",
             "next_offset",
             "content_hash",
-            "cached",
-            "cached_at",
-            "stale",
         }
 
     @respx.mock
@@ -58,7 +54,6 @@ class TestReadOutlineHandler:
         assert result["next_offset"] == 3
 
         result2 = await read_outline_handle(SAMPLE_URL, result["next_offset"], 2, app_state)
-        assert result2["cached"] is True
         assert result2["outline"] == "3:## Overview"
 
     @respx.mock
@@ -80,7 +75,7 @@ class TestReadOutlineHandler:
         assert respx.calls.call_count == 1
 
         result = await read_outline_handle(SAMPLE_URL, 1, 200, app_state)
-        assert result["cached"] is True
+        assert result["total_entries"] > 0
         assert respx.calls.call_count == 1
 
     async def test_url_not_allowed_raises(self, app_state: AppState) -> None:

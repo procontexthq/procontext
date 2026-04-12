@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
@@ -100,9 +99,6 @@ class ReadPageOutput(BaseModel):
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 
 class ReadOutlineInput(BaseModel):
@@ -145,9 +141,6 @@ class ReadOutlineOutput(BaseModel):
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 
 class SearchPageInput(BaseModel):
@@ -199,6 +192,3 @@ class SearchPageOutput(BaseModel):
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False

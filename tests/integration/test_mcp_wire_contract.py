@@ -314,8 +314,6 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
 
     payload = json.loads(tool_response["result"]["content"][0]["text"])
     assert payload["url"] == url
-    assert payload["cached"] is True
-    assert payload["stale"] is False
     assert payload["offset"] == 1
     assert payload["limit"] == 2
     assert payload["outline"] == outline

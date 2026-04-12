@@ -41,7 +41,6 @@ class TestSearchPageHandler:
 
         assert result["url"] == SAMPLE_URL
         assert result["query"] == "streaming"
-        assert result["cached"] is False
         assert result["matches"] != ""
         for line in result["matches"].split("\n"):
             colon_index = line.index(":")
@@ -56,7 +55,7 @@ class TestSearchPageHandler:
         assert respx.calls.call_count == 1
 
         result = await search_page_handle(SAMPLE_URL, "streaming", app_state)
-        assert result["cached"] is True
+        assert result["matches"] != ""
         assert respx.calls.call_count == 1
 
     async def test_invalid_target_raises_invalid_input(self, app_state: AppState) -> None:
@@ -257,9 +256,6 @@ class TestSearchPageHandler:
             "has_more",
             "next_offset",
             "content_hash",
-            "cached",
-            "cached_at",
-            "stale",
         }
 
     async def test_search_url_not_allowed_raises(self, app_state: AppState) -> None:

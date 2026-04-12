@@ -25,7 +25,4 @@ Response:
   next_offset  — line number to pass as offset to continue; null if no more
   content_hash — truncated SHA-256 (12 hex chars); compare across calls
                  to detect if the underlying page changed
-  cached       — true if served from cache
-  cached_at    — ISO timestamp of last fetch; null for fresh network responses
-  stale        — true if cache entry expired; background refresh triggered
 """.strip()
