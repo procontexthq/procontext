@@ -1,5 +1,15 @@
 """MCP-facing prompt text for the read_page tool."""
 
+# Parameter descriptions
+PARAM_URL = "Any URL - index, documentation page, or full documentation URL."
+PARAM_OFFSET = "1-based line number to start reading from."
+PARAM_LIMIT = "Maximum number of content lines to return."
+PARAM_BEFORE = "Number of extra content lines to include before offset for backward context."
+PARAM_INCLUDE_OUTLINE = (
+    "Set to false to omit the outline from the response. "
+    "Useful when paginating and the outline is already known."
+)
+
 DESCRIPTION = """
 Fetch the content and a compact outline of a documentation page.
 

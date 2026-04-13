@@ -1,5 +1,12 @@
 """MCP-facing prompt text for the resolve_library tool."""
 
+# Parameter descriptions
+PARAM_QUERY = "Plain library name, project name, package name or commonly known name."
+PARAM_LANGUAGE = (
+    "Optional language hint (e.g. 'python', 'javascript'). "
+    "Sorts matching-language packages to the top; does not filter results."
+)
+
 DESCRIPTION = """
 Resolve a query to its up-to-date official documentation source.
 

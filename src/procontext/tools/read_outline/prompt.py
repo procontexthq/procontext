@@ -1,5 +1,11 @@
 """MCP-facing prompt text for the read_outline tool."""
 
+# Parameter descriptions
+PARAM_URL = "Any URL - index, documentation page, or full documentation URL."
+PARAM_OFFSET = "1-based page line number to start browsing the outline from."
+PARAM_LIMIT = "Maximum number of outline entries to return forward from offset."
+PARAM_BEFORE = "Number of extra outline entries to include before offset for backward context."
+
 DESCRIPTION = """
 Browse the full outline of a documentation page with paginated windowing.
 
