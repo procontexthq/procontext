@@ -1,5 +1,4 @@
 ---
-name: coding-guidelines
 description: "Make sure to follow the rules mentioned when writing or reviewing any code in this repository."
 ---
 
@@ -177,9 +176,9 @@ Make it a habit to write tests before implementing new features or fixing bugs. 
 ### 18. Testing practices
 
 - Integration tests must test the public API and observable behavior, not internal implementation details. Do not reach into private methods or state.
-    - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
+  - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
 - Unit tests should focus on testing individual components in isolation. Test all the functions with emphasis on functions that contain complex logic (parsers, matchers, resolution algorithms, validation functions).
-    - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
+  - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
 
 ### 19. Keep tests for deprecated APIs until removal
 
