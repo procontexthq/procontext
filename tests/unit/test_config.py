@@ -11,6 +11,7 @@ from procontext.config import (
     _DEFAULT_DB_PATH,
     CacheSettings,
     FetcherSettings,
+    LoggingSettings,
     OutlineSettings,
     RegistrySettings,
     ResolverSettings,
@@ -40,6 +41,14 @@ class TestPlatformDefaults:
         settings = Settings(data_dir="/tmp/custom-procontext-data")
         assert settings.data_dir == "/tmp/custom-procontext-data"
         assert settings.cache.db_path == _DEFAULT_DB_PATH
+
+    def test_default_allowlist_expansion_is_discovered(self) -> None:
+        fetcher = FetcherSettings()
+        assert fetcher.allowlist_expansion == "discovered"
+
+    def test_default_logging_format_is_text(self) -> None:
+        logging = LoggingSettings()
+        assert logging.format == "text"
 
 
 class TestConfigValidation:
