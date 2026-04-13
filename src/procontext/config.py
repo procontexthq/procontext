@@ -116,7 +116,7 @@ class OutlineSettings(BaseModel):
 class LoggingSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    format: Literal["json", "text"] = "json"
+    format: Literal["json", "text"] = "text"
 
 
 class Settings(BaseSettings):

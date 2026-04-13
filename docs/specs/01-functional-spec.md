@@ -495,8 +495,8 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 - All initial URLs are validated against an allowlist of permitted domains before fetching or cache lookup
 - The allowlist is populated at startup from the registry (all `llms_txt_url` domains) plus any configured `extra_allowed_domains`
 - **Allowlist expansion** is controlled by a two-value setting (`allowlist_expansion`):
-  - `"registry"` (default): allowlist is fixed at startup — only registry domains and `extra_allowed_domains`
-  - `"discovered"`: domains found in any fetched content (llms.txt indexes, documentation pages) are added to the allowlist at runtime. Expansion is monotonic (domains are only added, never removed) and resets to the registry baseline on each registry update.
+  - `"registry"`: allowlist is fixed at startup — only registry domains and `extra_allowed_domains`
+  - `"discovered"` (default): domains found in any fetched content (llms.txt indexes, documentation pages) are added to the allowlist at runtime. Expansion is monotonic (domains are only added, never removed) and resets to the registry baseline on each registry update.
 - In HTTP long-running mode, when a background registry update is accepted, the allowlist is rebuilt from the new registry and atomically swapped with the new indexes
 - Redirects are followed manually — the allowlist is enforced on the initial URL, while private-IP blocking remains active on every redirect hop
 - Private IP ranges (`10.x`, `172.16.x`, `192.168.x`, `127.x`, `::1`, `fc00::/7`) are always blocked, regardless of allowlist

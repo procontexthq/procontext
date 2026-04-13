@@ -696,17 +696,17 @@ def is_url_allowed(
 
 - **`ssrf_private_ip_check`** (default `true`): blocks all requests to private/internal IP ranges. Strongly recommended to keep enabled.
 - **`ssrf_domain_check`** (default `true`): enforces the domain allowlist. When `false`, any public domain is reachable — only appropriate for isolated/air-gapped environments.
-- **`allowlist_expansion`** (default `"registry"`): controls whether the allowlist is expanded at runtime beyond the registry (see below).
+- **`allowlist_expansion`** (default `"discovered"`): controls whether the allowlist is expanded at runtime beyond the registry (see below).
 - **`extra_allowed_domains`**: manually specified domains always merged into the allowlist at startup, regardless of expansion setting. Ships with `["github.com", "githubusercontent.com"]` as defaults.
 
 **Runtime allowlist expansion** (reactive, not pre-fetched):
 
-- **`"registry"`** (default): allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
-- **`"discovered"`**: after any page tool fetches content (llms.txt, README, or documentation page), all URLs in the content have their base domains extracted and merged into `state.allowlist`. Enables following cross-domain links found in documentation.
+- **`"registry"`**: allowlist is fixed at startup — only registry domains + `extra_allowed_domains`.
+- **`"discovered"`** (default): after any page tool fetches content (llms.txt, README, or documentation page), all URLs in the content have their base domains extracted and merged into `state.allowlist`. Enables following cross-domain links found in documentation.
 
 When expansion is `"discovered"`, it is monotonic (domains are only added, never removed). The allowlist resets to the registry baseline on each registry update. In long-running HTTP mode, the allowlist may grow across sessions until the next registry update.
 
-**Cross-restart persistence**: `discovered_domains` are always extracted from fetched content and written to the SQLite cache — even when expansion is `"registry"` — so they are available if the operator later enables `"discovered"` expansion. At startup, `Cache.load_discovered_domains()` reads all `discovered_domains` from `page_cache` and merges them into the initial allowlist (subject to `allowlist_expansion` setting). This ensures that cached pages from a previous session remain reachable after a server restart, and avoids the performance cost of re-running domain extraction on every server start.
+**Cross-restart persistence**: `discovered_domains` are always extracted from fetched content and written to the SQLite cache — even when expansion is `"registry"` — so the data survives mode changes and temporary strict-mode runs. At startup, `Cache.load_discovered_domains()` reads all `discovered_domains` from `page_cache` and merges them into the initial allowlist (subject to `allowlist_expansion` setting). This ensures that cached pages from a previous session remain reachable after a server restart, and avoids the performance cost of re-running domain extraction on every server start.
 
 **Known limitation**: Two-label base domain extraction is a simplification of proper eTLD+1 calculation. For shared hosting platforms like `github.io` or `readthedocs.io`, the base domain would be `github.io` or `readthedocs.io` — permitting all projects hosted there, not just the registered library. This is an acceptable trade-off for v1; a future version could adopt the `tldextract` library for accurate Public Suffix List-based matching.
 
@@ -806,7 +806,7 @@ All fetched content — llms.txt indexes, README files, and documentation pages 
 
 **Why TEXT for timestamps**: SQLite has no native datetime type. ISO 8601 strings (`"2026-02-23T10:00:00Z"`) sort lexicographically as datetimes, making range queries on `expires_at` correct without any conversion.
 
-**`discovered_domains` column**: Stores the base domains (`example.com`, `docs.dev`) extracted from fetched content by `extract_base_domains_from_content`. Serialised as a space-separated string (base domains never contain spaces). Written unconditionally on every cache write — regardless of the current `allowlist_expansion` config — so the data is always available if the operator later enables `"discovered"` expansion. At startup, `Cache.load_discovered_domains()` reads all non-empty `discovered_domains` values from `page_cache` and merges them back into the in-memory allowlist (subject to `allowlist_expansion`). This restores cross-restart continuity for the runtime-expanded allowlist.
+**`discovered_domains` column**: Stores the base domains (`example.com`, `docs.dev`) extracted from fetched content by `extract_base_domains_from_content`. Serialised as a space-separated string (base domains never contain spaces). Written unconditionally on every cache write — regardless of the current `allowlist_expansion` config — so the data remains available across restarts and mode changes. At startup, `Cache.load_discovered_domains()` reads all non-empty `discovered_domains` values from `page_cache` and merges them back into the in-memory allowlist (subject to `allowlist_expansion`). This restores cross-restart continuity for the runtime-expanded allowlist.
 
 **Cleanup**: A periodic task (runs at startup and every 6 hours thereafter) deletes entries where `expires_at < now() - 7 days`. Stale entries are kept up to 7 days to serve as fallback when the source is temporarily unreachable.
 
@@ -1553,7 +1553,7 @@ cache:
 fetcher:
   ssrf_private_ip_check: true # block private/internal IPs; strongly recommended
   ssrf_domain_check: true # enforce domain allowlist; set false only in isolated environments
-  allowlist_expansion: "registry" # "registry" = fixed at startup | "discovered" = expand from fetched content
+  allowlist_expansion: "discovered" # "registry" = fixed at startup | "discovered" = expand from fetched content
   extra_allowed_domains: # always trusted, merged at startup regardless of depth
     - github.com
     - githubusercontent.com
@@ -1571,7 +1571,7 @@ outline:
 
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
-  format: json # json | text (text for local dev)
+  format: text # json | text (default: text)
 ```
 
 Loaded via pydantic-settings:
@@ -1605,7 +1605,7 @@ class CacheSettings(BaseModel):
 class FetcherSettings(BaseModel):
     ssrf_private_ip_check: bool = True
     ssrf_domain_check: bool = True
-    allowlist_expansion: Literal["registry", "discovered"] = "registry"
+    allowlist_expansion: Literal["registry", "discovered"] = "discovered"
     extra_allowed_domains: list[str] = ["github.com", "githubusercontent.com"]
     connect_timeout_seconds: float = 5.0
     request_timeout_seconds: float = 30.0
@@ -1621,7 +1621,7 @@ class OutlineSettings(BaseModel):
 
 class LoggingSettings(BaseModel):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    format: Literal["json", "text"] = "json"
+    format: Literal["json", "text"] = "text"
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

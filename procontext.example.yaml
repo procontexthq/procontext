@@ -76,12 +76,12 @@ fetcher:
   # Controls whether the domain allowlist is expanded at runtime beyond the registry.
   # Has no effect when ssrf_domain_check is false.
   #
-  #   "registry" — Registry only (default, strictest)
+  #   "registry" — Registry only (strictest)
   #         Only domains explicitly listed in the ProContext registry are trusted
   #         (extracted from docs_url and llms_txt_url of each registry entry).
   #         Use this if you want tight control over what ProContext can reach.
   #
-  #   "discovered" — Registry + domains found in fetched content
+  #   "discovered" — Registry + domains found in fetched content (default)
   #         After read_page or search_page fetches any content, all URLs found in
   #         that content have their base domains added to the allowlist. Enables
   #         following cross-domain links found in documentation. The allowlist is
@@ -130,4 +130,4 @@ outline:
 
 logging:
   level: INFO # DEBUG | INFO | WARNING | ERROR
-  format: json # json | text  (use text for local development)
+  format: text # json | text  (default: text)
