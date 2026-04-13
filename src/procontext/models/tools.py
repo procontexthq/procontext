@@ -192,7 +192,7 @@ class SearchPageOutput(BaseModel):
     url: str
     query: str
     matches: str
-    outline: OutlineSummary | None
+    outline: OutlineSummary
     total_lines: int
     has_more: bool
     next_offset: int | None

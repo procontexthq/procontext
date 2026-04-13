@@ -144,7 +144,10 @@ class TestSearchPageHandler:
         result = await search_page_handle(SAMPLE_URL, "Chat Models", app_state, target="outline")
 
         assert result["matches"] == "7:## Streaming with Chat Models"
-        assert result["outline"] is None
+        # Outline is always returned — small outline comes back in full
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 6
+        assert "# Streaming" in result["outline"]["text"]
         assert result["has_more"] is False
         assert result["next_offset"] is None
 
@@ -160,7 +163,8 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == ""
-        assert result["outline"] is None
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 6
         assert result["has_more"] is False
         assert result["next_offset"] is None
 
@@ -199,7 +203,8 @@ class TestSearchPageHandler:
         result = await search_page_handle(SAMPLE_URL, "7", app_state, target="outline")
 
         assert result["matches"] == ""
-        assert result["outline"] is None
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 6
 
     @respx.mock
     async def test_outline_target_supports_regex(self, app_state: AppState) -> None:
@@ -214,7 +219,8 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == "11:### Using .stream()\n15:### Using .astream()"
-        assert result["outline"] is None
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 6
 
     @respx.mock
     async def test_outline_target_supports_whole_word(self, app_state: AppState) -> None:
@@ -229,7 +235,8 @@ class TestSearchPageHandler:
         )
 
         assert result["matches"] == "11:### Using .stream()"
-        assert result["outline"] is None
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 6
 
     @respx.mock
     async def test_outline_target_matches_normalized_setext_headings(
@@ -240,7 +247,39 @@ class TestSearchPageHandler:
         result = await search_page_handle(SETEXT_URL, "Section Title", app_state, target="outline")
 
         assert result["matches"] == "4:## Section Title"
-        assert result["outline"] is None
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] == 3
+
+    @respx.mock
+    async def test_outline_search_large_page_includes_ancestor_context(
+        self, app_state: AppState
+    ) -> None:
+        """Outline search on a large page should include ancestor headings for context."""
+        url = "https://python.langchain.com/docs/concepts/setext-large.md"
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_large_setext_page()))
+
+        result = await search_page_handle(url, "Detail 30", app_state, target="outline")
+
+        assert result["matches"] != ""
+        assert result["outline"] is not None
+        outline_text = result["outline"]["text"]
+        # Ancestor rollup should include the parent ## Match Section
+        assert "## Match Section" in outline_text
+        assert result["outline"]["total_entries"] > 50
+
+    @respx.mock
+    async def test_outline_search_no_matches_still_returns_outline(
+        self, app_state: AppState
+    ) -> None:
+        """Outline search with no matches should still return compact outline."""
+        url = "https://python.langchain.com/docs/concepts/large-outline-nomatch.md"
+        respx.get(url).mock(return_value=httpx.Response(200, text=build_large_page_no_match()))
+
+        result = await search_page_handle(url, "xyzzy_nonexistent", app_state, target="outline")
+
+        assert result["matches"] == ""
+        assert result["outline"] is not None
+        assert result["outline"]["total_entries"] > 0
 
     @respx.mock
     async def test_search_output_contains_all_fields(self, app_state: AppState) -> None:

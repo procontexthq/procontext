@@ -87,7 +87,6 @@ async def handle(
         ) from exc
 
     total_lines = len(result.content.splitlines())
-    outline_summary: OutlineSummary | None = None
     if validated.target == "outline":
         search_result = _search_outline_lines(
             result.outline,
@@ -107,16 +106,16 @@ async def handle(
         raw_matches = search_result.matches
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
 
-        first_line = raw_matches[0].line_number if raw_matches else None
-        last_line = raw_matches[-1].line_number if raw_matches else None
-        text, total_entries = _compact_search_outline(
-            result.outline,
-            first_line,
-            last_line,
-            max_entries=state.settings.outline.max_entries,
-            max_chars=state.settings.outline.search_page_max_chars,
-        )
-        outline_summary = OutlineSummary(text=text, total_entries=total_entries)
+    first_line = raw_matches[0].line_number if raw_matches else None
+    last_line = raw_matches[-1].line_number if raw_matches else None
+    text, total_entries = _compact_search_outline(
+        result.outline,
+        first_line,
+        last_line,
+        max_entries=state.settings.outline.max_entries,
+        max_chars=state.settings.outline.search_page_max_chars,
+    )
+    outline_summary = OutlineSummary(text=text, total_entries=total_entries)
 
     output = SearchPageOutput(
         url=result.url,
