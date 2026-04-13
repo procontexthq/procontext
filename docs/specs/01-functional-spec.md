@@ -176,24 +176,24 @@ Top-level output fields:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "outline": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+  "outline": {
+    "text": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+    "total_entries": 6
+  },
   "total_lines": 42,
   "offset": 1,
   "limit": 500,
   "content": "# Streaming\n\n## Overview\n...",
   "has_more": true,
   "next_offset": 501,
-  "content_hash": "a1b2c3d4e5f6",
-  "cached": false,
-  "cached_at": null,
-  "stale": false
+  "content_hash": "a1b2c3d4e5f6"
 }
 ```
 
 | Field          | Description                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `url`          | The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved exactly, so `/page` and `/page/` remain distinct. |
-| `outline`      | Compacted structural outline of the page (target: ≤max_entries entries AND the configured `read_page` outline character limit). Progressive depth reduction removes lower-priority headings (H6 → H5 → fenced content → H4 → H3) until both constraints are satisfied. When the page outline cannot be reduced below both limits even after maximum reduction, this field contains a status message directing the agent to use `read_outline` for paginated access. Each entry: `<line_number>:<emitted outline text>`. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. `null` when `include_outline=false`. |
+| `outline`      | `null` when `include_outline=false`; otherwise an object with `text` (the compacted outline string) and `total_entries` (the number of outline entries on the page before compaction, after stripping empty fences). The `text` field is returned in full when small; for large pages it is compacted by progressive depth reduction. If the outline is still too large after maximum reduction, `text` contains a status message directing the agent to use `read_outline` for paginated access. |
 | `total_lines`  | Total number of lines in the full page. Useful for determining if more content exists beyond the current window.                                        |
 | `offset`       | The 1-based line number the returned content actually starts from after applying `before` and clamping to line 1.                                     |
 | `limit`        | The maximum number of forward lines requested from the input `offset`.                                                                                  |
@@ -201,13 +201,10 @@ Top-level output fields:
 | `has_more`     | `true` if more content exists beyond the current window. When `true`, call again with `offset=next_offset` to continue reading.                         |
 | `next_offset`  | Line number to pass as `offset` to continue reading. `null` if no more content.                                                                        |
 | `content_hash` | Truncated SHA-256 (12 hex chars) of the full page content. Compare across paginated calls to detect if the underlying page changed due to a background cache refresh. |
-| `cached`       | Whether this response was served from cache                                                                                                             |
-| `cached_at`    | ISO 8601 timestamp (UTC) of when the content was originally fetched. `null` if not cached                                                               |
-| `stale`        | `true` if the cache entry has expired and a background refresh has been triggered. Content is stale but usable. Always present; defaults to `false`.     |
 
 **Notes**:
 
-- The outline is compacted to satisfy both max_entries (default ≤50) and the `read_page` character budget (default ≤4000) to save tokens and ensure readability. For the complete outline, use `read_outline`. These limits are configurable via settings.
+- The outline text is compacted to satisfy both max_entries (default ≤50) and the `read_page` character budget (default ≤4000) to save tokens and ensure readability. `outline.total_entries` preserves the full entry count even when the returned text is compacted. For the complete outline, use `read_outline`. These limits are configurable via settings.
 - The full page and outline are cached together on first fetch. Subsequent calls with different offsets are served from cache — no re-fetch or re-parse.
 - `search_page` and `read_outline` share the same cache — a page fetched by any tool is available to the others without a re-fetch.
 - URL normalization is intentionally minimal. Equivalent host-case and default-port variants share cache entries, but trailing slash differences do not.
@@ -255,27 +252,26 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 {
   "url": "https://python.langchain.com/llms.txt",
   "query": "streaming",
-  "outline": "3:## Concepts\n15:## How-to Guides",
+  "outline": {
+    "text": "3:## Concepts\n15:## How-to Guides",
+    "total_entries": 4
+  },
   "matches": "7:- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated.\n22:- [How to stream responses](https://docs.langchain.com/docs/how_to/streaming.md): Step-by-step guide to streaming.",
   "total_lines": 45,
   "has_more": false,
   "next_offset": null,
-  "content_hash": "a1b2c3d4e5f6",
-  "cached": true,
-  "cached_at": "2026-02-23T10:00:00Z"
+  "content_hash": "a1b2c3d4e5f6"
 }
 ```
 
 | Field          | Description                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `outline`      | Structural outline context for content-mode search results. `null` in `target="outline"` mode because outline context is not applicable there. In content mode, may be an empty string when the page has no outline entries. On oversized pages with matches, this context includes the rolled-up ancestor chain immediately preceding the first match. |
+| `outline`      | `null` in `target="outline"` mode because outline context is not applicable there. In content mode, an object with `text` (the compacted outline context string) and `total_entries` (the number of outline entries on the page before compaction, after stripping empty fences). On oversized pages with matches, `text` includes the rolled-up ancestor chain immediately preceding the first match when compaction succeeds. |
 | `matches`      | Matching lines formatted as `<line_number>:<content>`, one per line. In `target="outline"` mode, these are matching outline entries in the same format. Empty string when no matches found. |
 | `total_lines`  | Total number of lines in the page.                                                                                        |
 | `has_more`     | `true` if more matches exist beyond the returned set.                                                                     |
 | `next_offset`  | Line number to pass as `offset` for the next search call to continue paginating. `null` if no more matches.               |
 | `content_hash` | Truncated SHA-256 (12 hex chars) of the full page content. Compare across calls to detect if the underlying page changed. |
-| `cached`       | Whether the page content was served from cache.                                                                           |
-| `cached_at`   | ISO 8601 timestamp (UTC) of when the page was originally fetched. `null` if not cached.                                   |
 
 **Notes**:
 

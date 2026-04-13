@@ -38,8 +38,9 @@ class TestReadPageHandler:
 
         assert result["url"] == SAMPLE_URL
         assert result["total_lines"] == 21
-        assert "# Streaming" in result["outline"]
-        assert "## Overview" in result["outline"]
+        assert "# Streaming" in result["outline"]["text"]
+        assert "## Overview" in result["outline"]["text"]
+        assert result["outline"]["total_entries"] > 0
         assert "# Streaming" in result["content"]
 
     @respx.mock
@@ -68,7 +69,7 @@ class TestReadPageHandler:
         result = await read_page_handle(url, 1, 500, app_state)
 
         assert result["content"] == "# Title\n\nHello **world**."
-        assert "1:# Title" in result["outline"]
+        assert "1:# Title" in result["outline"]["text"]
 
     @respx.mock
     async def test_html_pages_return_raw_html_when_processors_disabled(
@@ -320,7 +321,7 @@ class TestReadPageHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 2, app_state)
-        assert "## Streaming with Chains" in result["outline"]
+        assert "## Streaming with Chains" in result["outline"]["text"]
 
     @respx.mock
     async def test_total_lines_correct(self, app_state: AppState) -> None:
@@ -412,7 +413,7 @@ class TestReadPageHandler:
         result = await read_page_handle(SAMPLE_URL, 9999, 100, app_state)
         assert result["content"] == ""
         assert result["total_lines"] == 21
-        assert result["outline"] != ""
+        assert result["outline"]["text"] != ""
 
     @respx.mock
     async def test_include_outline_false_returns_null_outline(self, app_state: AppState) -> None:
@@ -427,8 +428,8 @@ class TestReadPageHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["outline"] != ""
-        assert "# Streaming" in result["outline"]
+        assert result["outline"] is not None
+        assert "# Streaming" in result["outline"]["text"]
 
     @respx.mock
     async def test_setext_headings_are_normalized_in_outline(self, app_state: AppState) -> None:
@@ -436,6 +437,6 @@ class TestReadPageHandler:
 
         result = await read_page_handle(SETEXT_URL, 1, 500, app_state)
 
-        assert "1:# Main Title" in result["outline"]
-        assert "4:## Section Title" in result["outline"]
-        assert "## Tail" in result["outline"]
+        assert "1:# Main Title" in result["outline"]["text"]
+        assert "4:## Section Title" in result["outline"]["text"]
+        assert "## Tail" in result["outline"]["text"]

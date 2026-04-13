@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.models.tools import ReadPageInput, ReadPageOutput
+from procontext.models.tools import OutlineSummary, ReadPageInput, ReadPageOutput
 from procontext.outline import (
     build_compaction_note,
     compact_outline,
@@ -58,20 +58,19 @@ async def handle(
         ) from exc
 
     result = await fetch_or_cached_page(validated.url, state)
-    compacted_outline = (
-        _compact_page_outline(
+    outline_summary: OutlineSummary | None = None
+    if validated.include_outline:
+        text, total_entries = _compact_page_outline(
             result.outline,
             max_entries=state.settings.outline.max_entries,
             max_chars=state.settings.outline.read_page_max_chars,
         )
-        if validated.include_outline
-        else None
-    )
+        outline_summary = OutlineSummary(text=text, total_entries=total_entries)
 
     return _build_output(
         url=result.url,
         content=result.content,
-        outline=compacted_outline,
+        outline=outline_summary,
         offset=validated.offset,
         limit=validated.limit,
         before=validated.before,
@@ -79,30 +78,36 @@ async def handle(
     )
 
 
-def _compact_page_outline(raw_outline: str, *, max_entries: int = 50, max_chars: int = 4000) -> str:
-    """Parse, strip empty fences, and compact an outline for read_page output."""
+def _compact_page_outline(
+    raw_outline: str, *, max_entries: int = 50, max_chars: int = 4000
+) -> tuple[str, int]:
+    """Parse, strip empty fences, and compact an outline for read_page output.
+
+    Returns:
+        A ``(text, total_entries)`` tuple.
+    """
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
 
     if total_entries <= max_entries and len(format_outline(entries)) <= max_chars:
-        return format_outline(entries)
+        return format_outline(entries), total_entries
 
     compacted = compact_outline(entries, max_entries=max_entries, max_chars=max_chars)
     if compacted is None:
         return (
             f"[Outline too large ({total_entries} entries). Use read_outline for paginated access.]"
-        )
+        ), total_entries
 
     note = build_compaction_note(compacted, total_entries)
-    return note + "\n" + format_outline(compacted)
+    return note + "\n" + format_outline(compacted), total_entries
 
 
 def _build_output(
     *,
     url: str,
     content: str,
-    outline: str | None,
+    outline: OutlineSummary | None,
     offset: int,
     limit: int,
     before: int,

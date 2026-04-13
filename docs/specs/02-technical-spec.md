@@ -113,8 +113,8 @@ read_page("https://python.langchain.com/llms.txt")
   ├─ Fetch: HTTP GET url (30s timeout, initial URL allowlisted; private IPs blocked on redirect hops)
   ├─ Store: page_cache (TTL 24h)
   ├─ Parse: extract outline (H1–H6, fence lines, line numbers)
-  ├─ Compact outline (progressive depth reduction → ≤max_entries AND the read_page char budget, or status message)
-  └─ Return: { outline: "...", content: "...", has_more: bool }
+  ├─ Compact outline (progressive depth reduction → ≤max_entries AND the read_page char budget, or status message in outline.text)
+  └─ Return: { outline: { text, total_entries } | null, content: "...", has_more: bool }
 
 search_page("https://python.langchain.com/llms.txt", "streaming")
   │
@@ -293,9 +293,13 @@ class ReadPageInput(BaseModel):
             raise ValueError("before must be >= 0")
         return v
 
+class OutlineSummary(BaseModel):
+    text: str                 # Compacted outline text, or status message if still too large
+    total_entries: int        # Total outline entries on the page before compaction
+
 class ReadPageOutput(BaseModel):
     url: str
-    outline: str | None       # Compacted outline, status message if too large, or None when include_outline=False
+    outline: OutlineSummary | None  # Null when include_outline=False
     total_lines: int
     offset: int               # Actual first returned content line after applying before
     limit: int                # Forward lines requested from the input offset
@@ -303,9 +307,6 @@ class ReadPageOutput(BaseModel):
     has_more: bool             # True if more content exists beyond the current window
     next_offset: int | None    # Line number to pass as offset to continue; None if no more
     content_hash: str          # Truncated SHA-256 (12 hex chars) of full page content
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 class SearchPageInput(BaseModel):
     url: str
@@ -354,14 +355,12 @@ class SearchPageInput(BaseModel):
 class SearchPageOutput(BaseModel):
     url: str
     query: str
-    outline: str              # Content-mode outline context; empty if no matches or target="outline"
+    outline: OutlineSummary | None  # Null in target="outline" mode
     matches: str              # Matching lines as "line_number:content"; outline mode returns matching outline entries in the same format
     total_lines: int
     has_more: bool
     next_offset: int | None   # Line number for next search call; None if no more matches
     content_hash: str          # Truncated SHA-256 (12 hex chars) of full page content
-    cached: bool
-    cached_at: datetime | None
 
 class ReadOutlineInput(BaseModel):
     url: str
@@ -998,7 +997,9 @@ Progressive reduction applied to the outline for `read_page` and `search_page` r
 
 After each stage, the formatted outline is checked against both constraints via `_formatted_outline_size(entries)`, which counts characters in the `"<lineno>:<text>"` format. If both constraints are satisfied, compaction stops.
 
-If the entry count still exceeds `max_entries` OR the formatted string exceeds `max_chars` after all reductions (only H1/H2 remain), returns `None`. The caller renders a status message: `"[Outline too large (N entries). Use read_outline for paginated access.]"`
+If the entry count still exceeds `max_entries` OR the formatted string exceeds `max_chars` after all reductions (only H1/H2 remain), returns `None`. The caller renders a status message in `outline.text`: `"[Outline too large (N entries). Use read_outline for paginated access.]"`
+
+When compaction succeeds, the caller prepends a compact note like `"[Compacted: showing H1-H3 headings.]"` to `outline.text`. The full pre-compaction entry count is returned separately as `outline.total_entries`.
 
 These limits are configurable via `settings.outline.max_entries`, `settings.outline.read_page_max_chars`, and `settings.outline.search_page_max_chars` (defaults: 50 entries, 4000 characters for `read_page`, 1000 characters for `search_page`).
 

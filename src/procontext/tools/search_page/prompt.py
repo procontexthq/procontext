@@ -16,8 +16,9 @@ Response:
   url          — the URL that was searched
   query        — the search query as provided
   matches      — matching lines as 'line_number:content', one per line
-  outline      — compact outline (content mode); null in outline mode
-                 returned in full if small; otherwise compacted
+  outline      — null when search mode is outline; otherwise an object
+                 containing compact outline (full if small, compacted 
+                 for large pages) and total entries in full outline
   total_lines  — total line count of the page
   has_more     — true if more matches exist beyond the returned set
   next_offset  — line number to pass as offset to continue paginating

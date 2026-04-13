@@ -276,7 +276,10 @@ def build_compaction_note(
     # Determine the surviving heading depth range
     depths = sorted({e.depth for e in entries if e.depth is not None})
     if depths:
-        depth_desc = f"H{depths[0]}-H{depths[-1]}" if len(depths) > 1 else f"H{depths[0]}"
+        if len(depths) > 1:
+            depth_desc = f"H{depths[0]}-H{depths[-1]} headings"
+        else:
+            depth_desc = f"H{depths[0]} headings"
     else:
         depth_desc = "no headings"
 
@@ -284,7 +287,4 @@ def build_compaction_note(
     if match_range is not None:
         range_desc = f" in match range (lines {match_range[0]}-{match_range[1]})"
 
-    return (
-        f"[Compacted: showing {depth_desc} headings{range_desc}. "
-        f"Use read_outline for full outline ({total_entries} entries).]"
-    )
+    return f"[Compacted: showing {depth_desc}{range_desc}.]"

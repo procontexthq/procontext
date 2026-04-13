@@ -89,10 +89,15 @@ class ReadPageInput(BaseModel):
         return v
 
 
+class OutlineSummary(BaseModel):
+    text: str
+    total_entries: int
+
+
 class ReadPageOutput(BaseModel):
     url: str
     content: str
-    outline: str | None
+    outline: OutlineSummary | None
     total_lines: int
     offset: int
     limit: int
@@ -187,7 +192,7 @@ class SearchPageOutput(BaseModel):
     url: str
     query: str
     matches: str
-    outline: str | None
+    outline: OutlineSummary | None
     total_lines: int
     has_more: bool
     next_offset: int | None

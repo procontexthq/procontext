@@ -15,8 +15,9 @@ If the compact outline is not sufficient, you can always use read_outline.
 Response:
   url          — the URL of the fetched page
   content      — the content window
-  outline      — compact outline of the page; null when include_outline is false
-                 returned in full if small; otherwise compacted
+  outline      — null when include_outline is false; otherwise contains
+                 compact outline (full if small, compacted for large pages) 
+                 and count of total entries in full outline
   total_lines  — total line count of the full page
   offset       — 1-based line number where the returned content window starts
   limit        — maximum forward lines requested from the input offset;

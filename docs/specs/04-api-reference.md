@@ -590,8 +590,8 @@ For pages where the outline is replaced by a status message (very large pages), 
       "description": "The normalized URL used for fetch and cache identity. Path, query string, fragment, and trailing slash are preserved, so '/page' and '/page/' remain distinct."
     },
     "outline": {
-      "type": ["string", "null"],
-      "description": "Compacted structural outline of the page (target ≤50 entries and the configured read_page outline character budget). Progressive depth reduction removes lower-priority headings. When the page outline is too large even after maximum compaction, contains a status message directing to read_outline. Each entry formatted as '<line_number>:<emitted outline text>'; ATX headings and fence markers preserve the source line, while supported setext headings are normalized to synthetic '#'/ '##' entries. Null when include_outline=false."
+      "anyOf": [{"$ref": "#/$defs/OutlineSummary"}, {"type": "null"}],
+      "description": "Null when include_outline=false; otherwise an OutlineSummary object."
     },
     "total_lines": {
       "type": "integer",
@@ -622,7 +622,17 @@ For pages where the outline is replaced by a status message (very large pages), 
       "description": "Truncated SHA-256 (12 hex chars) of the full page content. Compare across paginated calls to detect content changes."
     }
   },
-  "required": ["url", "outline", "total_lines", "offset", "limit", "content", "has_more", "next_offset", "content_hash"]
+  "required": ["url", "outline", "total_lines", "offset", "limit", "content", "has_more", "next_offset", "content_hash"],
+  "$defs": {
+    "OutlineSummary": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The compacted outline text. Each entry formatted as '<line_number>:<heading text>'. Returned in full if small; compacted via progressive depth reduction for large pages." },
+        "total_entries": { "type": "integer", "description": "Total number of outline entries on the page (before compaction)." }
+      },
+      "required": ["text", "total_entries"]
+    }
+  }
 }
 ```
 
@@ -645,7 +655,10 @@ Result:
 ```json
 {
   "url": "https://python.langchain.com/llms.txt",
-  "outline": "1:# Docs by LangChain\n3:## Concepts\n15:## How-to Guides\n28:## API Reference",
+  "outline": {
+    "text": "1:# Docs by LangChain\n3:## Concepts\n15:## How-to Guides\n28:## API Reference",
+    "total_entries": 4
+  },
   "total_lines": 45,
   "offset": 1,
   "limit": 500,
@@ -669,7 +682,10 @@ Result:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "outline": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+  "outline": {
+    "text": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+    "total_entries": 6
+  },
   "total_lines": 42,
   "offset": 18,
   "limit": 10,
@@ -693,7 +709,10 @@ Result:
 ```json
 {
   "url": "https://docs.langchain.com/docs/concepts/streaming.md",
-  "outline": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+  "outline": {
+    "text": "1:# Streaming\n3:## Overview\n12:## Streaming with Chat Models\n18:### Using .stream()\n27:### Using .astream()\n35:## Streaming with Chains",
+    "total_entries": 6
+  },
   "total_lines": 42,
   "offset": 14,
   "limit": 10,
@@ -816,8 +835,8 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
       "description": "The search query as provided."
     },
     "outline": {
-      "type": ["string", "null"],
-      "description": "Structural outline context for content-mode search results. Null when target='outline' because outline context is not applicable in that mode. On oversized pages with matches, the returned outline prepends the active ancestor heading chain immediately preceding the first match. Content-mode search uses a tighter default outline character budget than read_page."
+      "anyOf": [{"$ref": "#/$defs/OutlineSummary"}, {"type": "null"}],
+      "description": "Null when target='outline'; otherwise an OutlineSummary object with structural outline context for content-mode results."
     },
     "matches": {
       "type": "string",
@@ -840,7 +859,17 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
       "description": "Truncated SHA-256 (12 hex chars) of the full page content. Compare across calls to detect content changes."
     },
   },
-  "required": ["url", "query", "outline", "matches", "total_lines", "has_more", "next_offset", "content_hash"]
+  "required": ["url", "query", "outline", "matches", "total_lines", "has_more", "next_offset", "content_hash"],
+  "$defs": {
+    "OutlineSummary": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The compacted outline text." },
+        "total_entries": { "type": "integer", "description": "Total number of outline entries on the page (before compaction)." }
+      },
+      "required": ["text", "total_entries"]
+    }
+  }
 }
 ```
 
@@ -860,7 +889,10 @@ Result:
 {
   "url": "https://python.langchain.com/llms.txt",
   "query": "streaming",
-  "outline": "3:## Concepts\n15:## How-to Guides",
+  "outline": {
+    "text": "3:## Concepts\n15:## How-to Guides",
+    "total_entries": 4
+  },
   "matches": "7:- [Streaming](https://docs.langchain.com/docs/concepts/streaming.md): Stream model outputs as they are generated.\n22:- [How to stream responses](https://docs.langchain.com/docs/how_to/streaming.md): Step-by-step guide to streaming.",
   "total_lines": 45,
   "has_more": false,
@@ -906,7 +938,10 @@ Result:
 {
   "url": "https://docs.pydantic.dev/concepts/models.md",
   "query": "model",
-  "outline": "1:# Models\n5:## Defining a Model",
+  "outline": {
+    "text": "1:# Models\n5:## Defining a Model",
+    "total_entries": 2
+  },
   "matches": "1:# Models\n5:## Defining a Model\n7:A Pydantic model is a class that inherits from BaseModel.",
   "total_lines": 65,
   "has_more": true,
