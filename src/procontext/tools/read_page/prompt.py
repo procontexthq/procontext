@@ -11,16 +11,23 @@ PARAM_INCLUDE_OUTLINE = (
 )
 
 DESCRIPTION = """
-Fetch the content and a compact outline of a documentation page.
+Use this tool to fetch the content and a compact outline of an index or a
+documentation page.
 
 Supports paginated reading with offset and limit. Use the before parameter
 for extra backward context — it is additive and does not reduce the forward
 limit, so the total lines returned is up to before + limit.
 
+This tool is always a good starting point to read an index or a documentation page.
+
+Small pages can be navigated with a few paginated read_page calls. For larger pages,
+use search_page to find relevant sections first.
+
+Read the complete index page instead of searching unless the page is very large.
+
 Pass include_outline as true in the first call and then set it to false to omit
 the outline for subsequent requests. This is useful when paginating through
 a page, saving tokens on subsequent requests.
-If the compact outline is not sufficient, you can always use read_outline.
 
 Response:
   url          — the URL of the fetched page

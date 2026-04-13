@@ -147,8 +147,8 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     instructions = init_result["instructions"]
     # Verify key workflow elements are documented
     assert "resolve_library" in instructions
-    assert "index_url" in instructions
-    assert "full_docs_url" in instructions
+    assert "read_page" in instructions
+    assert "search_page" in instructions
 
     tools_response = next(response for response in responses if response.get("id") == 2)
     tools = tools_response["result"]["tools"]
@@ -208,10 +208,7 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert outline_summary_schema["properties"]["text"]["type"] == "string"
     assert outline_summary_schema["properties"]["total_entries"]["type"] == "integer"
     search_outline_schema = tools_by_name["search_page"]["outputSchema"]["properties"]["outline"]
-    assert search_outline_schema["anyOf"] == [
-        {"$ref": "#/$defs/OutlineSummary"},
-        {"type": "null"},
-    ]
+    assert search_outline_schema == {"$ref": "#/$defs/OutlineSummary"}
     search_outline_summary_schema = tools_by_name["search_page"]["outputSchema"]["$defs"][
         "OutlineSummary"
     ]
@@ -441,7 +438,7 @@ def test_search_page_wire_success_from_cache(
     assert payload["total_lines"] == 5
 
 
-def test_search_page_wire_outline_mode_returns_null_outline(
+def test_search_page_wire_outline_mode_returns_outline_context(
     tmp_path: Path, subprocess_env: dict[str, str]
 ) -> None:
     url = "https://python.langchain.com/docs/concepts/cached.md"
@@ -479,7 +476,9 @@ def test_search_page_wire_outline_mode_returns_null_outline(
     assert tool_response["result"]["isError"] is False
 
     payload = json.loads(tool_response["result"]["content"][0]["text"])
-    assert payload["outline"] is None
+    assert payload["outline"] is not None
+    assert payload["outline"]["total_entries"] == 2
+    assert "# Title" in payload["outline"]["text"]
     assert payload["matches"] == "3:## Section"
 
 

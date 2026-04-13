@@ -15,24 +15,27 @@ PARAM_OFFSET = "1-based line number to start searching from."
 PARAM_MAX_RESULTS = "Maximum number of matching lines to return."
 
 DESCRIPTION = """
-Search within a documentation page and return the full text of each matching line.
-Supports literal and regex search, smart case sensitivity, and word boundary matching.
-For OR-style multi-term search, use mode="regex" with a query like "foo|bar".
+Use this tool to search across indexes, individual pages, or the full documentation.
 
-Works across indexes, individual pages, or the full documentation if full_docs_url
-is available.
+This tool returns the full text of each matching line, supports literal and regex search,
+smart case sensitivity, and word boundary matching.
+
+Always use short keywords instead of multi-word phrases for best results.
+Use multi-term "regex" queries like "foo|bar" for good recall.
 
 Use target="content" (default) to search page content and target="outline" to search
 only outline entries. Searching outline can be useful for searching large pages or
 full documentation pages.
 
+When searching full documentation (full_docs_url), always start with target="outline".
+Fallback to content search if outline search does not return relevant results.
+
 Response:
   url          — the URL that was searched
   query        — the search query as provided
   matches      — matching lines as 'line_number:content', one per line
-  outline      — null when search mode is outline; otherwise contains
-                 compact outline (full if small, compacted for large pages) 
-                 and count of total enteries in full outline
+  outline      — compact outline (full if small, compacted for large pages)
+                 and count of total entries in full outline
   total_lines  — total line count of the page
   has_more     — true if more matches exist beyond the returned set
   next_offset  — line number to pass as offset to continue paginating
