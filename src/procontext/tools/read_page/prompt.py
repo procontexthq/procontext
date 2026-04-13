@@ -11,25 +11,29 @@ PARAM_INCLUDE_OUTLINE = (
 )
 
 DESCRIPTION = """
-Use this tool to fetch the content and a compact outline of an index or a
-documentation page.
+WHEN TO USE READ_PAGE:
+- Use this tool to read the contents of a documentation or index page.
 
-Supports paginated reading with offset and limit. Use the before parameter
-for extra backward context — it is additive and does not reduce the forward
-limit, so the total lines returned is up to before + limit.
+HOW TO USE:
+- It supports paginated reading with offset and limit. Use the before parameter
+  for extra backward context — it is additive and does not reduce the forward
+  limit, so the total lines returned is up to before + limit.
+- Small pages can be navigated with a few paginated read_page calls. For larger pages,
+  use search_page to find relevant sections first.
+- This tool also returns a compact outline for quick navigation.
+- Pass include_outline as true in the first call and then set it to false to omit
+  the outline for subsequent requests. This is useful when paginating through
+  a page, saving tokens on subsequent requests.
 
-This tool is always a good starting point to read an index or a documentation page.
+INSTRUCTIONS FOR READING INDEX PAGE:
+- **Always start with read_page on the index_url. This will help you understand the
+  structure of the documentation and find the relevant sections and pages to read.**
+- IMPORTANT: Directly searching the index may not provide the necessary context to 
+  identify the relevant sections and pages.
+- You must only use search_page on the index if the page is larger than 1000 lines.
 
-Small pages can be navigated with a few paginated read_page calls. For larger pages,
-use search_page to find relevant sections first.
-
-Read the complete index page instead of searching unless the page is very large.
-
-Pass include_outline as true in the first call and then set it to false to omit
-the outline for subsequent requests. This is useful when paginating through
-a page, saving tokens on subsequent requests.
-
-Response:
+RESPONSE:
+```
   url          — the URL of the fetched page
   content      — the content window
   outline      — null when include_outline is false; otherwise contains
@@ -43,4 +47,5 @@ Response:
   next_offset  — line number to pass as offset to continue; null if no more
   content_hash — truncated SHA-256 (12 hex chars); compare across calls
                  to detect if the underlying page changed
+```
 """.strip()

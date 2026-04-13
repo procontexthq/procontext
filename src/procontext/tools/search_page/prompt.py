@@ -15,30 +15,37 @@ PARAM_OFFSET = "1-based line number to start searching from."
 PARAM_MAX_RESULTS = "Maximum number of matching lines to return."
 
 DESCRIPTION = """
-Use this tool to search across indexes, individual pages, or the full documentation.
+WHEN TO USE SEARCH_PAGE:
+- Use this tool to search across indexes, individual pages, or the full documentation.
+- This tool returns the full text of each matching line.
 
-This tool returns the full text of each matching line, supports literal and regex search,
-smart case sensitivity, and word boundary matching.
+IMPORTANT:
+- Performance drops drastically with longer phrases. Always use short keywords.
+- This tool supports searching multiple keywords efficiently by combining them into
+  a single regex pattern (e.g. 'foo|bar|baz').
+- When searching for long phrases, try to break them down into multiple short
+  keywords and combine with regex patterns (e.g. 'foo|bar|baz' instead of 'foo bar baz').
 
-Always use short keywords instead of multi-word phrases for best results.
-Use multi-term "regex" queries like "foo|bar" for good recall.
+INSTRUCTIONS FOR SEARCHING INDEX (index_url):
+- Index may not contain the exact keyword, so always use single keywords and combine
+  multiple queries using regex patterns to find relevant sections.
+- If unable to find the relevant sections, fallback to reading the page using read_page.
 
-Use target="content" (default) to search page content and target="outline" to search
-only outline entries. Searching outline can be useful for searching large pages or
-full documentation pages.
+INSTRUCTIONS FOR SEARCHING FULL DOCUMENTATION (full_docs_url):
+- When searching full documentation (full_docs_url), always start with target="outline".
+  Fallback to content search if outline search does not return relevant results.
 
-When searching full documentation (full_docs_url), always start with target="outline".
-Fallback to content search if outline search does not return relevant results.
-
-Response:
-  url          — the URL that was searched
-  query        — the search query as provided
-  matches      — matching lines as 'line_number:content', one per line
+RESPONSE:
+```
+  url          — the URL that was searched.
+  query        — the search query as provided.
+  matches      — matching lines as 'line_number:content', one per line.
   outline      — compact outline (full if small, compacted for large pages)
-                 and count of total entries in full outline
-  total_lines  — total line count of the page
-  has_more     — true if more matches exist beyond the returned set
-  next_offset  — line number to pass as offset to continue paginating
+                 and count of total entries in full outline.
+  total_lines  — total line count of the page.
+  has_more     — true if more matches exist beyond the returned set.
+  next_offset  — line number to pass as offset to continue paginating.
   content_hash — truncated SHA-256 (12 hex chars); compare across calls
-                 to detect if the underlying page changed
+                 to detect if the underlying page changed.
+```
 """.strip()
