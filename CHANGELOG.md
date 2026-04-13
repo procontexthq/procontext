@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-14
+
+### Changed
+
+- **Structured outline in tool responses** — `read_page` and `search_page` now
+  return the outline as `{text, total_entries}` instead of a plain string,
+  giving agents the total entry count alongside the compact outline text.
+- **`search_page` always returns outline context** — the `outline` field is no
+  longer nullable. Both `target="content"` and `target="outline"` modes return
+  a compact outline with ancestor heading context, so agents always have
+  structural orientation alongside search results.
+- **`read_outline` pagination counts entries, not page lines** — `limit` and
+  `before` now count outline entries rather than raw page line numbers, making
+  pagination predictable regardless of heading density.
+- **Cache metadata removed from tool responses** — internal cache fields
+  (`cached`, `cache_age`, `stale`) are no longer included in tool output.
+  Agents should use `content_hash` to detect content changes.
+- **Default allowlist expansion widened** — `fetcher.allowlist_expansion` now
+  defaults to `discovered` instead of `registry`, so documentation pages that
+  link to sibling hosts resolve successfully out of the box.
+- **Rewritten MCP tool descriptions** — server-level instructions slimmed to
+  avoid duplicating per-tool guidance. Each tool description now leads with
+  purpose, includes workflow hints (e.g. outline-first strategy for
+  `full_docs_url`), and documents response fields consistently.
+
 ## [0.2.1] - 2026-04-06
 
 ### Changed
@@ -168,7 +193,8 @@ Internal alpha. Initial implementation of the MCP server with `resolve_library`,
 `read_page`, registry loading, SQLite cache, stdio/HTTP transports, and SSRF
 protection. Not recommended for production use.
 
-[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/procontexthq/procontext/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/procontexthq/procontext/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/procontexthq/procontext/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/procontexthq/procontext/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/procontexthq/procontext/compare/v0.1.1...v0.1.2
