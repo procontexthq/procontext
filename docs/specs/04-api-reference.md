@@ -979,14 +979,14 @@ Result contains the next batch of matches starting from line 8.
 
 ## 5. Tool: read_outline
 
-**Purpose**: Browse the full structural outline of a documentation page using page-line windowing. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or to explore page structure without fetching content.
+**Purpose**: Browse the full structural outline of a documentation page. `limit` and `before` count outline entries (not page lines), while `offset` and `next_offset` use page line numbers so they chain with `search_page` hits and `read_page`. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or to explore page structure without fetching content.
 
 ### 5.1 Input Schema
 
 ```json
 {
   "name": "read_outline",
-  "description": "Browse the full structural outline of a documentation page using page-line windowing. Each entry shows a heading or fence marker with its line number in the page content. Use when read_page returns an outline status message for very large pages, or to explore page structure without fetching content.",
+  "description": "Browse the full structural outline of a documentation page. limit and before count outline entries, not page lines. offset and next_offset use page line numbers so they chain with search_page hits and read_page. Use when read_page returns an outline status message for very large pages, or to explore page structure without fetching content.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -1004,14 +1004,14 @@ Result contains the next batch of matches starting from line 8.
       "limit": {
         "type": "integer",
         "minimum": 1,
-        "default": 1000,
-        "description": "Maximum forward page lines to include from offset."
+        "default": 500,
+        "description": "Maximum number of outline entries to return forward from offset."
       },
       "before": {
         "type": "integer",
         "minimum": 0,
         "default": 0,
-        "description": "Number of extra page lines to include before offset for backward outline context."
+        "description": "Number of extra outline entries to include before offset for backward context."
       }
     },
     "required": ["url"]
@@ -1043,7 +1043,7 @@ Result contains the next batch of matches starting from line 8.
     },
     "next_offset": {
       "type": ["integer", "null"],
-      "description": "Page line number to pass as offset to continue browsing. Null if no more outline entries exist beyond the returned window."
+      "description": "Page line number of the next outline entry to continue browsing. Null if no more entries exist beyond the returned set."
     },
     "content_hash": {
       "type": "string",
@@ -1064,7 +1064,7 @@ Request arguments:
 { "url": "https://docs.langchain.com/docs/api_reference.md" }
 ```
 
-Result:
+Result (default limit=500 returns up to 500 outline entries):
 
 ```json
 {
@@ -1072,28 +1072,28 @@ Result:
   "outline": "1:# API Reference\n5:## Authentication\n12:### API Keys\n28:### OAuth\n45:## Endpoints\n...",
   "total_entries": 847,
   "has_more": true,
-  "next_offset": 1001,
+  "next_offset": 2340,
   "content_hash": "a1b2c3d4e5f6"
 }
 ```
 
-**Browse outline context around a line**:
+**Browse outline entries around a search hit**:
 
 Request arguments:
 
 ```json
-{ "url": "https://docs.langchain.com/docs/api_reference.md", "offset": 200, "before": 40, "limit": 120 }
+{ "url": "https://docs.langchain.com/docs/api_reference.md", "offset": 200, "before": 3, "limit": 10 }
 ```
 
-Result:
+Result (before=3 includes 3 entries before offset, limit=10 takes 10 entries forward):
 
 ```json
 {
   "url": "https://docs.langchain.com/docs/api_reference.md",
-  "outline": "165:## Authentication\n188:### API Keys\n214:### OAuth",
+  "outline": "165:## Authentication\n188:### API Keys\n195:### OAuth\n214:## Endpoints\n230:### GET /users\n...",
   "total_entries": 847,
   "has_more": true,
-  "next_offset": 320,
+  "next_offset": 412,
   "content_hash": "a1b2c3d4e5f6"
 }
 ```

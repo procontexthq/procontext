@@ -4,22 +4,20 @@ DESCRIPTION = """
 Browse the full outline of a documentation page with paginated windowing.
 
 Returns outline entries (headings and code block markers with line numbers).
-The before parameter is additive and does not reduce the forward limit, so
-the total lines returned is up to before + limit.
+limit and before count outline entries, not page lines. offset and next_offset
+use page line numbers so they chain with search_page hits and read_page.
 
 Most outlines are small enough to fit in the compact outlines returned by
 read_page and search_page. Use read_outline directly when you know the outline
 is large (for example, on a full documentation page), or as a fallback when the
 compact outline returned by read_page and search_page was not sufficient.
 
-offset and next_offset use page line numbers and not outline entry index.
-
 Response:
   url           — the URL of the fetched page
   outline       — paginated outline entries, e.g. "1:# Title\\n42:## Usage"
   total_entries — total outline entries
   has_more      — true if more entries exist beyond the current window
-  next_offset   — page line number to pass as offset to continue; null if no more
+  next_offset   — page line number of the next entry to continue; null if no more
   content_hash  — truncated SHA-256 (12 hex chars); compare across calls
                  to detect if the underlying page changed
 """.strip()

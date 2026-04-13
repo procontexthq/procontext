@@ -109,7 +109,7 @@ class ReadPageOutput(BaseModel):
 class ReadOutlineInput(BaseModel):
     url: str
     offset: int = 1
-    limit: int = 1000
+    limit: int = 500
     before: int = 0
 
     @field_validator("url")

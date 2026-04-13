@@ -285,7 +285,7 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 
 ### 4.4 read_outline
 
-**Purpose**: Browse the full structural outline of a documentation page using page-line windowing. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or when you need to explore page structure without fetching content.
+**Purpose**: Browse the full structural outline of a documentation page. `limit` and `before` count outline entries (not page lines), while `offset` and `next_offset` use page line numbers so they chain with `search_page` hits and `read_page`. Use when `read_page` or `search_page` return an outline status message indicating the page outline is too large, or when you need to explore page structure without fetching content.
 
 **Input**:
 
@@ -293,8 +293,8 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 | --------- | ------- | -------- | ------- | ---------------------------------------------------- |
 | `url`     | string  | Yes      | —       | URL of the page. Same URLs accepted by `read_page`.  |
 | `offset`  | integer | No       | 1       | 1-based page line number to start browsing the outline from. |
-| `limit`   | integer | No       | 1000    | Maximum forward page lines to include from `offset`. |
-| `before`  | integer | No       | 0       | Number of additional page lines to include before `offset` for backward outline context. |
+| `limit`   | integer | No       | 500     | Maximum number of outline entries to return forward from `offset`. |
+| `before`  | integer | No       | 0       | Number of additional outline entries to include before `offset` for backward context. |
 
 **Processing**:
 
@@ -302,8 +302,10 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 2. Check SQLite cache / fetch (same shared path as `read_page`)
 3. Parse cached outline string into structured entries
 4. Strip empty fence pairs (fence opener + closer with no headings between them)
-5. Filter stripped outline entries to those whose source line numbers fall within `[max(1, offset - before), offset + limit - 1]`
-6. Return formatted outline entries with pagination metadata
+5. Find the first outline entry whose source line number is at or after `offset`
+6. Return up to `limit` outline entries forward from that point
+7. If `before > 0`, prepend up to `before` earlier outline entries immediately preceding the offset point
+8. Return formatted outline entries with pagination metadata; when more entries remain, `next_offset` is the source line number of the next outline entry
 
 **Output**:
 
@@ -313,11 +315,8 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
   "outline": "1:# API Reference\n5:## Authentication\n12:### API Keys\n28:### OAuth\n45:## Endpoints",
   "total_entries": 847,
   "has_more": true,
-  "next_offset": 1001,
-  "content_hash": "a1b2c3d4e5f6",
-  "cached": true,
-  "cached_at": "2026-02-23T10:00:00Z",
-  "stale": false
+  "next_offset": 2340,
+  "content_hash": "a1b2c3d4e5f6"
 }
 ```
 
@@ -326,16 +325,16 @@ This tool is the equivalent of `grep` for documentation pages. It supports liter
 | `outline`       | Paginated outline entries in `<line_number>:<emitted outline text>` format, joined by newlines. ATX headings and fence markers preserve the source line; supported setext headings are normalized to synthetic `#` / `##` entries. |
 | `total_entries`  | Total number of entries in the full outline (after stripping empty fences).                          |
 | `has_more`      | `true` if more entries exist beyond the current window.                                              |
-| `next_offset`   | Page line number to pass as `offset` to continue browsing. `null` if no more outline entries exist beyond the returned window. |
+| `next_offset`   | Page line number of the next outline entry to continue browsing. `null` if no more outline entries exist beyond the returned set. |
 | `content_hash`  | Truncated SHA-256 (12 hex chars) of the full page content. Compare across paginated calls to detect if the underlying page changed. |
-| `cached`        | Whether served from cache.                                                                           |
-| `cached_at`     | ISO 8601 timestamp (UTC) of when the page was originally fetched. `null` if not cached.              |
-| `stale`         | `true` if the cache entry has expired and a background refresh has been triggered. Content is stale but usable. Defaults to `false`. |
 
 **Notes**:
 
 - Shares the same cache as `read_page` and `search_page`.
 - Empty fences (fence pairs with no headings inside) are stripped since they provide no navigational value.
+- `limit` and `before` count outline entries, not page lines.
+- `offset` and `next_offset` remain page line numbers so the tool chains cleanly with `search_page` results and `read_page` offsets.
+- If `offset` is between two outline entries, the tool starts at the next entry at or after `offset`.
 - If `offset` is beyond the last page line containing any outline entry, returns an empty outline string with correct `total_entries` — not an error.
 - The `line_number` in each entry corresponds to the line in the page content — pass it as `offset` to `read_page` to jump to that section.
 
@@ -583,6 +582,6 @@ _Trade-off_: The custom registry completely replaces the public registry — the
 **D7: Outline compaction and the read_outline tool**
 Large documentation pages (16K+ lines) produce outlines with 2000+ entries. Returning the full outline on every `read_page` and `search_page` call wastes tokens and provides no usable navigation for the agent. Compaction progressively removes lower-priority entries (H6 → H5 → fenced content → H4 → H3) until the outline fits within 50 entries. When even H1/H2 exceed 50, a status message directs the agent to `read_outline` for paginated access. `search_page` only trims oversized outlines to the match range before compaction; smaller outlines are returned in full so parent headings are preserved.
 
-`read_outline` remains a separate tool (not a `view` parameter on `read_page`) because it returns the full uncompacted structural outline without page content. `read_page` is optimized for content reading with a compacted outline preview; `read_outline` is optimized for structure-first exploration over the same page-line coordinate system.
+`read_outline` remains a separate tool (not a `view` parameter on `read_page`) because it returns the full uncompacted structural outline without page content. `read_page` is optimized for content reading with a compacted outline preview; `read_outline` is optimized for structure-first exploration. Its `limit` and `before` parameters count outline entries (not page lines), while `offset` and `next_offset` use page line numbers so they chain with `search_page` hits and `read_page`.
 
 _Trade-off_: The compacted outline may omit the exact heading an agent needs, requiring a follow-up `read_outline` call. Accepted — this is strictly better than the alternative (returning 2000 entries of outline on every call) both for token efficiency and navigation usability.

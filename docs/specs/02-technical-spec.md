@@ -130,7 +130,7 @@ search_page("https://python.langchain.com/llms.txt", "streaming")
   ├─ Compact the oversized rolled-up outline (progressive depth reduction → ≤max_entries AND the search_page char budget)
   └─ Return: { outline: "...", matches: [...], has_more: bool }
 
-read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
+read_outline("https://python.langchain.com/llms.txt", offset=1, limit=500)
   │
   ├─ SSRF check: domain in allowlist?
   ├─ Cache check: url_hash = sha256(url) — shared cache with read_page/search_page
@@ -138,7 +138,7 @@ read_outline("https://python.langchain.com/llms.txt", offset=1, limit=1000)
   │    MISS → fetch and cache (same path as read_page)
   ├─ Parse outline string into structured entries
   ├─ Strip empty fences (fence pairs with no headings inside)
-  ├─ Paginate: slice entries by offset/limit
+  ├─ Paginate: limit/before count entries; offset/next_offset use page line numbers
   └─ Return: { outline: "...", total_entries: int, has_more: bool }
 ```
 
