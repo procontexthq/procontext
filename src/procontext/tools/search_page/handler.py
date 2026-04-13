@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from procontext.errors import ErrorCode, ProContextError
-from procontext.models.tools import SearchPageInput, SearchPageOutput
+from procontext.models.tools import OutlineSummary, SearchPageInput, SearchPageOutput
 from procontext.outline import (
     build_compaction_note,
     format_outline,
@@ -87,7 +87,6 @@ async def handle(
         ) from exc
 
     total_lines = len(result.content.splitlines())
-    outline: str | None
     if validated.target == "outline":
         search_result = _search_outline_lines(
             result.outline,
@@ -97,7 +96,6 @@ async def handle(
         )
         raw_matches = search_result.matches
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
-        outline = None
     else:
         search_result = search_lines(
             result.content,
@@ -108,28 +106,26 @@ async def handle(
         raw_matches = search_result.matches
         matches_str = "\n".join(f"{m.line_number}:{m.content}" for m in raw_matches)
 
-        first_line = raw_matches[0].line_number if raw_matches else None
-        last_line = raw_matches[-1].line_number if raw_matches else None
-        outline = _compact_search_outline(
-            result.outline,
-            first_line,
-            last_line,
-            max_entries=state.settings.outline.max_entries,
-            max_chars=state.settings.outline.search_page_max_chars,
-        )
+    first_line = raw_matches[0].line_number if raw_matches else None
+    last_line = raw_matches[-1].line_number if raw_matches else None
+    text, total_entries = _compact_search_outline(
+        result.outline,
+        first_line,
+        last_line,
+        max_entries=state.settings.outline.max_entries,
+        max_chars=state.settings.outline.search_page_max_chars,
+    )
+    outline_summary = OutlineSummary(text=text, total_entries=total_entries)
 
     output = SearchPageOutput(
         url=result.url,
         query=validated.query,
-        outline=outline,
+        outline=outline_summary,
         matches=matches_str,
         total_lines=total_lines,
         has_more=search_result.has_more,
         next_offset=search_result.next_offset,
         content_hash=result.content_hash,
-        cached=result.cached,
-        cached_at=result.cached_at,
-        stale=result.stale,
     )
     return output.model_dump(mode="json")
 
@@ -190,8 +186,12 @@ def _compact_search_outline(
     *,
     max_entries: int = 50,
     max_chars: int = 4000,
-) -> str:
-    """Build the search_page outline context for content-mode search results."""
+) -> tuple[str, int]:
+    """Build the search_page outline context for content-mode search results.
+
+    Returns:
+        A ``(text, total_entries)`` tuple.
+    """
     entries = parse_outline_entries(raw_outline)
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
@@ -205,10 +205,10 @@ def _compact_search_outline(
     if selection is None:
         return (
             f"[Outline too large ({total_entries} entries). Use read_outline for paginated access.]"
-        )
+        ), total_entries
 
     if not selection.compacted:
-        return format_outline(selection.entries)
+        return format_outline(selection.entries), total_entries
 
     note = build_compaction_note(
         selection.entries,
@@ -217,4 +217,4 @@ def _compact_search_outline(
             (first_line, last_line) if first_line is not None and last_line is not None else None
         ),
     )
-    return note + "\n" + format_outline(selection.entries)
+    return note + "\n" + format_outline(selection.entries), total_entries

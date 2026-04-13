@@ -147,8 +147,8 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     instructions = init_result["instructions"]
     # Verify key workflow elements are documented
     assert "resolve_library" in instructions
-    assert "index_url" in instructions
-    assert "full_docs_url" in instructions
+    assert "read_page" in instructions
+    assert "search_page" in instructions
 
     tools_response = next(response for response in responses if response.get("id") == 2)
     tools = tools_response["result"]["tools"]
@@ -175,13 +175,16 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
     assert read_outline_schema["properties"]["offset"]["type"] == "integer"
     assert read_outline_schema["properties"]["limit"]["type"] == "integer"
     assert read_outline_schema["properties"]["before"]["type"] == "integer"
+    assert read_outline_schema["properties"]["limit"]["default"] == 500
+    assert "outline entries" in read_outline_schema["properties"]["limit"]["description"]
+    assert "outline entries" in read_outline_schema["properties"]["before"]["description"]
 
     search_page_schema = tools_by_name["search_page"]["inputSchema"]
     assert search_page_schema["type"] == "object"
     assert search_page_schema["properties"]["target"]["enum"] == ["content", "outline"]
 
     # Each tool must advertise its outputSchema.
-    for tool_name in ("resolve_library", "read_page"):
+    for tool_name in ("resolve_library", "read_page", "search_page", "read_outline"):
         tool = tools_by_name[tool_name]
         assert "outputSchema" in tool, f"{tool_name} missing outputSchema"
         assert tool["outputSchema"]["type"] == "object"
@@ -195,10 +198,31 @@ def test_initialize_and_tools_list_contract(subprocess_env: dict[str, str]) -> N
         "FUZZY_FALLBACK_USED",
     ]
     assert "outline" in tools_by_name["read_page"]["outputSchema"]["properties"]
-    assert tools_by_name["read_page"]["outputSchema"]["properties"]["outline"]["anyOf"] == [
-        {"type": "string"},
+    outline_schema = tools_by_name["read_page"]["outputSchema"]["properties"]["outline"]
+    assert outline_schema["anyOf"] == [
+        {"$ref": "#/$defs/OutlineSummary"},
         {"type": "null"},
     ]
+    outline_summary_schema = tools_by_name["read_page"]["outputSchema"]["$defs"]["OutlineSummary"]
+    assert set(outline_summary_schema["properties"]) == {"text", "total_entries"}
+    assert outline_summary_schema["properties"]["text"]["type"] == "string"
+    assert outline_summary_schema["properties"]["total_entries"]["type"] == "integer"
+    search_outline_schema = tools_by_name["search_page"]["outputSchema"]["properties"]["outline"]
+    assert search_outline_schema == {"$ref": "#/$defs/OutlineSummary"}
+    search_outline_summary_schema = tools_by_name["search_page"]["outputSchema"]["$defs"][
+        "OutlineSummary"
+    ]
+    assert set(search_outline_summary_schema["properties"]) == {"text", "total_entries"}
+    assert search_outline_summary_schema["properties"]["text"]["type"] == "string"
+    assert search_outline_summary_schema["properties"]["total_entries"]["type"] == "integer"
+    read_outline_output_schema = tools_by_name["read_outline"]["outputSchema"]
+    assert read_outline_output_schema["properties"]["outline"]["type"] == "string"
+    assert read_outline_output_schema["properties"]["total_entries"]["type"] == "integer"
+    assert read_outline_output_schema["properties"]["has_more"]["type"] == "boolean"
+    assert read_outline_output_schema["properties"]["next_offset"] == {
+        "anyOf": [{"type": "integer"}, {"type": "null"}],
+        "title": "Next Offset",
+    }
 
 
 def test_resolve_library_wire_success(subprocess_env: dict[str, str]) -> None:
@@ -314,11 +338,10 @@ def test_read_page_wire_success_from_cache(tmp_path: Path, subprocess_env: dict[
 
     payload = json.loads(tool_response["result"]["content"][0]["text"])
     assert payload["url"] == url
-    assert payload["cached"] is True
-    assert payload["stale"] is False
     assert payload["offset"] == 1
     assert payload["limit"] == 2
-    assert payload["outline"] == outline
+    assert payload["outline"]["text"] == outline
+    assert payload["outline"]["total_entries"] == 2
     assert payload["total_lines"] == 5
     assert payload["content"] == "# Title\n\n## Section\nLine A"
 
@@ -367,6 +390,141 @@ def test_read_page_wire_include_outline_false_returns_null(
 
     payload = json.loads(tool_response["result"]["content"][0]["text"])
     assert payload["outline"] is None
+
+
+def test_search_page_wire_success_from_cache(
+    tmp_path: Path, subprocess_env: dict[str, str]
+) -> None:
+    url = "https://python.langchain.com/docs/concepts/cached.md"
+    content = "# Title\n\n## Section\nLine A\nLine B"
+    outline = "1:# Title\n3:## Section"
+    _seed_page_cache(tmp_path, url=url, content=content, outline=outline)
+
+    responses = _run_mcp_exchange(
+        subprocess_env,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_page",
+                    "arguments": {"url": url, "query": "Line A"},
+                },
+            },
+        ],
+    )
+
+    tool_response = next(response for response in responses if response.get("id") == 2)
+    assert tool_response["result"]["isError"] is False
+
+    payload = json.loads(tool_response["result"]["content"][0]["text"])
+    assert payload["url"] == url
+    assert payload["query"] == "Line A"
+    assert payload["outline"]["text"] == outline
+    assert payload["outline"]["total_entries"] == 2
+    assert payload["matches"] == "4:Line A"
+    assert payload["total_lines"] == 5
+
+
+def test_search_page_wire_outline_mode_returns_outline_context(
+    tmp_path: Path, subprocess_env: dict[str, str]
+) -> None:
+    url = "https://python.langchain.com/docs/concepts/cached.md"
+    content = "# Title\n\n## Section\nLine A\nLine B"
+    outline = "1:# Title\n3:## Section"
+    _seed_page_cache(tmp_path, url=url, content=content, outline=outline)
+
+    responses = _run_mcp_exchange(
+        subprocess_env,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_page",
+                    "arguments": {"url": url, "query": "Section", "target": "outline"},
+                },
+            },
+        ],
+    )
+
+    tool_response = next(response for response in responses if response.get("id") == 2)
+    assert tool_response["result"]["isError"] is False
+
+    payload = json.loads(tool_response["result"]["content"][0]["text"])
+    assert payload["outline"] is not None
+    assert payload["outline"]["total_entries"] == 2
+    assert "# Title" in payload["outline"]["text"]
+    assert payload["matches"] == "3:## Section"
+
+
+def test_read_outline_wire_uses_entry_count_pagination(
+    tmp_path: Path, subprocess_env: dict[str, str]
+) -> None:
+    url = "https://python.langchain.com/docs/concepts/cached.md"
+    content = "# Title\n\n## Section\nLine A\nLine B\n\n### Detail\nLine C"
+    outline = "1:# Title\n3:## Section\n7:### Detail"
+    _seed_page_cache(tmp_path, url=url, content=content, outline=outline)
+
+    responses = _run_mcp_exchange(
+        subprocess_env,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_outline",
+                    "arguments": {"url": url, "offset": 1, "limit": 2},
+                },
+            },
+        ],
+    )
+
+    tool_response = next(response for response in responses if response.get("id") == 2)
+    assert tool_response["result"]["isError"] is False
+
+    payload = json.loads(tool_response["result"]["content"][0]["text"])
+    assert payload["url"] == url
+    assert payload["outline"] == "1:# Title\n3:## Section"
+    assert payload["total_entries"] == 3
+    assert payload["has_more"] is True
+    assert payload["next_offset"] == 7
 
 
 def test_read_page_wire_error_envelope(subprocess_env: dict[str, str]) -> None:

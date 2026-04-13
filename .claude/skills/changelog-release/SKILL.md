@@ -2,7 +2,7 @@
 name: changelog-release
 description: "Maintain CHANGELOG.md. No args: populate [Unreleased] from commits since last tag (run after committing). With a version (e.g. 0.2.0): finalize [Unreleased] into a versioned release section."
 argument-hint: "[version — e.g. 0.2.0 (or auto for automatic versioning), or leave blank to populate Unreleased]"
-user-invokable: true
+user-invocable: true
 ---
 
 Arguments: $ARGUMENTS

@@ -23,8 +23,8 @@ class TestReadPageCompaction:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert "[Compacted:" not in result["outline"]
-        assert "# Streaming" in result["outline"]
+        assert "[Compacted:" not in result["outline"]["text"]
+        assert "# Streaming" in result["outline"]["text"]
 
     @respx.mock
     async def test_large_outline_compacted_with_note(self, app_state: AppState) -> None:
@@ -39,9 +39,9 @@ class TestReadPageCompaction:
         respx.get(url).mock(return_value=httpx.Response(200, text=big_page))
 
         result = await read_page_handle(url, 1, 500, app_state)
-        outline = result["outline"]
+        outline = result["outline"]["text"]
         assert "[Compacted:" in outline
-        assert "read_outline" in outline
+        assert result["outline"]["total_entries"] == 61
 
     @respx.mock
     async def test_irreducible_outline_shows_status_message(self, app_state: AppState) -> None:
@@ -56,6 +56,6 @@ class TestReadPageCompaction:
         respx.get(url).mock(return_value=httpx.Response(200, text=big_page))
 
         result = await read_page_handle(url, 1, 500, app_state)
-        outline = result["outline"]
+        outline = result["outline"]["text"]
         assert "[Outline too large" in outline
-        assert "read_outline" in outline
+        assert result["outline"]["total_entries"] == 55

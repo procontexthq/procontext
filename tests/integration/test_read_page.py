@@ -37,12 +37,10 @@ class TestReadPageHandler:
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
 
         assert result["url"] == SAMPLE_URL
-        assert result["cached"] is False
-        assert result["cached_at"] is None
-        assert result["stale"] is False
         assert result["total_lines"] == 21
-        assert "# Streaming" in result["outline"]
-        assert "## Overview" in result["outline"]
+        assert "# Streaming" in result["outline"]["text"]
+        assert "## Overview" in result["outline"]["text"]
+        assert result["outline"]["total_entries"] > 0
         assert "# Streaming" in result["content"]
 
     @respx.mock
@@ -53,7 +51,6 @@ class TestReadPageHandler:
         result = await read_page_handle(url, 1, 500, app_state)
 
         assert result["url"] == url
-        assert result["cached"] is False
         assert respx.calls.call_count == 1
         assert str(respx.calls[0].request.url) == url
 
@@ -71,9 +68,8 @@ class TestReadPageHandler:
 
         result = await read_page_handle(url, 1, 500, app_state)
 
-        assert result["cached"] is False
         assert result["content"] == "# Title\n\nHello **world**."
-        assert "1:# Title" in result["outline"]
+        assert "1:# Title" in result["outline"]["text"]
 
     @respx.mock
     async def test_html_pages_return_raw_html_when_processors_disabled(
@@ -95,7 +91,6 @@ class TestReadPageHandler:
 
         result = await read_page_handle(url, 1, 500, app_state)
 
-        assert result["cached"] is False
         assert result["content"] == html
 
     @respx.mock
@@ -105,9 +100,7 @@ class TestReadPageHandler:
         await read_page_handle(SAMPLE_URL, 1, 500, app_state)
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["cached"] is True
-        assert result["cached_at"] is not None
-        assert result["stale"] is False
+        assert result["url"] == SAMPLE_URL
         assert respx.calls.call_count == 1
 
     @respx.mock
@@ -121,9 +114,7 @@ class TestReadPageHandler:
         second = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
 
         assert first["url"] == SAMPLE_URL
-        assert first["cached"] is False
         assert second["url"] == SAMPLE_URL
-        assert second["cached"] is True
         assert respx.calls.call_count == 1
 
     @respx.mock
@@ -135,15 +126,11 @@ class TestReadPageHandler:
 
         first = await read_page_handle(without_slash, 1, 500, app_state)
         second = await read_page_handle(with_slash, 1, 500, app_state)
-        third = await read_page_handle(without_slash, 1, 500, app_state)
-        fourth = await read_page_handle(with_slash, 1, 500, app_state)
+        await read_page_handle(without_slash, 1, 500, app_state)  # cache hit
+        await read_page_handle(with_slash, 1, 500, app_state)  # cache hit
 
         assert first["url"] == without_slash
-        assert first["cached"] is False
         assert second["url"] == with_slash
-        assert second["cached"] is False
-        assert third["cached"] is True
-        assert fourth["cached"] is True
         assert respx.calls.call_count == 2
 
     @respx.mock
@@ -158,9 +145,8 @@ class TestReadPageHandler:
         await expire_cached_page(app_state)
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["cached"] is True
-        assert result["stale"] is True
         assert "# Streaming" in result["content"]
+        assert respx.calls.call_count == 1  # stale content served without re-fetch
 
     @respx.mock
     async def test_stale_background_refresh_updates_cache(
@@ -177,13 +163,12 @@ class TestReadPageHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=updated_page))
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["stale"] is True
+        assert "# Streaming" in result["content"]  # still serves stale content
 
         with anyio.fail_after(5):
             while True:
                 result2 = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-                if result2["cached"] is True and result2["stale"] is False:
-                    assert "# Updated" in result2["content"]
+                if "# Updated" in result2["content"]:
                     break
                 await anyio.sleep(0)
 
@@ -227,15 +212,14 @@ class TestReadPageHandler:
         first_stale = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
         second_stale = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
 
-        assert first_stale["stale"] is True
-        assert second_stale["stale"] is True
-        assert respx.calls.call_count == 2
+        assert "# Streaming" in first_stale["content"]
+        assert "# Streaming" in second_stale["content"]
+        assert respx.calls.call_count == 2  # initial fetch + one background refresh
 
         with anyio.fail_after(5):
             while True:
                 refreshed = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-                if refreshed["stale"] is False:
-                    assert "# Updated once" in refreshed["content"]
+                if "# Updated once" in refreshed["content"]:
                     break
                 await anyio.sleep(0)
 
@@ -248,8 +232,8 @@ class TestReadPageHandler:
         await expire_cached_page(app_state, last_checked_at=datetime.now(UTC).isoformat())
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["stale"] is True
-        assert respx.calls.call_count == 1
+        assert "# Streaming" in result["content"]
+        assert respx.calls.call_count == 1  # no background refresh triggered
 
     @respx.mock
     async def test_windowing_offset_and_limit(self, app_state: AppState) -> None:
@@ -337,7 +321,7 @@ class TestReadPageHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 2, app_state)
-        assert "## Streaming with Chains" in result["outline"]
+        assert "## Streaming with Chains" in result["outline"]["text"]
 
     @respx.mock
     async def test_total_lines_correct(self, app_state: AppState) -> None:
@@ -420,9 +404,6 @@ class TestReadPageHandler:
             "has_more",
             "next_offset",
             "content_hash",
-            "cached",
-            "cached_at",
-            "stale",
         }
 
     @respx.mock
@@ -432,7 +413,7 @@ class TestReadPageHandler:
         result = await read_page_handle(SAMPLE_URL, 9999, 100, app_state)
         assert result["content"] == ""
         assert result["total_lines"] == 21
-        assert result["outline"] != ""
+        assert result["outline"]["text"] != ""
 
     @respx.mock
     async def test_include_outline_false_returns_null_outline(self, app_state: AppState) -> None:
@@ -447,8 +428,8 @@ class TestReadPageHandler:
         respx.get(SAMPLE_URL).mock(return_value=httpx.Response(200, text=SAMPLE_PAGE))
 
         result = await read_page_handle(SAMPLE_URL, 1, 500, app_state)
-        assert result["outline"] != ""
-        assert "# Streaming" in result["outline"]
+        assert result["outline"] is not None
+        assert "# Streaming" in result["outline"]["text"]
 
     @respx.mock
     async def test_setext_headings_are_normalized_in_outline(self, app_state: AppState) -> None:
@@ -456,6 +437,6 @@ class TestReadPageHandler:
 
         result = await read_page_handle(SETEXT_URL, 1, 500, app_state)
 
-        assert "1:# Main Title" in result["outline"]
-        assert "4:## Section Title" in result["outline"]
-        assert "## Tail" in result["outline"]
+        assert "1:# Main Title" in result["outline"]["text"]
+        assert "4:## Section Title" in result["outline"]["text"]
+        assert "## Tail" in result["outline"]["text"]

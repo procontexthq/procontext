@@ -480,8 +480,7 @@ class TestBuildCompactionNote:
         ]
         note = build_compaction_note(entries, 200)
         assert "H1" in note
-        assert "200 entries" in note
-        assert "read_outline" in note
+        assert note == "[Compacted: showing H1 headings.]"
 
     def test_depth_range(self) -> None:
         entries = [
@@ -491,7 +490,7 @@ class TestBuildCompactionNote:
         ]
         note = build_compaction_note(entries, 500)
         assert "H1-H3" in note
-        assert "500 entries" in note
+        assert note == "[Compacted: showing H1-H3 headings.]"
 
     def test_with_match_range(self) -> None:
         entries = [
@@ -499,8 +498,9 @@ class TestBuildCompactionNote:
         ]
         note = build_compaction_note(entries, 300, match_range=(42, 380))
         assert "lines 42-380" in note
-        assert "300 entries" in note
+        assert note == "[Compacted: showing H2 headings in match range (lines 42-380).]"
 
     def test_no_headings(self) -> None:
         note = build_compaction_note([], 100)
         assert "no headings" in note
+        assert note == "[Compacted: showing no headings.]"

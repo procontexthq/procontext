@@ -104,7 +104,8 @@ See [`.claude/rules/coding-guidelines.md`](.claude/rules/coding-guidelines.md) f
 
 ## Testing Requirements
 
-- Always write test cases first
+- Always write test cases before generating code
+- Tests should cover expected behavior, edge cases, and error conditions
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
 - Coverage: test edge cases and errors

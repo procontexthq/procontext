@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
@@ -90,25 +89,27 @@ class ReadPageInput(BaseModel):
         return v
 
 
+class OutlineSummary(BaseModel):
+    text: str
+    total_entries: int
+
+
 class ReadPageOutput(BaseModel):
     url: str
     content: str
-    outline: str | None
+    outline: OutlineSummary | None
     total_lines: int
     offset: int
     limit: int
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 
 class ReadOutlineInput(BaseModel):
     url: str
     offset: int = 1
-    limit: int = 1000
+    limit: int = 500
     before: int = 0
 
     @field_validator("url")
@@ -145,9 +146,6 @@ class ReadOutlineOutput(BaseModel):
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False
 
 
 class SearchPageInput(BaseModel):
@@ -194,11 +192,8 @@ class SearchPageOutput(BaseModel):
     url: str
     query: str
     matches: str
-    outline: str | None
+    outline: OutlineSummary
     total_lines: int
     has_more: bool
     next_offset: int | None
     content_hash: str
-    cached: bool
-    cached_at: datetime | None
-    stale: bool = False

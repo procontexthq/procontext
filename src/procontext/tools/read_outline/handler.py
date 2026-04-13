@@ -1,7 +1,7 @@
 """Tool handler for read_outline.
 
 Validates input, delegates fetching to the shared helper, strips empty fences,
-filters outline entries by source page line window, and returns the formatted result.
+filters outline entries by entry count from offset, and returns the formatted result.
 """
 
 from __future__ import annotations
@@ -50,12 +50,16 @@ async def handle(
     entries = strip_empty_fences(entries)
     total_entries = len(entries)
 
-    window_start = max(1, validated.offset - validated.before)
-    window_end = validated.offset + validated.limit - 1
-    page = [entry for entry in entries if window_start <= entry.line_number <= window_end]
+    forward = [e for e in entries if e.line_number >= validated.offset]
+    limited = forward[: validated.limit]
 
-    has_more = any(entry.line_number > window_end for entry in entries)
-    next_offset = window_end + 1 if has_more else None
+    backward = [e for e in entries if e.line_number < validated.offset]
+    before_entries = backward[-validated.before :] if validated.before > 0 else []
+
+    page = before_entries + limited
+
+    has_more = len(forward) > validated.limit
+    next_offset = forward[validated.limit].line_number if has_more else None
 
     output = ReadOutlineOutput(
         url=result.url,
@@ -64,8 +68,5 @@ async def handle(
         has_more=has_more,
         next_offset=next_offset,
         content_hash=result.content_hash,
-        cached=result.cached,
-        cached_at=result.cached_at,
-        stale=result.stale,
     )
     return output.model_dump(mode="json")

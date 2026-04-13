@@ -1,28 +1,33 @@
 """MCP-facing prompt text for the read_outline tool."""
 
+# Parameter descriptions
+PARAM_URL = "Any URL - index, documentation page, or full documentation URL."
+PARAM_OFFSET = "1-based page line number to start browsing the outline from."
+PARAM_LIMIT = "Maximum number of outline entries to return forward from offset."
+PARAM_BEFORE = "Number of extra outline entries to include before offset for backward context."
+
 DESCRIPTION = """
-Browse the full outline of a documentation page with paginated windowing.
+Use this tool to read the full outline of a documentation page with paginated windowing.
 
 Returns outline entries (headings and code block markers with line numbers).
-The before parameter is additive and does not reduce the forward limit, so
-the total lines returned is up to before + limit.
+limit and before count outline entries, not page lines. offset and next_offset
+use page line numbers so they chain with search_page hits and read_page.
 
 Most outlines are small enough to fit in the compact outlines returned by
-read_page and search_page. Use read_outline directly when you know the outline
-is large (for example, on a full documentation page), or as a fallback when the
-compact outline returned by read_page and search_page was not sufficient.
+read_page and search_page. Use this as a fallback when the compact outline
+returned by read_page and search_page was not sufficient and you see genuine
+value in browsing the full outline.
 
-offset and next_offset use page line numbers and not outline entry index.
+For full documentation pages (full_docs_url), even the outline can be very large,
+so prefer search_page with target="outline" to find relevant sections and then
+use read_outline to inspect surrounding sections.
 
 Response:
   url           — the URL of the fetched page
   outline       — paginated outline entries, e.g. "1:# Title\\n42:## Usage"
   total_entries — total outline entries
   has_more      — true if more entries exist beyond the current window
-  next_offset   — page line number to pass as offset to continue; null if no more
+  next_offset   — page line number of the next entry to continue; null if no more
   content_hash  — truncated SHA-256 (12 hex chars); compare across calls
                  to detect if the underlying page changed
-  cached        — true if served from cache
-  cached_at     — ISO timestamp of last fetch; null for fresh network responses
-  stale         — true if cache entry expired; background refresh triggered
 """.strip()
