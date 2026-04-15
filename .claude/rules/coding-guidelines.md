@@ -12,7 +12,7 @@ Follow these rules when writing or reviewing any code in this repository.
 
 ### 1. Make correct usage the easiest path
 
-Structure every API so the default usage is correct and safe. Require deliberate extra effort for dangerous operations — make them verbose and explicit (`React.dangerouslySetInnerHTML` is the canonical example). Never let the easy path be the unsafe path.
+Structure every API so the default usage is correct and safe. Require deliberate extra effort for dangerous operations — make them verbose and explicit (e.g., Django's `mark_safe()` or `| safe` template filter). Never let the easy path be the unsafe path.
 
 ### 2. Treat every observable behavior as a contract
 
@@ -37,8 +37,8 @@ If some methods require a `tenant_id` parameter while others don't, you are leak
 Make the 80% case a one-liner. Make the 20% advanced case accessible but not required reading. Layer the API:
 
 - `fetch(url)` — zero config default
-- `fetch(url, { timeout: 5000, retries: 3 })` — intermediate
-- `new HttpClient(config).request(spec)` — full control
+- `fetch(url, timeout=5.0, retries=3)` — intermediate
+- `HttpClient(config).request(spec)` — full control
 
 ### 6. Design intentional extension and override points
 
@@ -50,7 +50,7 @@ For ProContext specifically: operators need levers for custom registries, truste
 
 ## Error Handling
 
-### 8. Never swallow errors in core modules
+### 7. Never swallow errors in core modules
 
 Low-level modules — resolver, cache, fetcher — must not catch errors silently. Catching an error silently steals the decision from the caller — they cannot retry, fall back, alert, or audit what they cannot see. Do not write this:
 
@@ -63,23 +63,19 @@ except Exception as e:
 
 Always propagate errors with enough context for the caller to act, or convert infrastructure errors into domain errors at your module boundary.
 
-Top-level handlers (MCP tool handlers, schedulers) may catch errors to prevent process termination — but they must still log them (see Rule 12) and return a structured error response to the client rather than continuing silently.
+Top-level handlers (MCP tool handlers, schedulers) may catch errors to prevent process termination — but they must still log them (see Rule 11) and return a structured error response to the client rather than continuing silently.
 
-### 9. Use typed, domain-specific error types
+### 8. Use typed, domain-specific error types
 
-Do not force consumers to parse error strings. Use a typed error hierarchy:
-
-- A sealed/discriminated union (TypeScript)
-- Custom exception subclasses with structured fields (Python/Java)
-- `Result[T, LibraryError]` where idiomatic
+Do not force consumers to parse error strings. Use a typed error hierarchy — custom exception subclasses with structured fields, or `Result[T, LibraryError]` where idiomatic.
 
 Every error type must carry: classification, human-readable message, and structured data the consumer needs to act on (which field failed validation, what the rate limit reset time is).
 
-### 10. Wrap infrastructure errors at the module boundary
+### 9. Wrap infrastructure errors at the module boundary
 
 Do not let raw infrastructure exceptions (`httpx.ConnectError`, `sqlite3.OperationalError`) cross module boundaries. Callers — whether MCP tool handlers or higher-level modules — should not need to import `httpx` or `sqlite3` to handle errors from the fetcher or cache. Catch infrastructure exceptions at the module boundary and wrap them in your domain error types with the original as the cause.
 
-### 11. Catch specific exceptions, not bare `except Exception:`
+### 10. Catch specific exceptions, not bare `except Exception:`
 
 Always catch the narrowest exception type that covers the failure mode:
 
@@ -89,7 +85,7 @@ Always catch the narrowest exception type that covers the failure mode:
 
 Reserve `except Exception:` for top-level handlers and fire-and-forget background tasks where any failure must be suppressed to keep the process alive. Every other `except` block must name the specific exception types it handles.
 
-### 12. Use `exc_info=True` when logging caught exceptions; never suppress silently
+### 11. Use `exc_info=True` when logging caught exceptions; never suppress silently
 
 When an `except` block catches and suppresses an error, always pass `exc_info=True` to the logger so the full traceback is captured. Do not stringify the exception into the message — structlog captures it structurally.
 
@@ -123,7 +119,7 @@ except OSError:
 
 ## Versioning and Breaking Changes
 
-### 13. Watch for non-obvious breaking changes
+### 12. Watch for non-obvious breaking changes
 
 Not all breaking changes involve removing a method. Check for these before every release:
 
@@ -134,7 +130,7 @@ Not all breaking changes involve removing a method. Check for these before every
 - Changing iteration order of returned collections (see rule 2)
 - Persisted data format changes — these outlive code versions
 
-### 14. Follow a deprecation cycle before removing anything
+### 13. Follow a deprecation cycle before removing anything
 
 Use this lifecycle without exception:
 
@@ -145,7 +141,7 @@ Use this lifecycle without exception:
 
 Every deprecation warning must state: when it was deprecated, why, and exactly what to use instead. Allow at least 12 months before removal. **Never remove an API in the same commit as its replacement.**
 
-### 15. Maintain machine-readable changelogs
+### 14. Maintain machine-readable changelogs
 
 Follow [Keep a Changelog](https://keepachangelog.com) format:
 
@@ -159,32 +155,35 @@ Automate via Conventional Commits + semantic-release. The changelog is the artif
 
 ## Code Conventions
 
-### 16. FORBIDDEN: imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
+### 15. FORBIDDEN: imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
 
 Place every import at module level. Do not import inside functions, methods, or conditional blocks (other than `if TYPE_CHECKING:`). In-function imports hide dependencies, make it harder to see what a module uses at a glance, and create subtle performance traps when called in loops.
 
-The only acceptable exception is breaking a genuine circular import that cannot be resolved by restructuring. If you hit a circular import, first try to break the cycle by moving shared types to a lower-level module. Resort to an in-function import only as a last option, and add a comment explaining why.
+There are two acceptable exceptions — both require a comment explaining why:
+
+1. **Breaking a genuine circular import** that cannot be resolved by restructuring. First try to break the cycle by moving shared types to a lower-level module. Resort to an in-function import only as a last option.
+2. **Optional dependency boundaries** where importing at module level would force all users to install a dependency they may not need. For example, a CLI subcommand that imports `uvicorn` only when the `serve` subcommand is invoked, so users of `crawl`/`markdown`/`content` are not forced to install it.
 
 ---
 
 ## Testing Strategy
 
-### 17. Always write tests first
+### 16. Always write tests first
 
 Make it a habit to write tests before implementing new features or fixing bugs. This ensures that you have a clear understanding of the expected behavior and helps catch regressions early.
 
-### 18. Testing practices
+### 17. Testing practices
 
 - Integration tests must test the public API and observable behavior, not internal implementation details. Do not reach into private methods or state.
-  - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
+    - These are the contracts that matter to consumers. A complete internal rewrite must not break any test. If it does, the tests are testing implementation, not contract.
 - Unit tests should focus on testing individual components in isolation. Test all the functions with emphasis on functions that contain complex logic (parsers, matchers, resolution algorithms, validation functions).
-  - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
+    - Make sure you test each function with a variety of possible inputs, including edge cases and error cases. For example, if you have a function that parses a tool spec string, test it with valid specs, invalid specs, empty strings, and strings with unexpected formats.
 
-### 19. Keep tests for deprecated APIs until removal
+### 18. Keep tests for deprecated APIs until removal
 
 Deprecated code is still public API. Maintain tests for it through the entire deprecation cycle. Suppress deprecation warnings explicitly in those test files so future contributors know the suppression is intentional.
 
-### 20. Every bug fix requires a regression test
+### 19. Every bug fix requires a regression test
 
 Do not merge a bug fix without a test that fails before the fix and passes after. This prevents the same bug from reappearing silently in a future refactor.
 
@@ -192,7 +191,7 @@ Do not merge a bug fix without a test that fails before the fix and passes after
 
 ## Supply Chain Security
 
-### 21. Publish provenance attestations
+### 20. Publish provenance attestations
 
 Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
@@ -204,7 +203,7 @@ Add SLSA provenance attestation to the release pipeline. This is one CI step:
 
 Enterprise consumers increasingly require provenance. Its absence is an adoption barrier.
 
-### 22. Verify every dependency against the actual registry
+### 21. Verify every dependency against the actual registry
 
 ~20% of AI-suggested packages do not exist in any public registry (2025 study, 576k samples). Attackers register these hallucinated names with malicious code ("slopsquatting"). Before adding any dependency, verify the package name exists in the actual registry and is the package you intend to use.
 
@@ -212,13 +211,13 @@ Enterprise consumers increasingly require provenance. Its absence is an adoption
 
 ## Maintainability
 
-### 23. Keep functions small and focused
+### 22. Keep functions small and focused
 
 A function should do one thing. If you find yourself reaching for a comment like `# Step 2` or `# Phase 2`, that's a signal to extract a named function. Functions that are hard to name are usually doing too much.
 
 A useful heuristic: if a function cannot be understood in one reading without scrolling, it is too long.
 
-### 24. Keep files small and focused
+### 23. Keep files small and focused
 
 A file should own one concern. If the module docstring requires more than one sentence to summarize all responsibilities, that is a signal to split the file.
 
@@ -228,7 +227,7 @@ Prefer flat files for single-concern modules — a subdirectory only earns its p
 
 Prefer files under `300` lines when possible; treat `500` lines as an exception ceiling that should require a strong cohesion argument.
 
-### 25. Minimize runtime dependencies
+### 24. Minimize runtime dependencies
 
 Zero dependencies is ideal. When that is not practical, justify every runtime dependency. Each one has an ongoing cost:
 

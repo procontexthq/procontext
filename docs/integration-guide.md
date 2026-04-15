@@ -51,6 +51,53 @@ claude mcp list
 
 ---
 
+### OpenAI Codex CLI
+
+Codex uses TOML configuration, not JSON.
+
+**Add via CLI:**
+
+```bash
+codex mcp add procontext -- uvx procontext
+```
+
+**Or edit `~/.codex/config.toml` manually:**
+
+```toml
+[mcp_servers.procontext]
+command = "uvx"
+args = ["procontext"]
+```
+
+View active MCP servers in the Codex TUI with the `/mcp` command.
+
+---
+
+### Amazon Q CLI
+
+**Add via CLI:**
+
+```bash
+q mcp add --name procontext --command uvx --args "procontext"
+```
+
+**Or edit `~/.aws/amazonq/mcp.json`:**
+
+```json
+{
+  "mcpServers": {
+    "procontext": {
+      "command": "uvx",
+      "args": ["procontext"]
+    }
+  }
+}
+```
+
+Use `/tools trust` in the Q CLI chat to allow ProContext's tools to run without confirmation.
+
+---
+
 ### Claude Desktop
 
 Edit the config file directly, then restart Claude Desktop.
@@ -157,53 +204,6 @@ code --add-mcp '{"name":"procontext","command":"uvx","args":["procontext"]}'
 ```
 
 This file can be checked into version control.
-
----
-
-### OpenAI Codex CLI
-
-Codex uses TOML configuration, not JSON.
-
-**Add via CLI:**
-
-```bash
-codex mcp add procontext -- uvx procontext
-```
-
-**Or edit `~/.codex/config.toml` manually:**
-
-```toml
-[mcp_servers.procontext]
-command = "uvx"
-args = ["procontext"]
-```
-
-View active MCP servers in the Codex TUI with the `/mcp` command.
-
----
-
-### Amazon Q CLI
-
-**Add via CLI:**
-
-```bash
-q mcp add --name procontext --command uvx --args "procontext"
-```
-
-**Or edit `~/.aws/amazonq/mcp.json`:**
-
-```json
-{
-  "mcpServers": {
-    "procontext": {
-      "command": "uvx",
-      "args": ["procontext"]
-    }
-  }
-}
-```
-
-Use `/tools trust` in the Q CLI chat to allow ProContext's tools to run without confirmation.
 
 ---
 
