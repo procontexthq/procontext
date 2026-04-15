@@ -8,6 +8,7 @@ import sys
 
 from pydantic import ValidationError
 
+from procontext import __version__
 from procontext.config import Settings
 from procontext.logging_config import setup_logging
 
@@ -16,6 +17,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="procontext",
         description="MCP server for accurate, up-to-date library documentation.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=__version__,
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Download the library registry")

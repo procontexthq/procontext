@@ -10,6 +10,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
+from procontext import __version__
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -36,6 +38,12 @@ class TestHelpOutput:
         assert result.returncode == 0
         assert "setup" in result.stdout
         assert "doctor" in result.stdout
+
+    def test_main_version(self, subprocess_env: dict[str, str]) -> None:
+        result = _run_cli(["--version"], subprocess_env)
+        assert result.returncode == 0
+        assert result.stdout.strip() == __version__
+        assert result.stderr == ""
 
     def test_setup_help(self, subprocess_env: dict[str, str]) -> None:
         result = _run_cli(["setup", "--help"], subprocess_env)
