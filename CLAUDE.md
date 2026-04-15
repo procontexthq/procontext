@@ -29,6 +29,7 @@ You must:
    uv run ruff check src/ tests/
    uv run ruff format src/ tests/
    uv run pyright src/
+   uv run pip-audit --skip-editable
    uv run pytest --cov=src/procontext --cov-fail-under=90
    ```
 8. **Never merge branches locally into main.** Always push the branch to remote and create a pull request via `gh pr create`. This ensures CI runs on the PR and changes are reviewed before merging.
@@ -63,6 +64,9 @@ uv run ruff format src/
 
 # Type check
 uv run pyright src/
+
+# Check dependencies
+uv run pip-audit
 
 # Run tests
 uv run pytest
