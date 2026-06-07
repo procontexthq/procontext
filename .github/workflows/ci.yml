@@ -108,6 +108,41 @@ jobs:
           ./.pkg-smoke/bin/procontext --help
           ./.pkg-smoke/bin/procontext doctor --help
 
+  package-smoke-windows:
+    name: Package smoke (Windows, Python 3.12)
+    runs-on: windows-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --dev --frozen
+
+      - name: Build package
+        run: uv build
+
+      - name: Verify built wheel with uvx
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem -Path dist -Filter "procontext-*.whl" | Select-Object -First 1
+          if (-not $wheel) {
+            throw "Built wheel not found"
+          }
+          uvx --from $wheel.FullName procontext --help
+          uvx --from $wheel.FullName procontext doctor --help
+
   check-installer-changes:
     name: Check installer changes
     runs-on: ubuntu-latest
